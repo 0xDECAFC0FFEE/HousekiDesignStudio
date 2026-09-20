@@ -1,0 +1,214 @@
+/* overflow: hidden clips a scooting canvas (below) to the region, whatever the pane's edge does. */
+#viewport { position: relative; width: 100%; height: 100%; overflow: hidden; }
+
+/* The canvas backing store is sized in JS and may be smaller than the element
+   while the user is interacting, so the browser scales it up for us. */
+/* touch-action: none gives every touch gesture on the canvas to the page's pointer
+   handlers. Without it a touch drag is also a candidate scroll or pinch zoom: a few
+   pixels in, the browser takes the gesture over and sends pointercancel, so the stone
+   turns briefly and then stops until the finger is lifted. */
+#canvas { display: block; width: 100%; height: 100%; cursor: grab; touch-action: none; }
+#canvas.dragging { cursor: grabbing; }
+
+/* While the instructions pane's handle is dragged (T-0188, viewport.js beginPaneScoot) the canvas
+   keeps the CSS size it was last drawn at, in --scoot-w / --scoot-h, and is centred in the
+   region: no layout change reaches the canvas, so nothing is redrawn, and the region's edges
+   clip it or show the page around it. Positioned by `left` rather than a transform so it lands
+   on whole pixels and getBoundingClientRect (the pointer mapping) needs no correction. */
+#canvas.scooting {
+  position: absolute;
+  top: 0;
+  left: calc(50% - var(--scoot-w) / 2);
+  width: var(--scoot-w);
+  height: var(--scoot-h);
+}
+
+/* The right-hand column (2026-09-19): the render settings and edit mode's bar stacked in one
+   grid cell, so the column is as wide as the WIDER of the two, whichever is showing -- the
+   user's own rule, "the width of the bar should be max(the width of the rendering settings bar,
+   the width of the edit mode bar)". An auto grid column is sized to the widest item, and
+   `visibility: hidden` (rather than `display: none`) keeps the hidden layer in that measurement
+   while taking it off the screen and out of the tab order. */
+#panel-stack {
+  display: grid;
+  flex: 0 0 auto;
+  min-height: 0;
+}
+
+.panel-layer {
+  grid-area: 1 / 1;
+  min-height: 0;
+  display: flex;
+}
+
+.panel-layer-off { visibility: hidden; }
+
+#panel, #edit-panel {
+  background: var(--panel);
+  /* Double, in --panel-edge, matching #instructions-pane's own border where it meets the
+     renderer (the user's request, 2026-09-18: "the cutting instructions and render
+     settings should both have double [borders]"). 3px is the minimum that actually
+     renders as two lines -- border-style: double draws a single solid line below 3px,
+     which is how this ships looking unchanged; confirmed by measuring the built page's
+     computed style and pixel colors at three x-offsets across the border, not by reading
+     this rule back. */
+  border-left: 3px double var(--panel-edge);
+  padding: 14px;
+  overflow-y: auto;
+  display: flex;
+  flex-direction: column;
+}
+
+#panel { width: 300px; }
+
+/* Edit mode's bar is only as wide as its two scales need; the grid above gives the column
+   whichever of the two panels is wider, which on this page is the 300px render settings. A
+   width, not max-content: the tier's list of teeth is one long line, and max-content would
+   stretch the whole column to it instead of wrapping. */
+#edit-panel { width: 220px; }
+
+/* A titled group of settings (PanelSection: a shadcn-svelte Collapsible; it was a fieldset and
+   its legend). The title is the trigger that folds the group. */
+.panel-section {
+  border: 1px solid var(--panel-edge);
+  border-radius: 6px;
+  margin: 0 0 12px;
+  padding: 4px 12px 12px;
+}
+
+.panel-section-title {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  width: 100%;
+  padding: 2px 0 6px;
+  color: var(--muted);
+  font-size: 11px;
+  text-transform: uppercase;
+  letter-spacing: 0.06em;
+  cursor: pointer;
+}
+
+.panel-section-title:hover { color: var(--accent); }
+.panel-section-title:focus-visible { outline: 2px solid var(--accent); outline-offset: 2px; border-radius: 3px; }
+
+/* One setting: a name and its readout over the control (Slider.svelte; it was a <label>). */
+.setting { display: block; margin-bottom: 9px; }
+.setting > .row { display: flex; justify-content: space-between; align-items: baseline; margin-bottom: 3px; }
+.setting .name { font-size: 12px; }
+.setting .value { color: var(--accent); font-family: ui-monospace, Menlo, monospace; font-size: 11px; }
+
+/* A readout that can be clicked to type a value; see EditableReadout. */
+.setting .value.editable { cursor: text; border-bottom: 1px dotted var(--panel-edge); }
+.setting .value.editable:hover { border-bottom-color: var(--accent); }
+
+.hint { color: var(--muted); font-size: 11px; margin-top: 8px; }
+
+/* ---- Color settings: a row with the setting's name (and checkbox, if it has one) and a
+   swatch; clicking the swatch opens the setting's hue, saturation and value sliders below
+   it. See makeHsvPicker. HSV rather than HSL, because it is what Gem Cut Studio's color
+   sliders actually do, though it labels them HSL (kb/window-and-head-shadow-colours.md), so
+   a GCS color's three numbers can be typed straight in. */
+.color-row { display: flex; gap: 8px; align-items: center; margin-bottom: 9px; }
+.color-row > .name { flex: 1; }
+.color-row > label { margin: 0; }
+
+/* The swatch is the Popover's trigger (ColorSetting), a plain button. */
+button.swatch {
+  flex: 0 0 auto;
+  width: 44px;
+  height: 22px;
+  margin: 0;
+  padding: 0;
+  cursor: pointer;
+  border: 1px solid var(--panel-edge);
+  border-radius: 4px;
+}
+
+button.swatch:hover { border-color: var(--accent); }
+button.swatch[aria-expanded="true"] { border-color: var(--accent); }
+
+/* An eyedropper button, inside the HSV editor above the Hue/Saturation/Value sliders (the
+   user's request, 2026-09-18): samples one pixel from anywhere on screen, including other
+   windows, with the browser's own EyeDropper API -- no dialog, no picker UI of ours at all,
+   just a magnifier cursor until the user clicks. See makeHsvPicker: the API is
+   Chromium-only as of this writing, so the button is hidden entirely on a browser without
+   it, rather than shown broken. */
+.eyedropper-row { margin-bottom: 9px; }
+
+button.eyedropper svg { flex: 0 0 auto; width: 14px; height: 14px; }
+
+/* The editor's body, inside the popover (which draws the box, portalled out of the panel). */
+.hsv-editor { padding: 0 0 1px; }
+
+/* The tooltip (Tooltip.svelte) is a shadcn-svelte Tooltip, styled by its own classes. */
+
+#error {
+  display: none;
+  margin: 12px 0 0;
+  padding: 10px;
+  border: 1px solid var(--error);
+  border-radius: 6px;
+  background: rgba(255, 107, 107, 0.08);
+  color: var(--error);
+  font-family: ui-monospace, Menlo, monospace;
+  font-size: 11px;
+  white-space: pre-wrap;
+}
+
+/* A yellow warning level for this box was added and then removed the same day, at the user's
+   instruction (2026-09-19): "instead of a small yellow warning box can you make it a big warning
+   box in red", "overlay over the whole page just like the settings menu and the gear menu". A
+   failed load is a dialog now (LoadAlertDialog.svelte), so this box has one level again and
+   --warn is unused once more. */
+
+#drop-hint {
+  position: absolute;
+  inset: 0;
+  display: none;
+  align-items: center;
+  justify-content: center;
+  background: rgba(143, 188, 187, 0.12);
+  border: 2px dashed var(--accent);
+  color: var(--accent);
+  font-size: 15px;
+}
+
+#viewport.drag-over #drop-hint { display: flex; }
+
+/* The stone's stats, bottom right of the renderer (2026-09-19, the user's request): the facet
+   count, T/W, C/W and P/W (lib/stone_stats.js). A small card over the canvas in the page's own
+   colours, one row per stat, the label left and the value right. */
+#stone-stats {
+  position: absolute;
+  right: 12px;
+  bottom: 12px;
+  margin: 0;
+  padding: 6px 10px;
+  border: 1px solid var(--panel-edge);
+  border-radius: 6px;
+  background: color-mix(in srgb, var(--panel) 88%, transparent);
+  font-size: 12px;
+  line-height: 1.6;
+}
+
+.stone-stat { display: flex; justify-content: space-between; gap: 16px; cursor: default; }
+.stone-stat dt { color: var(--muted); }
+.stone-stat dd { margin: 0; color: var(--text); font-family: ui-monospace, Menlo, monospace; }
+
+/* The View sliders and the Top/Side buttons, bottom left of the renderer (2026-09-19). Their rows
+   are the panel's own .setting rows, styled above. */
+#view-controls {
+  position: absolute;
+  left: 12px;
+  bottom: 12px;
+  width: 190px;
+  padding: 8px 10px 6px;
+  border: 1px solid var(--panel-edge);
+  border-radius: 6px;
+  background: color-mix(in srgb, var(--panel) 88%, transparent);
+}
+
+#view-controls .setting:first-child { margin-bottom: 6px; }
+
+.view-buttons { display: flex; gap: 6px; margin-top: 4px; }

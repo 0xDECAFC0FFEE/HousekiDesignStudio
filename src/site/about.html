@@ -1,0 +1,140 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>About us | Houseki Design Studio</title>
+<meta name="description" content="Houseki Design Studio is named after the manga Houseki no Kuni, and is written by Lucas Tong in Seattle.">
+<meta name="theme-color" content="#2e3440">
+<meta name="color-scheme" content="dark light">
+@@THEME_SCRIPT@@
+<link rel="icon" href="@@LOGO_ICON@@">
+<style>
+  :root {
+    --panel: #2e3440;
+    --panel-edge: #4c566a;
+    --raised: #3b4252;
+    --text: #eceff4;
+    --muted: #d8dee9;
+    --accent: #8fbcbb;
+    --on-accent: #2e3440;
+  }
+
+  * { box-sizing: border-box; }
+
+  html, body { margin: 0; min-height: 100%; }
+
+  body {
+    display: flex;
+    flex-direction: column;
+    min-height: 100vh;
+    background: var(--panel);
+    color: var(--text);
+    font: 17px/1.6 ui-sans-serif, system-ui, -apple-system, "Segoe UI", sans-serif;
+  }
+
+  main {
+    flex: 1;
+    display: flex;
+    flex-direction: column;
+    justify-content: center;
+    width: 100%;
+    max-width: 44rem;
+    margin: 0 auto;
+    padding: 4rem 1rem;
+  }
+
+  /* The logo sits directly left of the title, as on the landing page. */
+  .brand {
+    display: flex;
+    align-items: center;
+    gap: 0.75rem;
+    margin: 0 0 1.25rem;
+  }
+
+  .brand h1 { margin: 0; }
+
+  .mark { flex: none; width: 1.3em; height: 1.3em; font-size: clamp(2rem, 6vw, 3rem); }
+
+  h1 {
+    margin: 0 0 1.25rem;
+    font-size: clamp(2rem, 6vw, 3rem);
+    line-height: 1.15;
+    letter-spacing: -0.01em;
+  }
+
+  p { margin: 0 0 2rem; color: var(--muted); }
+
+  p a { color: var(--accent); }
+
+  nav ul {
+    display: flex;
+    flex-wrap: wrap;
+    gap: 0.75rem;
+    margin: 0;
+    padding: 0;
+    list-style: none;
+  }
+
+  nav a {
+    display: inline-block;
+    padding: 0.6rem 1.25rem;
+    border: 1px solid var(--panel-edge);
+    border-radius: 6px;
+    background: var(--raised);
+    color: var(--text);
+    font-weight: 600;
+    text-decoration: none;
+  }
+
+  nav a.primary { border-color: var(--accent); background: var(--accent); color: var(--on-accent); }
+
+  nav a:hover { border-color: var(--accent); }
+  nav a.primary:hover { background: #a3c9c8; }
+
+  nav a:focus-visible { outline: 2px solid var(--accent); outline-offset: 3px; }
+
+  /* The footer's name stays centred, with the light/dark toggle at its right. */
+  footer {
+    position: relative;
+    padding: 1.5rem 1rem;
+    border-top: 3px double var(--panel-edge);
+    color: var(--muted);
+    font-size: 0.8rem;
+    text-align: center;
+  }
+
+  footer .theme-toggle {
+    position: absolute;
+    top: 50%;
+    right: 1rem;
+    transform: translateY(-50%);
+  }
+</style>
+@@THEME_STYLE@@
+</head>
+<body>
+<main>
+  <div class="brand">
+    @@LOGO@@
+    <h1>About us</h1>
+  </div>
+  <p>Houseki is named after the manga <a href="https://myanimelist.net/manga/44489/Houseki_no_Kuni" rel="noopener">Houseki no Kuni</a> (<i>Land of the Lustrous</i>), whose title means "land of gems".</p>
+  <p>Houseki Design Studio is written by Lucas Tong, based in Seattle.</p>
+  <nav aria-label="Where next">
+    <ul>
+      <li><a class="primary" href="houseki.html">Open the design studio</a></li>
+      <li><a href="index.html">Back to the home page</a></li>
+    </ul>
+  </nav>
+</main>
+<footer>
+  <span>Houseki Design Studio</span>
+  <!-- The light/dark toggle, the same as the app's (site/theme.css, site/theme.js). -->
+  <button type="button" class="theme-toggle" data-theme-toggle aria-label="Light mode" aria-pressed="false" title="Switch between dark and light colors">
+    <svg class="theme-toggle-moon" viewBox="0 0 24 24" aria-hidden="true" focusable="false"><path d="M12 3a6 6 0 0 0 9 9 9 9 0 1 1-9-9Z"/></svg>
+    <svg class="theme-toggle-sun" viewBox="0 0 24 24" aria-hidden="true" focusable="false"><circle cx="12" cy="12" r="4"/><path d="M12 2v2M12 20v2m-7.07-17.07 1.41 1.41m11.32 11.32 1.41 1.41M2 12h2m16 0h2M6.34 17.66l-1.41 1.41M19.07 4.93l-1.41 1.41"/></svg>
+  </button>
+</footer>
+</body>
+</html>

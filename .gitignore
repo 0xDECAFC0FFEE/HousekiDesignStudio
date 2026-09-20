@@ -1,0 +1,39 @@
+# Everything committed is under src/ (the whole build input), tests/, and the entry points at
+# the root. Everything below is either generated or a local working store, and a fresh clone
+# must build without any of it: `./setup.sh && ./build.sh`.
+
+# --- generated ----------------------------------------------------------------
+# build/target (Cargo, via .cargo/config.toml), build/web (Vite) and build/www (the deployable
+# site make_page.py writes). Delete the directory and the next build recreates all of it.
+/build
+
+# npm packages have to sit next to the package.json that declares them, so they cannot live
+# under build/. ./setup.sh installs them.
+/src/web/node_modules
+
+# Renders and captures the browser harness writes. Cargo requires integration tests to sit in
+# tests/ next to Cargo.toml, so the harness cannot move under build/ with its output.
+/tests/output
+
+# --- local working stores, deliberately not part of the repository -------------
+# The agent knowledge base and ticket tracker (see AGENTS.md), their tooling, and several
+# hundred megabytes of third-party reference material: the LuxCore checkout we port from,
+# Gem Cut Studio captures and sample faceting designs.
+#
+# Nothing the build reads is in here. `cargo test` skips the three camera tests that measure a
+# Gem Cut Studio screenshot when reference/ is absent (tests/gcs_camera_outline.rs), and the
+# Deno suites under src/js/tests and src/web/tests skip the 66 cases that read the sample
+# designs in reference/ -- so every suite is green on a clone that has none of it.
+/kb
+/tickets
+/tools
+/reference
+CLAUDE.md
+AGENTS.md
+
+# --- noise --------------------------------------------------------------------
+/.claude
+.DS_Store
+__pycache__/
+*.pyc
+/.cargo

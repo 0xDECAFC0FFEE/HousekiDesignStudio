@@ -1,0 +1,119 @@
+/* ---- Sub bar: a thinner row below the menu bar for the tools a cutter reaches for
+   constantly (T-0141). Starts with the index-gear button; more tools land here later.
+   Never put a data-tip on #subbar itself -- tooltipSettingAt walks up to the OUTERMOST
+   ancestor carrying one, so a tip on the bar would swallow every tool inside it. ---- */
+#subbar {
+  flex: 0 0 auto;
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  /* Twice its old height (2026-09-19, the user's request: "double the height of the subbar"):
+     29px, from a 24px gear button, 2px of padding above and below and the 1px border, to 58px.
+     Since T-0192 the index ruler fills that height (57px, plus the 1px border), and the gear
+     button and the two number fields sit centred in it. */
+  min-height: 57px;
+  padding: 0 10px;
+  background: var(--panel);
+  /* T-0164: same inset divider as #topbar above, and the same reason for a transparent
+     border rather than none -- see #topbar's comment. The ::after rule is shared
+     between the two bars (written once, next to #topbar). The panes' own vertical 3px
+     double borders (#instructions-pane's border-right, #panel's border-left) begin
+     right below this line, at x=280 and x=(window width - 300) in the default layout --
+     both comfortably inside the new x=16..(width-16) span, so those T-junctions still
+     meet exactly as before; the inset only shortens the line near the window's outer
+     edges, which no pane border reaches. Confirmed over CDP at the default 1024px
+     window: junctions at x=280 and x=724 both still show a continuous meeting of the
+     horizontal and vertical lines. */
+  border-bottom: 1px solid transparent;
+  position: relative;
+}
+
+/* The gear button is a shadcn-svelte ghost Button (SubBar.svelte); its own classes style it. */
+
+/* 2026-09-19: the sub bar is shrunk and sits above the renderer only (Workspace.svelte), so its
+   divider runs the full width of that column instead of the 16px inset the top bar's has. */
+#subbar::after { left: 0; right: 0; }
+
+/* T-0192: the symmetry and offset numbers at the right of the sub bar, each a small label over a
+   narrow number box. A refused value (a symmetry that does not divide the gear, an offset that is
+   not a whole number) turns the box's border red; the tooltip says why. */
+.ruler-field {
+  flex: none;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 2px;
+  color: var(--muted);
+  font-size: 10px;
+  text-transform: uppercase;
+  letter-spacing: 0.04em;
+}
+
+.ruler-field input {
+  width: 48px;
+  padding: 2px 4px;
+  border: 1px solid var(--panel-edge);
+  border-radius: 4px;
+  background: var(--raised);
+  color: var(--text);
+  font: 13px ui-monospace, Menlo, monospace;
+  text-align: center;
+  letter-spacing: normal;
+}
+
+.ruler-field input:focus-visible { outline: none; border-color: var(--accent); }
+
+.ruler-field input[aria-invalid="true"] { border-color: var(--error); }
+
+/* Arbitrary mode: the index list takes the ruler's place, filling the bar after the gear button,
+   with the same label-over-box look as the symmetry and offset fields. */
+.index-list-field {
+  flex: 1 1 auto;
+  min-width: 0;
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+  color: var(--muted);
+  font-size: 10px;
+  text-transform: uppercase;
+  letter-spacing: 0.04em;
+}
+
+.index-list-field input {
+  width: 100%;
+  padding: 3px 8px;
+  border: 1px solid var(--panel-edge);
+  border-radius: 4px;
+  background: var(--raised);
+  color: var(--text);
+  font: 13px ui-monospace, Menlo, monospace;
+  letter-spacing: normal;
+}
+
+.index-list-field input::placeholder { color: var(--muted); opacity: 0.6; }
+
+.index-list-field input:focus-visible { outline: none; border-color: var(--accent); }
+
+.index-list-field input[aria-invalid="true"] { border-color: var(--error); }
+
+/* The Fine toggle beside the ruler: the same small pill as the edit panel's scales. */
+.fine-toggle {
+  flex: none;
+  padding: 0 6px;
+  border: 1px solid var(--panel-edge);
+  border-radius: 3px;
+  background: var(--raised);
+  color: var(--muted);
+  font-size: 10px;
+  line-height: 18px;
+  text-transform: uppercase;
+  cursor: pointer;
+}
+
+.fine-toggle:hover { border-color: var(--accent); }
+
+.fine-toggle[aria-pressed="true"] {
+  border-color: var(--accent);
+  background: var(--accent);
+  color: var(--on-accent);
+}

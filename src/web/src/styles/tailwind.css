@@ -1,0 +1,134 @@
+/* The page's stylesheet entry: Tailwind (v4), the shadcn-svelte theme, and the page's own CSS.
+
+   Layers, lowest to highest: theme, base (Tailwind's preflight reset), legacy (the page's own
+   hand-written Nord CSS, the six files imported below), components, utilities (Tailwind's
+   classes, which is where every shadcn-svelte component gets its look). Putting the page's own
+   CSS in a layer BELOW the utilities is what lets a component's classes win over an old
+   `#id`/element rule that would otherwise beat them by specificity; an unlayered stylesheet
+   would beat every layered one whatever its selectors.
+
+   Tailwind is imported in its parts, not as `@import "tailwindcss"`, so each part lands in the
+   layer named above. */
+@layer theme, base, legacy, components, utilities;
+
+@import "tailwindcss/theme.css" layer(theme);
+@import "tailwindcss/preflight.css" layer(base);
+@import "tailwindcss/utilities.css" layer(utilities);
+@import "tw-animate-css";
+
+@import "./base.css" layer(legacy);
+/* The light theme's tokens and the light/dark toggle, shared with the landing and docs pages. */
+@import "../../../site/theme.css" layer(legacy);
+@import "./topbar.css" layer(legacy);
+@import "./subbar.css" layer(legacy);
+@import "./gear-dialog.css" layer(legacy);
+@import "./instructions.css" layer(legacy);
+@import "./panel.css" layer(legacy);
+
+/* The components' `dark:` variants apply under <html class="dark">, which site/theme.js sets in
+   the dark theme and removes in the light one (2026-09-19; the page was dark only until then). */
+@custom-variant dark (&:is(.dark *));
+
+/* The variants shadcn-svelte's components are written against, exactly as its CLI's own template
+   defines them (`shadcn-svelte init` writes them into the stylesheet; it cannot be run here, so
+   they are copied): they map Tailwind's `data-open:`, `data-checked:` and the rest onto the
+   `data-state` and `data-orientation` attributes Bits UI puts on its elements. Without them a
+   Slider's track and a Switch's checked state have no styling at all. */
+@custom-variant data-open {
+  &:where([data-state="open"]),
+  &:where([data-open]:not([data-open="false"])) {
+    @slot;
+  }
+}
+
+@custom-variant data-closed {
+  &:where([data-state="closed"]),
+  &:where([data-closed]:not([data-closed="false"])) {
+    @slot;
+  }
+}
+
+@custom-variant data-checked {
+  &:where([data-state="checked"]),
+  &:where([data-checked]:not([data-checked="false"])) {
+    @slot;
+  }
+}
+
+@custom-variant data-unchecked {
+  &:where([data-state="unchecked"]),
+  &:where([data-unchecked]:not([data-unchecked="false"])) {
+    @slot;
+  }
+}
+
+@custom-variant data-disabled {
+  &:where([data-disabled="true"]),
+  &:where([data-disabled]:not([data-disabled="false"])) {
+    @slot;
+  }
+}
+
+@custom-variant data-active {
+  &:where([data-state="active"]),
+  &:where([data-active]:not([data-active="false"])) {
+    @slot;
+  }
+}
+
+@custom-variant data-horizontal {
+  &:where([data-orientation="horizontal"]) {
+    @slot;
+  }
+}
+
+@custom-variant data-vertical {
+  &:where([data-orientation="vertical"]) {
+    @slot;
+  }
+}
+
+/* shadcn-svelte's semantic colors, mapped onto the page's own Nord variables (base.css) instead
+   of the CLI's stock greys. `inline`, so a component's `bg-primary` reads `var(--accent)` at the
+   point of use. NOTE the page's `--accent` is Nord's teal, a SOLID highlight colour used all over
+   its own CSS, whereas shadcn's `accent` means "the subtle hover background" -- so shadcn's
+   `accent` is mapped to --hover below, and the teal is shadcn's `primary`. */
+@theme inline {
+  --color-background: var(--panel);
+  --color-foreground: var(--text);
+  --color-card: var(--raised);
+  --color-card-foreground: var(--text);
+  --color-popover: var(--raised);
+  --color-popover-foreground: var(--text);
+  --color-primary: var(--accent);
+  --color-primary-foreground: var(--on-accent);
+  --color-secondary: var(--raised);
+  --color-secondary-foreground: var(--text);
+  --color-muted: var(--raised);
+  --color-muted-foreground: var(--muted);
+  --color-accent: var(--hover);
+  --color-accent-foreground: var(--text);
+  --color-destructive: var(--error);
+  --color-border: var(--panel-edge);
+  --color-input: var(--panel-edge);
+  --color-ring: var(--accent);
+}
+
+/* The page is a dense tool panel, so the radii are the page's own (4 to 6px), not shadcn's
+   rounder ones. */
+@theme {
+  --radius-sm: 2px;
+  --radius-md: 3px;
+  --radius-lg: 4px;
+  --radius-xl: 6px;
+  --font-sans: ui-sans-serif, system-ui, -apple-system, "Segoe UI", sans-serif;
+}
+
+@layer base {
+  :root {
+    --hover: rgba(143, 188, 187, 0.16);
+    --radius: 4px;
+  }
+
+  * { border-color: var(--panel-edge); }
+}

@@ -1,0 +1,31 @@
+<!DOCTYPE html>
+<!-- TEMPLATE NOTICE
+  This is the SOURCE of the renderer page's shell. The page itself is the Svelte app under
+  src/, which Vite builds (with its script and styles inlined, by vite-plugin-singlefile) into
+  dist/index.html. make_page.py then replaces the inline bundle placeholder below with the
+  wasm-bindgen glue and the inlined wasm, model and skybox, and writes www/houseki.html. Edit
+  the app here, never www/houseki.html.
+
+  The theme placeholder is replaced with site/theme.js, the saved light/dark choice (shared with
+  the landing and docs pages), so it is applied here in <head> and the page is drawn in it from
+  the first frame. The logo placeholder becomes the tab icon, site/logo.svg as a data: URI.
+
+  This file does not work if opened directly: the app expects those inlined globals. It must
+  load nothing at runtime (no network requests, no module import of a separate file), because
+  the generated page has to open from file://.
+-->
+<html lang="en" class="dark">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Houseki Design Studio</title>
+<meta name="description" content="Houseki Design Studio, a gem cut designer and planner: open a faceting design (.gcs, .gem, .asc or .obj), see the stone path-traced, and read its cutting instructions.">
+<meta name="theme-color" content="#2e3440">
+<!-- @@GEM_THEME_SCRIPT@@ -->
+<!-- @@GEM_LOGO_ICON@@ -->
+<!-- @@GEM_INLINE_BUNDLE@@ -->
+</head>
+<body>
+<script type="module" src="/src/main.js"></script>
+</body>
+</html>

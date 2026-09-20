@@ -1,0 +1,53 @@
+/* ---- The gear dialog (T-0171): set the index gear's tooth count, opt into fractional
+   teeth ----
+   A shadcn-svelte Dialog (GearDialog.svelte), whose look comes from its own Tailwind classes
+   over the Nord tokens (--panel, --raised, --panel-edge, --text, --accent, --error); what is
+   here is the layout of its fields. No data-tip anywhere in it, matching every other pane's
+   rule. */
+.gear-dialog-field-row { display: flex; align-items: flex-end; gap: 8px; }
+
+.gear-dialog-field {
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+}
+
+.gear-dialog-error-icon {
+  flex: 0 0 auto;
+  width: 16px;
+  height: 16px;
+  color: var(--error);
+}
+
+/* Symbol then message on one line. `:not([hidden])` because a `display` set here would
+   otherwise override the hidden attribute and show the row with no error. */
+.gear-dialog-error-text:not([hidden]) {
+  display: flex;
+  align-items: flex-start;
+  gap: 6px;
+}
+
+.gear-dialog-error-text {
+  margin: 8px 0 0;
+  max-width: 260px;
+  font-size: 12px;
+  color: var(--error);
+}
+
+.gear-dialog-checkbox {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  margin-top: 14px;
+  font-size: 12px;
+}
+
+/* Fractional teeth and Arbitrary mode stack as one group of options. */
+.gear-dialog-checkbox + .gear-dialog-checkbox { margin-top: 8px; }
+
+.gear-dialog-actions {
+  display: flex;
+  justify-content: flex-end;
+  gap: 8px;
+  margin-top: 18px;
+}

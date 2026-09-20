@@ -1,0 +1,376 @@
+/* ---- Left pane: cutting instructions (T-0142) ----
+   A fixed width, like #panel on the other side: this is a text column, and a percentage
+   of the window would read as an absurdly wide sheet of text on a wide monitor. 280px is
+   close to #panel's 300px (this pane holds prose, not sliders, so slightly narrower) and
+   comfortably inside the 260-320px range a text column reads well at. No draggable
+   splitter -- not asked for.
+   Placeholder only: the user's instruction (2026-09-18) was "don't show the polar
+   representation information yet", so this pane does not read www/js/design.js
+   (T-0088/T-0089 -- already written and tested, but never inlined by make_page.py) for
+   tier, mast-angle, index-tooth or cut-depth numbers. That wiring is a follow-up ticket;
+   see T-0142's Description for where the data will come from.
+   No data-tip on the pane or any container in it, matching #subbar's rule: tooltipSettingAt
+   walks up to the OUTERMOST data-tip ancestor, so one on the pane would swallow any setting
+   later added inside it. The tier toolbar's buttons (T-0175) each carry their own, which is
+   fine for that same reason: no ancestor of theirs has one. */
+#instructions-pane {
+  /* Fills its Resizable pane (Workspace.svelte), whose width is the pane's width: 280px until
+     the user drags the handle, then whatever they left it at (200-480px). */
+  width: 100%;
+  height: 100%;
+  background: var(--panel);
+  /* Double, matching #panel's own border on the other side of the renderer (T-0151). See
+     the comment on #panel's border-left for the 3px-minimum trap. */
+  border-right: 3px double var(--panel-edge);
+  /* No bottom padding: #tier-toolbar (T-0176) sits flush on the pane's bottom edge and
+     brings its own padding. */
+  padding: 14px 14px 0;
+  overflow-y: auto;
+  /* A column flex, so #tier-toolbar's `margin-top: auto` can push it to the bottom of the
+     pane when the tier tables are short (T-0176). The header and tables are unchanged by
+     this: a column flex item stretches to the pane's width exactly as a block did. */
+  display: flex;
+  flex-direction: column;
+  /* A container query context (2026-09-18, alongside the resize handle below), so
+     #tier-tables can restyle itself by the PANE's own width rather than the window's --
+     the pane can now be narrower or wider than its 280px default. */
+  container-type: inline-size;
+  container-name: instructions;
+}
+
+/* ---- The tier toolbar (T-0175..T-0180): New, Delete, Show/Hide, Preform, Frosted ----
+   The user's request (2026-09-18): "a small menu at the bottom of the faceting
+   instructions". Pinned to the pane's bottom edge: `margin-top: auto` puts it there when
+   the tables are short, and `position: sticky; bottom: 0` keeps it there while a long
+   design scrolls underneath it. Negative side margins run its top border and background
+   the full width of the pane, like the section dividers above it, since the pane's own
+   14px side padding would otherwise inset them. Every button acts on the selected tier
+   row and is inactive (aria-disabled, so its tooltip still shows) while none is selected
+   (wireUpTierTables' syncToolbar). Each BUTTON carries its own data-tip (the user asked for
+   "tooltips for each button"); the bar and the pane carry none, for the reason in the
+   comment above #instructions-pane. The buttons wrap onto a second line rather than
+   overflowing when the pane is dragged narrow. */
+#tier-toolbar {
+  position: sticky;
+  bottom: 0;
+  flex: 0 0 auto;
+  display: flex;
+  flex-wrap: wrap;
+  /* Tight enough that all five buttons fit one line at the pane's default 280px. */
+  gap: 3px;
+  margin: auto -14px 0;
+  padding: 8px 10px;
+  background: var(--panel);
+  border-top: 1px solid var(--panel-edge);
+}
+
+/* The buttons are shadcn-svelte Buttons and Toggles (TierToolbar.svelte), styled by their own
+   classes: inactive ones are aria-disabled and faded there, and a toggle that is on carries the
+   accent tint the selected row itself uses, so "on" reads the same everywhere in the pane. */
+
+/* The handle that drags the pane's width is a shadcn-svelte Resizable handle (Workspace.svelte),
+   styled by its own classes: the old #instructions-resize and .resize-dots rules are gone. */
+
+#instructions-pane h2 {
+  margin: 0 0 8px;
+  font-size: 12px;
+  font-weight: 600;
+  color: var(--muted);
+  text-transform: uppercase;
+  letter-spacing: 0.06em;
+}
+
+#instructions-pane p {
+  margin: 0;
+  color: var(--muted);
+  font-size: 12px;
+  line-height: 1.6;
+}
+
+/* ---- Cut-header: the design's name, then a byline (T-0145, restyled T-0151) ----
+   Sits above the tier tables, so the pane reads title-first like a cutting sheet. All
+   three fields are click-to-edit (wireUpCutHeader/makeTextFieldEditable below), matching
+   the slider readouts' own idiom: a text cursor and a dotted underline are the only
+   affordance -- no tooltip, no `title`, at the user's standing request (2026-09-18) that
+   removed the equivalent hint from the readouts. `.editable` is scoped to
+   #instructions-pane rather than reusing the bare `label .value.editable` rule, since
+   these fields sit outside any `<label>`.
+   T-0151 turned this from a two-column label/value form into a title block, at the user's
+   request: "beneath should just have 'author' as the default in the text box" -- the word
+   IN the box is the label now, so the separate `.cut-meta-label` spans are gone. A second
+   request on the same ticket ("Show the author on the same row as the date") put author
+   and date on one shared line, `#cut-byline`, rather than the two-line stack T-0151
+   shipped first. */
+#cut-header { margin-bottom: 14px; }
+
+.cut-name {
+  display: block;
+  width: fit-content;
+  max-width: 100%;
+  margin: 0 auto 8px;
+  font-size: 16px;
+  font-weight: 700;
+  color: var(--text);
+  line-height: 1.3;
+}
+
+/* Author and date, centred as a pair rather than `justify-content: space-between` --
+   pushed to a 280px pane's opposite edges, a byline reads as two unrelated numbers under a
+   centred title; centred and close together, with a plain separator between them, it
+   reads as one line about the design. The separator is what keeps two ADJACENT
+   click-to-edit fields from reading as one continuous strip: each field's own dotted
+   underline already hugs only its own text (`width: fit-content` behaviour is automatic
+   for an unstretched flex item), but the gap and the middle dot are the visible boundary a
+   user aims at before the underline is even noticed. */
+.cut-byline {
+  display: flex;
+  align-items: baseline;
+  justify-content: center;
+  gap: 8px;
+  font-size: 12px;
+}
+
+.cut-byline-sep { color: var(--muted); }
+
+.cut-meta-value { color: var(--text); }
+
+#instructions-pane .editable { cursor: text; border-bottom: 1px dotted var(--panel-edge); }
+#instructions-pane .editable:hover { border-bottom-color: var(--accent); }
+
+/* The cut name's required underline (T-0151: "bold underlined and centered") reuses the
+   click-to-edit affordance above rather than adding a second line next to it -- a solid
+   `text-decoration: underline` sitting under, or on top of, the dotted `border-bottom`
+   every other field gets would read as a rendering mistake, not a deliberate style. Higher
+   specificity than `#instructions-pane .editable` (two classes, not one) is what makes
+   this solid override win regardless of source order. */
+#instructions-pane .cut-name.editable { border-bottom: 1px solid var(--text); }
+#instructions-pane .cut-name.editable:hover { border-bottom-color: var(--accent); }
+
+/* The author field before anything has been typed into it: muted and italic, so an empty
+   value reads as "not filled in" rather than a rendering fault (the same reasoning as
+   .menu-empty's "Nothing here yet"). */
+#instructions-pane .editable.empty { color: var(--muted); font-style: italic; }
+
+/* Overrides the slider entry boxes' own width/alignment/monospace: these hold names and
+   dates, not numbers, so they read better full-width, left-aligned, in the page's normal
+   (non-monospace) font. */
+#instructions-pane input.value-entry {
+  width: 100%;
+  text-align: left;
+  font-family: inherit;
+  font-size: 12px;
+}
+
+/* The name's editor stays full width (it is alone on its own line), but author and date
+   now share #cut-byline's one row -- a full-width editor there would swallow whichever
+   field is not being edited. `min(140px, 45%)` comfortably fits "September 2026" without
+   ever claiming more than about half the row, so the other field's own text (or its own
+   editor, if both happened to be mid-edit) stays visible. Needs #instructions-pane in the
+   selector to out-specify the width: 100% rule above (an id beats a bare class list
+   regardless of source order). */
+#instructions-pane .cut-byline input.value-entry { width: min(140px, 45%); }
+
+/* ---- Crown and pavilion tier tables (T-0147; ids/columns corrected T-0152; one row per
+   tier with aligned columns, 2026-09-18) ----
+   Each row is a CSS grid, not a `<table>`: a `<table>` would need every row to be a sibling
+   `<tr>` inside one `<tbody>` to align columns, which does not fit this file's "one card
+   per tier" DOM shape as cleanly as a fixed `grid-template-columns` repeated on every
+   `.tier-row` does. Every row uses the SAME four-column template (id, angle, indices,
+   notes), which is what makes column N of one row line up under column N of the next --
+   an omitted 4th cell on a row with no notes would shift nothing today (notes is the last
+   column) but is exactly the kind of thing that misaligns the moment a column is added
+   after it, so `renderTierSection` always emits all four cells, the notes one empty rather
+   than missing. Indices and notes wrap within their own column instead of forcing the row
+   wider than the pane -- "one row" means one grid row per tier, not one line of unbroken
+   text. `#instructions-pane h2`/`p` above already style section headings and empty-state
+   text uniformly, so neither gets its own rule here. T-0152 dropped the depth column and
+   the girdle badge (the generated `G`-prefixed id already says a row is the girdle) --
+   their rules are gone too, not just unused. */
+/* padding-bottom: the gap above #tier-toolbar, which follows directly once the tables are
+   long enough to scroll (its `margin-top: auto` is then 0). */
+#tier-tables { display: flex; flex-direction: column; gap: 14px; padding-bottom: 14px; }
+
+.tier-section:first-child { margin-top: 4px; }
+
+.tier-rows { display: flex; flex-direction: column; gap: 4px; }
+
+.tier-row {
+  display: grid;
+  grid-template-columns: 2em 3.4em minmax(0, 1.2fr) minmax(0, 1fr);
+  grid-template-areas: "label angle indices notes";
+  column-gap: 6px;
+  align-items: baseline;
+  padding: 4px 8px;
+  background: var(--raised);
+  border: 1px solid var(--panel-edge);
+  border-radius: 4px;
+  font-size: 11px;
+  /* T-0165: a row is dragged as well as clicked, so it should not also behave like
+     selectable text -- and without this, the small pre-slop wobble at the start of a
+     real drag (see wireUpTierRowDragging's CLICK_SLOP_PX check) can leave a stray text
+     selection on the page even though the press goes on to be recognised as a drag.
+     The notes editor's own <input> (below) opts back into normal text selection. */
+  user-select: none;
+}
+
+/* ---- Drag-to-reorder a tier row within its own table (T-0165, wireUpTierRowDragging)
+   ----
+   The dragged row itself stays put and just dims, rather than following the pointer:
+   simpler, and it avoids reflowing the whole list on every pointermove. What actually
+   shows where the row would land is `.tier-row-drop-indicator`, a thin bar in --accent
+   inserted between rows -- "a clear insertion indicator" without animating anything. */
+.tier-row.tier-row-dragging { opacity: 0.45; cursor: grabbing; }
+
+.tier-row-drop-indicator {
+  flex: 0 0 auto;
+  height: 2px;
+  margin: 0 8px;
+  border-radius: 1px;
+  background: var(--accent);
+}
+
+/* A row is clickable (T-0160: single-clicking a row highlights its tier on the stone, same
+   as single-clicking one of its own facets) exactly when renderTierSection gave it a click
+   handler -- role="button" marks that, rather than every .tier-row unconditionally, so a
+   plain .obj's tiers (there are none) or a future non-interactive row never looks
+   clickable. rgba tuples of nord7 (--accent, #8fbcbb) at low alpha, matching the same
+   pattern .menu-item:hover already uses on this page, rather than a second background
+   color: the palette's whole point (kb/the-nord-palette-and-its-shader-mirror.md) is that
+   nord0/nord1 are the only surfaces, so sections read apart by BORDER, and a tint of the
+   accent keeps that true here too. */
+.tier-row[role="button"] { cursor: pointer; }
+.tier-row[role="button"]:hover { background: rgba(143, 188, 187, 0.12); }
+.tier-row[role="button"]:focus-visible { outline: 2px solid var(--accent); outline-offset: -2px; }
+
+/* The selected tier's row (T-0160): a clearly stronger, distinct tint plus an accent
+   border, so it reads apart from the merely-hovered state above even while the pointer is
+   still over it. */
+.tier-row.tier-row-selected {
+  background: rgba(143, 188, 187, 0.22);
+  border-color: var(--accent);
+}
+
+/* A hidden tier (T-0178): the WHOLE row greyed out -- every cell (id, angle, teeth,
+   description) faded and desaturated, and the row's own background and border faded with
+   them -- rather than one cell dimmed (the user: "grey out the entire tier when its
+   hidden"). Done on the cells, not with opacity/filter on the row itself, so a selected
+   hidden row keeps its accent border and the selection stays easy to see. Still clickable,
+   focusable and draggable: hiding a tier only takes it off the stone. The background and
+   border are --raised and --panel-edge at 45%, mixed from the tokens (they were rgba copies of
+   nord1 and nord3) so the light theme greys the row in its own colours. */
+.tier-row.tier-row-hidden {
+  background: color-mix(in srgb, var(--raised) 45%, transparent);
+  border-color: color-mix(in srgb, var(--panel-edge) 45%, transparent);
+}
+
+.tier-row.tier-row-hidden > * { opacity: 0.45; filter: grayscale(1); }
+
+/* A frosted tier (T-0180): its angle and cutting teeth in the accent colour and bold,
+   where every other row shows them muted -- a mark in the list only, since the frosted
+   look is not drawn on the stone yet. */
+.tier-row.tier-row-frosted .tier-angle,
+.tier-row.tier-row-frosted .tier-indices { color: var(--accent); font-weight: 700; }
+
+.tier-row.tier-row-hidden.tier-row-selected {
+  background: rgba(143, 188, 187, 0.08);
+  border-color: var(--accent);
+}
+
+/* Extra room either side of the cutting indices (the user's request, 2026-09-18: more
+   space between the angle and the teeth, and between the teeth and the description) --
+   padding on those two cells rather than a wider column-gap, which would also push the id
+   and angle apart. The two stacked layouts below take it back off whichever cell starts a
+   line there, so neither is indented. */
+.tier-indices,
+.tier-notes { padding-left: 10px; }
+
+/* When any tier's indices would wrap past two lines in the one-row layout,
+   wireUpTierTables' fitRowLayout sets this on #tier-tables (the user's request,
+   2026-09-18): every row then puts id, angle and indices on its first line, the indices
+   taking the notes column's width too, and the description on a line of its own below.
+   Every row, not just the long one, so the columns still line up from row to row.
+   :where() keeps this at the specificity of a bare .tier-row, so the narrow-pane
+   container query below, which comes later, still wins over it. */
+:where(#tier-tables.tier-notes-below) .tier-row {
+  grid-template-columns: 2em 3.4em minmax(0, 1fr);
+  grid-template-areas:
+    "label angle indices"
+    "notes notes notes";
+  row-gap: 2px;
+}
+
+:where(#tier-tables.tier-notes-below) .tier-notes { padding-left: 0; }
+
+/* A row with no description would otherwise keep an empty second line; the selected row
+   keeps it, since that is where its "description" placeholder is clicked to add one. */
+:where(#tier-tables.tier-notes-below) .tier-row:not(.tier-row-selected) .tier-notes.empty {
+  display: none;
+}
+
+/* Narrower than the pane's own default 280px: the one-row layout above runs out of room
+   for the indices and notes columns, so this falls back to the stacked layout the pane
+   used before "one row per tier" -- id and angle share a line, indices gets its own line,
+   notes gets its own (the user's own words, 2026-09-18: "if they compress the
+   instructions, can make start stacking the elements like how they're stacked now").
+   `container-type: inline-size` on #instructions-pane (above) is what lets this react to
+   the PANE's width -- which the resize handle now changes -- rather than the window's. */
+@container instructions (max-width: 240px) {
+  .tier-row {
+    grid-template-columns: auto 1fr;
+    grid-template-areas:
+      "label angle"
+      "indices indices"
+      "notes notes";
+    row-gap: 2px;
+  }
+
+  .tier-indices,
+  .tier-notes { padding-left: 0; }
+}
+
+.tier-label { grid-area: label; font-weight: 600; color: var(--text); }
+
+.tier-angle {
+  grid-area: angle;
+  font-family: ui-monospace, Menlo, monospace;
+  font-size: 10px;
+  color: var(--muted);
+}
+
+.tier-indices {
+  grid-area: indices;
+  color: var(--muted);
+  font-family: ui-monospace, Menlo, monospace;
+  font-size: 10px;
+  line-height: 1.4;
+  overflow-wrap: break-word;
+}
+
+/* The tier's own cutting instruction (GemCad's cuttingInstructions, a future .gcs's own
+   tier/@instructions) -- prose, not data, so it gets the page's normal font rather than
+   the indices' monospace one. Empty for most tiers (renderTierSection always emits the
+   cell so the grid's columns stay aligned; an empty span just renders as blank space). */
+.tier-notes {
+  grid-area: notes;
+  color: var(--muted);
+  font-size: 10px;
+  font-style: italic;
+  line-height: 1.4;
+  overflow-wrap: break-word;
+}
+
+/* The description is click-to-edit only on the selected row (renderTierSection), so the
+   other rows show neither its dotted underline and text cursor nor, when empty, its
+   "description" placeholder. The id in the selector outranks #instructions-pane .editable. */
+#instructions-pane .tier-row:not(.tier-row-selected) .tier-notes.editable {
+  cursor: inherit;
+  border-bottom-color: transparent;
+}
+
+#instructions-pane .tier-row:not(.tier-row-selected) .tier-notes.empty { visibility: hidden; }
+
+/* The editor fills the notes cell and keeps the row's small type. Explicitly opts back
+   into text selection (T-0165): `.tier-row` above turns it off so a drag's pre-slop
+   wobble cannot leave stray selected text on the page, but typing and selecting inside
+   the open notes editor itself must work exactly as any other text input does. */
+#instructions-pane .tier-row input.value-entry { font-size: 10px; min-width: 0; user-select: text; }

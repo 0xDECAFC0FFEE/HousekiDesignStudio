@@ -1,0 +1,333 @@
+<script>
+  // The top bar (T-0140; relaid out T-0143; title fixed to the product's name T-0144): a large
+  // title, top left, with the File/Edit/Tools/Help menu beside it on the same row -- the
+  // first piece of the shell that turns the renderer into a design planner.
+  //
+  // #app-title is the PRODUCT's name and never changes -- it used to track the open design
+  // (T-0140's setDesignTitle, removed), but the user asked instead for a fixed
+  // "Houseki Design Studio" (2026-09-18). Nothing on the page now shows which stone is
+  // loaded: the panel's own "Stone: <file>" hint line was already removed earlier the same
+  // day, so this is the second place that information has gone. Not replaced here -- if the
+  // user wants it back, it belongs somewhere a planner would put it (see the left pane,
+  // T-0142), not spliced back into the product title.
+  //
+  // Independent of GemApp -- it needs no wasm, no stone and no `app` -- so it works immediately
+  // and still works if the wasm module fails to load. The Edit menu's Undo and Redo are live
+  // once the session exists (the history reads as "nothing to undo" before then).
+  //
+  // The menu is shadcn-svelte's Menubar (Bits UI), which brings the Google Docs behaviour this
+  // bar was hand-written to have: a click opens a menu and another click on its button closes
+  // it, Escape and a click elsewhere close it, and while one is open the pointer moving to the
+  // next button opens that one; plus arrow-key navigation, focus return and menu roles the
+  // hand-written version lacked. Its dropdowns are portalled to <body>, so each carries the id
+  // `menu-dropdown-<name>` it always had, on the dropdown itself.
+  import { canUndo, canRedo, renameRequest } from '../lib/stores.js';
+  import { eventTargetIsEditable, eventTargetTakesText, isMacPlatform } from '../lib/keys.js';
+  import { sessionReady, undo, redo, stepHistory } from '../lib/session.js';
+  import { ariaDisabled } from '../lib/native.js';
+  // T-0206's own imports, kept separate from the pre-existing stores.js import above so this
+  // ticket's edit never touches a line a sibling export-format agent might also be touching.
+  import { get } from 'svelte/store';
+  import { cutMeta } from '../lib/stores.js';
+  import { getDesign } from '../lib/tier_controller.js';
+  import { designToAscText } from '../lib/export_asc.js';
+  import { saveFileAs } from '../lib/export_file.js';
+  // T-0204/T-0205/T-0207 originally wired these three through onSelect={() => import(...)},
+  // a dynamic import, each deliberately avoiding this file's own top-level import lines so three
+  // concurrent agents' edits could never collide on the same line. That safely built and tested
+  // under `deno task build` (Vite), but broke the page's OTHER build path: make_page.py's
+  // check_template() refuses ANY dynamic import() (it can only ever resolve via a chunk fetch,
+  // and the built page is one self-contained file:// document with nothing left to fetch), so
+  // `build.sh`/`make_page.py` failed for the whole page with a confusing acorn error about
+  // import.meta rather than a message naming the real cause. Static imports, like exportAsc's
+  // own designToAscText above, are the only shape make_page.py's minifier accepts.
+  import { exportGem } from '../lib/export_gem.js';
+  import { exportObj } from '../lib/export_obj.js';
+  import { exportGcs } from '../lib/export_gcs.js';
+  import { exportCurrentStoneAsStl } from '../lib/export_stl.js';
+  import * as Menubar from '$lib/components/ui/menubar/index.js';
+  import SettingsDialog from './SettingsDialog.svelte';
+  // The logo, directly left of the title (2026-09-19): the same file the landing and docs pages
+  // inline (site/logo.svg), bundled as text by Vite so the page still loads nothing at runtime.
+  import logoSvg from '../../../site/logo.svg?raw';
+
+  const isMac = isMacPlatform();
+
+  function openFilePicker() {
+    document.getElementById('obj-file').click();
+  }
+
+  // File > Export > GemCad (.asc), T-0206. Writes the loaded design's polar description (its
+  // own tiers/gear/headers -- design.js, not the rendered geometry, which a .asc never stores)
+  // back out as GemCad ASCII text, and hands it to saveFileAs, which opens the OS's own Save
+  // dialog when the browser supports one (letting the user pick where it goes and confirm or
+  // change its type/extension) and otherwise falls back to a plain download -- see
+  // export_file.js's own doc comment. A no-op without a loaded design (the built-in stone, or a
+  // plain .obj, has none to export), the same guard the tier toolbar's Comments button uses
+  // (tier_controller.js's toolbarState).
+  async function exportAsc() {
+    const design = getDesign();
+
+    if (!design) {
+      return;
+    }
+
+    const meta = get(cutMeta);
+    const text = designToAscText(design, { title: meta.name, author: meta.author, date: meta.date });
+    // The cut-header name becomes the filename, with characters no common filesystem accepts
+    // in a filename replaced -- the same handful `export_file.js`'s downloadFile fallback hands
+    // straight to `<a download>`, which does no sanitising of its own; the Save dialog path
+    // sanitises for the identical reason, since `suggestedName` reaches the same filesystem.
+    const filename = `${(meta.name || 'design').replace(/[\\/:*?"<>|]/g, '_')}.asc`;
+
+    await saveFileAs(filename, text, {
+      description: 'GemCad design (text)',
+      mimeType: 'text/plain',
+      extensions: ['.asc'],
+    });
+  }
+
+  // Rename opens the cut-name editor and puts the caret in it. A menu returns focus to its button
+  // when it closes, which would land AFTER the editor took the focus and blur it (an editor
+  // applies on blur, and closes), so that one item asks the menu not to.
+  let keepFocusOnClose = false;
+
+  function rename() {
+    keepFocusOnClose = true;
+    renameRequest.update(n => n + 1);
+  }
+
+  // File > Settings opens the settings dialog, which takes the focus itself; the menu must not
+  // give it back to its button as it closes, for the same reason as Rename.
+  let settingsDialog;
+
+  function openSettings() {
+    keepFocusOnClose = true;
+    settingsDialog.open();
+  }
+
+  function onCloseAutoFocus(event) {
+    if (keepFocusOnClose) {
+      keepFocusOnClose = false;
+      event.preventDefault();
+    }
+  }
+
+  function onDocumentKeydown(event) {
+    // Never intercept typing: the slider readouts and the cut-header fields open a real
+    // <input>, and native copy/paste and other editing must keep working there untouched.
+    // Open (Cmd/Ctrl+O) is handled here (F2/Rename is the cut header's, using the same guard);
+    // Escape closing a menu is the menubar's own.
+    if (!eventTargetIsEditable(event)) {
+      const modifierHeld = isMac ? event.metaKey : event.ctrlKey;
+
+      if (modifierHeld && !event.shiftKey && !event.altKey && event.key.toLowerCase() === 'o') {
+        event.preventDefault();
+        openFilePicker();
+        return;
+      }
+    }
+
+    // Undo/Redo: Cmd+Z / Shift+Cmd+Z on a Mac, Ctrl+Z / Ctrl+Shift+Z elsewhere, where Ctrl+Y is
+    // also taken as Redo. Not while typing into a text box, whose own text undo those keys
+    // belong to (eventTargetTakesText), and only once GemApp exists.
+    if (!sessionReady()) {
+      return;
+    }
+
+    // Nor while a modal dialog (the gear dialog) is open, which would be undone behind it. A
+    // colour editor's popover is a `role="dialog"` too, but not modal: Undo closes it first
+    // (stepHistory), as it always closed the stone color's sliders.
+    if (eventTargetTakesText(event) ||
+        document.querySelector('[role="dialog"][data-state="open"]:not([data-slot="popover-content"])') ||
+        event.altKey || !(isMac ? event.metaKey : event.ctrlKey)) {
+      return;
+    }
+
+    const key = event.key.toLowerCase();
+
+    if (key === 'z') {
+      event.preventDefault();
+      stepHistory(!event.shiftKey);
+    } else if (key === 'y' && !isMac && !event.shiftKey) {
+      event.preventDefault();
+      stepHistory(false);
+    }
+  }
+
+  // The dropdown items. A shortcut is written for the platform the page is running on (`⌘`/`⇧⌘`
+  // on a Mac, `Ctrl+`/`Ctrl+Shift+` elsewhere); Rename's "F2" has no such split (there is no
+  // single cross-platform modifier convention for rename the way there is for copy/paste).
+  // Inert items carry aria-disabled, not Bits UI's `disabled` (set from outside, see
+  // ariaDisabled in native.js): muted text, no hover highlight, and clicking one does nothing but
+  // close the menu, as it always did.
+  // `opacity-45` is the same fade the tier toolbar's inactive buttons use (TierToolbar's TOOL),
+  // added for T-0208: the muted colour ALONE is nord4 against nord6, which measures as a
+  // difference (rgb(216,222,233) against rgb(236,239,244)) but does not read as one -- greyed
+  // items looked very nearly live. It applies to File > New and Save, and to Undo/Redo with
+  // nothing to step, as well as to the ten new placeholders: one "this cannot be used" look
+  // across the whole page, rather than two that disagree.
+  const INERT = 'aria-disabled:text-muted-foreground aria-disabled:opacity-45 ' +
+    'aria-disabled:focus:bg-transparent';
+  // Every placeholder item's tip ends with this (T-0208). Greying an item says it cannot be used
+  // but not why, and "New" or "Save" can be guessed where "Tilt performance" cannot -- so each of
+  // the ten new items explains itself and then says plainly that it is not there yet.
+  const PLACEHOLDER_TIP = 'Not built yet.';
+  const ITEM = 'px-2.5 py-1.5 text-xs';
+  const MENU = 'min-w-[200px] p-1';
+  // The buttons are 1.5 times their old size, with the bar (2026-09-19, the user's request): 18px
+  // text, was text-xs (12px), and padding 15px x 6px, was px-2.5 py-1 (10px x 4px). The dropdowns
+  // keep their size.
+  const TRIGGER = 'rounded-sm border border-transparent px-[15px] py-1.5 text-[18px] font-normal';
+  const SHORTCUT = 'font-mono text-[11px] tracking-normal';
+</script>
+
+<svelte:document onkeydown={onDocumentKeydown} />
+
+<div id="topbar">
+  <a id="app-logo" href="index.html" aria-label="Houseki Design Studio home">{@html logoSvg}</a>
+  <a id="app-title" href="index.html">Houseki Design Studio</a>
+
+  <Menubar.Root id="menu-bar" aria-label="Application menu"
+    class="h-auto flex-none gap-0.5 rounded-none border-0 bg-transparent p-0">
+    <Menubar.Menu>
+      <Menubar.Trigger id="menu-button-file" data-menu="file" class={TRIGGER}>File</Menubar.Trigger>
+      <Menubar.Content id="menu-dropdown-file" aria-label="File" class={MENU} align="start"
+        sideOffset={4} alignOffset={0} {onCloseAutoFocus}>
+        <Menubar.Item {@attach ariaDisabled(() => true)} class="{ITEM} {INERT}" data-shortcut-mac="⌘N"
+          data-shortcut-other="Ctrl+N">New
+          <Menubar.Shortcut class={SHORTCUT}>{isMac ? '⌘N' : 'Ctrl+N'}</Menubar.Shortcut>
+        </Menubar.Item>
+        <!-- The only item that does anything: takes over the file picker the panel's
+             removed "Open .obj / .asc / .gem…" button used to open. -->
+        <Menubar.Item id="menu-item-open" class={ITEM} data-shortcut-mac="⌘O"
+          data-shortcut-other="Ctrl+O" onSelect={openFilePicker}>Open
+          <Menubar.Shortcut class={SHORTCUT}>{isMac ? '⌘O' : 'Ctrl+O'}</Menubar.Shortcut>
+        </Menubar.Item>
+        <Menubar.Item {@attach ariaDisabled(() => true)} class="{ITEM} {INERT}" data-shortcut-mac="⌘S"
+          data-shortcut-other="Ctrl+S">Save
+          <Menubar.Shortcut class={SHORTCUT}>{isMac ? '⌘S' : 'Ctrl+S'}</Menubar.Shortcut>
+        </Menubar.Item>
+        <!-- Export (2026-09-19): a submenu, one item per file format. Each item starts
+             aria-disabled and is wired up by its own format's writer module
+             (export_gem.js / export_asc.js / export_obj.js / export_stl.js, web/src/lib/) --
+             deliberately left as four independent one-line edits here so the four writers can
+             be built without touching each other's line. -->
+        <Menubar.Sub>
+          <Menubar.SubTrigger id="menu-item-export" class={ITEM}>Export
+            <Menubar.Shortcut class={SHORTCUT}>{isMac ? '⇧⌘E' : 'Ctrl+Shift+E'}</Menubar.Shortcut>
+          </Menubar.SubTrigger>
+          <Menubar.SubContent class={MENU}>
+            <Menubar.Item id="menu-item-export-gem" class={ITEM}
+              onSelect={exportGem}>GemCad (.gem)</Menubar.Item>
+            <Menubar.Item id="menu-item-export-asc" class={ITEM}
+              onSelect={exportAsc}>GemCad (.asc)</Menubar.Item>
+            <Menubar.Item id="menu-item-export-gcs" class={ITEM}
+              onSelect={exportGcs}>Gem Cut Studio (.gcs)</Menubar.Item>
+            <Menubar.Item id="menu-item-export-obj" class={ITEM}
+              onSelect={exportObj}>Wavefront (.obj)</Menubar.Item>
+            <Menubar.Item id="menu-item-export-stl" class={ITEM}
+              onSelect={exportCurrentStoneAsStl}>STL (.stl)</Menubar.Item>
+          </Menubar.SubContent>
+        </Menubar.Sub>
+        <!-- Live since T-0145: the cut name field IS the rename, so this opens it in place of
+             the old placeholder behaviour -- see CutHeader. -->
+        <Menubar.Item id="menu-item-rename" class={ITEM} onSelect={rename}>Rename
+          <Menubar.Shortcut class={SHORTCUT}>F2</Menubar.Shortcut>
+        </Menubar.Item>
+        <Menubar.Separator />
+        <!-- The settings dialog: light or dark mode, and the angle decimal places. -->
+        <Menubar.Item id="menu-item-settings" class={ITEM} onSelect={openSettings}>Settings</Menubar.Item>
+      </Menubar.Content>
+    </Menubar.Menu>
+
+    <Menubar.Menu>
+      <Menubar.Trigger id="menu-button-edit" data-menu="edit" class={TRIGGER}>Edit</Menubar.Trigger>
+      <Menubar.Content id="menu-dropdown-edit" aria-label="Edit" class={MENU} align="start"
+        sideOffset={4} alignOffset={0}>
+        <!-- Live (2026-09-18): step through the edit history. Disabled until there is
+             something to undo or redo. -->
+        <Menubar.Item id="menu-item-undo" {@attach ariaDisabled(() => !$canUndo)}
+          class="{ITEM} {INERT}" data-shortcut-mac="⌘Z" data-shortcut-other="Ctrl+Z"
+          onSelect={undo}>Undo
+          <Menubar.Shortcut class={SHORTCUT}>{isMac ? '⌘Z' : 'Ctrl+Z'}</Menubar.Shortcut>
+        </Menubar.Item>
+        <Menubar.Item id="menu-item-redo" {@attach ariaDisabled(() => !$canRedo)}
+          class="{ITEM} {INERT}" data-shortcut-mac="⇧⌘Z" data-shortcut-other="Ctrl+Shift+Z"
+          onSelect={redo}>Redo
+          <Menubar.Shortcut class={SHORTCUT}>{isMac ? '⇧⌘Z' : 'Ctrl+Shift+Z'}</Menubar.Shortcut>
+        </Menubar.Item>
+        <Menubar.Separator />
+        <!-- T-0208, the user's list: the whole-design transforms, all inert for now ("lets grey
+             out all of these for now"). Each one rewrites EVERY tier of the design at once --
+             which is what separates them from edit mode, whose whole rule is that one tier is
+             held and nothing else can be touched (T-0202) -- so they belong in a menu rather
+             than in the instructions pane's per-tier toolbar. Each carries the tip that says
+             what it will do, ending in PLACEHOLDER_TIP: a greyed item whose name is the only
+             thing on screen cannot say why it is greyed. -->
+        <Menubar.Item id="menu-item-rotate-index" {@attach ariaDisabled(() => true)}
+          class="{ITEM} {INERT}"
+          data-tip="Turns the whole design around the index gear, adding the same number of teeth to every facet's index. {PLACEHOLDER_TIP}"
+          >Rotate by index</Menubar.Item>
+        <Menubar.Item id="menu-item-reverse-index" {@attach ariaDisabled(() => true)}
+          class="{ITEM} {INERT}"
+          data-tip="Mirrors the design around the index gear, reflecting every facet's index, so a cut made one way round becomes the same cut made the other way. {PLACEHOLDER_TIP}"
+          >Reverse index order</Menubar.Item>
+        <Menubar.Item id="menu-item-resize-girdle" {@attach ariaDisabled(() => true)}
+          class="{ITEM} {INERT}"
+          data-tip="Moves the girdle facets in or out, changing how wide the stone finishes while every angle stays as cut. {PLACEHOLDER_TIP}"
+          >Resize girdle</Menubar.Item>
+        <Menubar.Item id="menu-item-flip-crown-pavilion" {@attach ariaDisabled(() => true)}
+          class="{ITEM} {INERT}"
+          data-tip="Turns the design over: the crown becomes the pavilion and the pavilion the crown. {PLACEHOLDER_TIP}"
+          >Flip crown and pavilion</Menubar.Item>
+        <Menubar.Item id="menu-item-scale-xy" {@attach ariaDisabled(() => true)}
+          class="{ITEM} {INERT}"
+          data-tip="Stretches the design across the girdle, changing its width against its length. The angles move with it. {PLACEHOLDER_TIP}"
+          >Scale X-Y</Menubar.Item>
+        <Menubar.Item id="menu-item-scale-z" {@attach ariaDisabled(() => true)}
+          class="{ITEM} {INERT}"
+          data-tip="Stretches the design along its axis, making the stone deeper or shallower. The angles move with it. {PLACEHOLDER_TIP}"
+          >Scale Z</Menubar.Item>
+      </Menubar.Content>
+    </Menubar.Menu>
+
+    <Menubar.Menu>
+      <Menubar.Trigger id="menu-button-tools" data-menu="tools" class={TRIGGER}>Tools</Menubar.Trigger>
+      <Menubar.Content id="menu-dropdown-tools" aria-label="Tools" class={MENU} align="start"
+        sideOffset={4} alignOffset={0}>
+        <!-- T-0208, the user's list. Tools is no longer the empty menu it was: these four are
+             inert for now, but the menu reads as "four things are coming" rather than "nothing
+             here yet" (that empty state is still Help's, and .menu-empty is still used, so the
+             rule stays). Each is a WINDOW onto the design rather than a change to it, which is
+             why none of them is in Edit above. -->
+        <Menubar.Item id="menu-item-tilt-performance" {@attach ariaDisabled(() => true)}
+          class="{ITEM} {INERT}"
+          data-tip="How much light the stone returns as it is tilted away from face-up, so a cut can be judged the way it is actually looked at rather than only straight on. {PLACEHOLDER_TIP}"
+          >Tilt performance</Menubar.Item>
+        <Menubar.Item id="menu-item-manual-optimizer" {@attach ariaDisabled(() => true)}
+          class="{ITEM} {INERT}"
+          data-tip="Adjust the angles by hand and watch what it does to the stone's light return, keeping the changes that help. {PLACEHOLDER_TIP}"
+          >Manual optimizer</Menubar.Item>
+        <Menubar.Item id="menu-item-size-yield" {@attach ariaDisabled(() => true)}
+          class="{ITEM} {INERT}"
+          data-tip="The finished stone's measurements and weight, and how much of a piece of rough this design would use. {PLACEHOLDER_TIP}"
+          >Size/yield calculator</Menubar.Item>
+        <Menubar.Item id="menu-item-cutting-assistant" {@attach ariaDisabled(() => true)}
+          class="{ITEM} {INERT}"
+          data-tip="Walks through the cutting instructions one step at a time at the machine, keeping your place. {PLACEHOLDER_TIP}"
+          >Cutting assistant</Menubar.Item>
+      </Menubar.Content>
+    </Menubar.Menu>
+
+    <Menubar.Menu>
+      <Menubar.Trigger id="menu-button-help" data-menu="help" class={TRIGGER}>Help</Menubar.Trigger>
+      <Menubar.Content id="menu-dropdown-help" aria-label="Help" class={MENU} align="start"
+        sideOffset={4} alignOffset={0}>
+        <div class="menu-empty">Nothing here yet</div>
+      </Menubar.Content>
+    </Menubar.Menu>
+  </Menubar.Root>
+</div>
+
+<SettingsDialog bind:this={settingsDialog} />

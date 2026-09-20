@@ -1,0 +1,72 @@
+/* The light theme and the light/dark toggle, shared by every page of the site (2026-09-19, the
+   user's request): the app (web/src/styles/tailwind.css imports this file), the landing page and
+   the documentation page (make_page.py inlines it into each, in <head>). site/theme.js sets
+   <html data-theme> from the saved choice before the page paints, and flips it when a toggle is
+   clicked.
+
+   Every page defines the same Nord tokens on :root for its dark theme, the default. Light mode is
+   those tokens inverted, the user's words: "invert the nord colors so the background should be
+   whitish and the text grey/bluish but keep the teal highlights". So the background is nord6 (the
+   dark theme's text), raised controls nord5, borders nord4 (the dark theme's muted text), text
+   nord3 (the dark theme's borders, Nord's grey-blue) and muted text a lighter step of it. The teal
+   (--accent, nord7) and the error red are the same in both. --warn moves from nord13's yellow,
+   which cannot be read on white, to nord12's orange. --on-accent, the text drawn ON the teal, stays
+   nord0 in both themes: on a light page --panel is near-white, which would vanish on the teal.
+
+   NOT themed: the render. gem.frag's HIGHLIGHT_COLOR still paints a selected facet in nord0, the
+   dark --panel (kb/the-nord-palette-and-its-shader-mirror.md), and the render's own background,
+   window and head shadow colours are render settings. */
+:root[data-theme="light"] {
+  /* 2026-09-19, the user's colours, then flipped at their request: #e8eaed for the backgrounds
+     (the sub bar's colour, and everything else --panel paints), #d8dee9 for the app's menu bar.
+     Borders sit a darker step below both. */
+  --panel: #e8eaed;
+  --raised: #e5e9f0;
+  --panel-edge: #b9c2d3;
+  --topbar: #d8dee9;
+  --text: #4c566a;
+  --muted: #616e88;
+  --warn: #d08770;
+}
+
+/* The toggle: a pill holding a moon and a sun, the current theme's icon filled with the teal. The
+   same markup on every page (a <button class="theme-toggle" data-theme-toggle> around a
+   .theme-toggle-moon and a .theme-toggle-sun); site/theme.js handles its clicks. Which half is lit
+   comes from <html data-theme> alone, so a toggle drawn after the page loaded (the app's, drawn by
+   Svelte) is right without being told. */
+.theme-toggle {
+  display: inline-flex;
+  gap: 2px;
+  margin: 0;
+  padding: 2px;
+  border: 1px solid var(--panel-edge);
+  border-radius: 999px;
+  background: var(--raised);
+  cursor: pointer;
+  font: inherit;
+  line-height: 0;
+}
+
+.theme-toggle:focus-visible { outline: 2px solid var(--accent); outline-offset: 2px; }
+.theme-toggle:hover { border-color: var(--accent); }
+
+.theme-toggle-moon,
+.theme-toggle-sun {
+  box-sizing: content-box;
+  width: 14px;
+  height: 14px;
+  padding: 3px;
+  border-radius: 999px;
+  color: var(--muted);
+  fill: none;
+  stroke: currentColor;
+  stroke-width: 2;
+  stroke-linecap: round;
+  stroke-linejoin: round;
+}
+
+:root:not([data-theme="light"]) .theme-toggle-moon,
+:root[data-theme="light"] .theme-toggle-sun {
+  background: var(--accent);
+  color: var(--on-accent);
+}

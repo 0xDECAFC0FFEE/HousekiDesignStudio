@@ -1,0 +1,67 @@
+/* The page's own stylesheet: the six files in this directory (base, topbar, subbar, gear-dialog,
+   instructions, panel) were the one <style> block of the hand-written page, split by area and
+   imported in this order by tailwind.css, into the `legacy` cascade layer that sits below
+   Tailwind's utilities (the shadcn-svelte components' classes), so the cascade among them is
+   unchanged. The comments are the originals, and name the old script's functions: wireUpTopBar
+   is TopBar.svelte, wireUpSubBar SubBar.svelte, wireUpGearDialog GearDialog.svelte,
+   wireUpCutHeader CutHeader.svelte, wireUpTierTables/renderTierSection/fitRowLayout/syncToolbar
+   TierTables, TierSection, TierRow and TierToolbar (logic in lib/tier_controller.js),
+   wireUpTierRowDragging lib/tier_drag.js, wireUpInstructionsResize Workspace.svelte,
+   makeReadoutEditable and makeTextFieldEditable EditableReadout and EditableText,
+   makeHsvPicker ColorSetting.svelte, setUpTooltips and tooltipSettingAt Tooltip.svelte. The
+   rules for controls that are shadcn-svelte components now (the menus, the dialog's chrome,
+   the sliders, the buttons, the resize handle) were removed; their looks are in the components'
+   own classes. */
+
+/* The Nord palette (the user's choice, 2026-09-18): background nord0, section borders nord3,
+   text nord6 and highlights/sliders nord7, as asked. The rest are Nord's own neighbours:
+   raised controls (buttons, selects, menus, tooltips) nord1, muted text nord4, and the
+   warning and error colors nord13 and nord11. gem.frag's HIGHLIGHT_COLOR copies --panel;
+   change them together. (There is no separate highlight border color any more -- the user
+   had it removed the same day it was added -- so --accent's only shader-side echo is the
+   selected tier row's tint below, a literal rgba of this same #8fbcbb.) */
+:root {
+  --panel: #2e3440;
+  --panel-edge: #4c566a;
+  --raised: #3b4252;
+  /* The menu bar: in dark mode the same colour as the tier rows (--raised); light mode sets its own. */
+  --topbar: var(--raised);
+  --text: #eceff4;
+  --muted: #d8dee9;
+  --accent: #8fbcbb;
+  --warn: #ebcb8b;
+  --error: #bf616a;
+  /* Text drawn ON the teal (a filled button, the lit half of the theme toggle): nord0 in both
+     themes, since light mode's --panel is near-white and would vanish on it. The light theme
+     redefines the rest of these in site/theme.css. */
+  --on-accent: #2e3440;
+}
+
+* { box-sizing: border-box; }
+
+html, body {
+  margin: 0;
+  height: 100%;
+  background: var(--panel);
+  color: var(--text);
+  overflow: hidden;
+}
+
+/* The page's own text is 13px, set on body. The root stays at the browser's 16px, because
+   Tailwind (and so every shadcn-svelte component) sizes in rem: with a 13px root, `text-xs`
+   would be 9.75px and `size-4` 13px, and the components would come out a fifth too small. */
+html { font-size: 16px; }
+
+body { font: 13px/1.5 ui-sans-serif, system-ui, -apple-system, "Segoe UI", sans-serif; }
+
+/* The top bar is a fixed-height sibling of #layout now, so body stacks them and #layout
+   takes whatever height is left, instead of assuming it owns the whole viewport. */
+body { display: flex; flex-direction: column; }
+
+/* #layout is the workspace below the sub bar, now three flex children in one row
+   (T-0142, splitting the window into a cutting-instructions pane and the renderer, at
+   the user's direction to turn the page into a design planner): #instructions-pane
+   (fixed width, left), #viewport (flexes to fill what is left, middle) and #panel
+   (fixed width, right) -- unchanged from each other, so the renderer keeps the exact
+   pane it always had. */
+#layout { display: flex; flex: 1; min-height: 0; }

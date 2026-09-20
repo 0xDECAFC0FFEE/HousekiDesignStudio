@@ -1,0 +1,86 @@
+# Reconstructed from the source and the old handoff notes (now kb/project-history.md) after
+# the original manifest went missing from this copy of the project (ticket T-0001).
+# Dependency versions are chosen, not recovered: the original Cargo.lock is gone too.
+
+[package]
+name = "gem-renderer"
+version = "0.1.0"
+edition = "2021"
+description = "Gemstone path tracer: Rust compiled to WebAssembly, rendering through WebGL2"
+license = "Apache-2.0"
+publish = false
+
+[lib]
+# cdylib for the wasm module, rlib so the host tests and examples can link the crate.
+crate-type = ["cdylib", "rlib"]
+# The renderer is one of several sources under src/ (src/web is the Svelte app, src/js the
+# GemCad reader, src/site the landing page), so Cargo is pointed at its own subdirectory
+# rather than finding src/lib.rs by convention. Integration tests stay in tests/, which
+# Cargo still discovers next to this manifest.
+path = "src/renderer/lib.rs"
+
+[dependencies]
+# Default features off: the default `ahash` feature pulls in `getrandom`, which does not
+# build for wasm32-unknown-unknown without extra configuration, and the loader gains
+# nothing from a faster hash map on a few hundred vertices.
+tobj = { version = "4", default-features = false }
+nalgebra = "0.34"
+half = "2"
+
+# 0.12 specifically: 0.10 and 0.11 depend on `rand`, whose `getrandom` backend does not
+# build for wasm32-unknown-unknown without extra configuration. 0.12 dropped it.
+# Default features are off to leave out rayon, since a browser build has no threads.
+bvh = { version = "0.12", default-features = false, features = ["std"] }
+
+# Pinned exactly: the wasm-bindgen CLI must be this same version, which build.sh and
+# setup.sh read from this line. Keep the line's format for their sed pattern.
+wasm-bindgen = "=0.2.128"
+js-sys = "0.3.105"
+console_error_panic_hook = "0.1"
+
+# naga is deliberately not a dev-dependency. It was evaluated for host-side GLSL
+# validation and rejected: its GLSL front end accepts only desktop GLSL and refuses
+# `#version 300 es`, `sampler2D` and `gl_VertexID`. Use glslangValidator instead.
+
+[dependencies.web-sys]
+version = "0.3.105"
+features = [
+    # `console.warn`, which the load path uses to report a malformed model. The page has no
+    # stats box to put it in, by the user's choice (T-0080).
+    "console",
+    "Document",
+    "Element",
+    "HtmlCanvasElement",
+    "WebGl2RenderingContext",
+    # Easy to miss: without it `get_active_uniform` simply does not exist.
+    "WebGlActiveInfo",
+    # The ported path accumulates radiance into an off-screen RGBA32F target across
+    # frames (T-0122); without this feature `create_framebuffer` does not exist.
+    "WebGlFramebuffer",
+    "WebGlProgram",
+    "WebGlShader",
+    # The fence the render loop waits on before submitting the next accumulation pass
+    # (T-0197); without it `fence_sync` and `client_wait_sync` do not exist.
+    "WebGlSync",
+    "WebGlTexture",
+    "WebGlUniformLocation",
+    "WebGlVertexArrayObject",
+    "Window",
+]
+
+[dev-dependencies]
+# Decodes the Gem Cut Studio screenshot that tests/gcs_camera_outline.rs measures. Test-only, so
+# it is never compiled into the wasm module. MIT OR Apache-2.0.
+png = "0.18"
+
+[profile.release]
+lto = true
+# A smaller wasm module, which make_page.py inlines into www/houseki.html. Measured
+# 2026-09-14 with wasm-bindgen 0.2.128: 303,982 bytes (110,790 gzipped) with `lto` alone,
+# 239,315 bytes (98,907 gzipped) with both settings below. One codegen unit gives LTO the
+# whole crate at once. `strip` drops the 55 KB `name` section: panics still report their
+# message and location through console_error_panic_hook, but stack frames show as
+# wasm-function[N] rather than Rust names. opt-level "z" saved only a further 4 KB gzipped
+# and trades speed for size in mesh, BVH and environment generation, so it is not used.
+codegen-units = 1
+strip = true

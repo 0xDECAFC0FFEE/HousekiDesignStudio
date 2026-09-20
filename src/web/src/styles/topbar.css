@@ -1,0 +1,103 @@
+/* ---- Top bar: the product's name with the File/Edit/Tools/Help menu beside it, one row
+   (T-0140, relaid out T-0143 at the user's request: "put the drop downs right of the
+   title" and "make the title larger", then corrected on the same ticket -- "i want the
+   file/edit etc buttons left bottom justified instead of all the way to the right
+   side"; the title itself stopped tracking the open design and became the fixed product
+   name in T-0144). #topbar is the flex row: the title and the menu bar pack to the left as
+   one group with a fixed 16px gap between them (see #app-title's flex-grow note below for
+   why they do not drift apart), and align-items: flex-end puts the menu buttons on the
+   title's bottom edge rather than at its cap height or centred against it -- flex-end
+   over baseline because, once the boxes' bottoms are flush, the 33px title's and the
+   18px buttons' own text baselines (22px and 12px until 2026-09-19) already land within about a pixel of each other, so
+   flex-end reads as "sitting on the same line" as well as literally meaning "bottom
+   justified". */
+#topbar {
+  flex: 0 0 auto;
+  display: flex;
+  align-items: flex-end;
+  gap: 16px;
+  background: var(--topbar, var(--panel));
+  /* T-0164: the divider used to be a full-width border-bottom. It is now inset by the
+     bar's own horizontal padding (16px), so it lines up with the title and menu bar
+     above it rather than running edge to edge. Drawn as a ::after below instead of a
+     second border, and the border itself kept at 1px solid TRANSPARENT (rather than
+     removed) purely to hold the 1px of height it used to contribute -- #topbar has no
+     explicit height, so dropping the border outright would shrink the bar by 1px and
+     move the canvas below it. The ::after's `bottom: -1px` (measured from the padding
+     edge, which is where an absolutely positioned child's 0 sits) lands it exactly in
+     that transparent border's 1px strip, so the visible line sits where the old border
+     did. Confirmed by measuring the built page over CDP: topbar height and the canvas
+     size are unchanged (both 54px tall / 434x844 canvas at the default 1024x937
+     window, before and after), and the line's leftmost/rightmost colored pixels moved
+     from x=0..1023 to x=16..1007 (measured, not read back from this rule). */
+  border-bottom: 1px solid transparent;
+  /* 2026-09-19, at the user's request: "increase the menu bar height by 50%", then "increase
+     the text size on the menu bar accordingly". The bar was 54px tall (10px padding above and
+     below a 33px title line, plus the 1px border). Everything in it is now 1.5 times its old
+     size -- the title 22 -> 33px (#app-title), the File/Edit/Tools/Help buttons 12 -> 18px
+     (TopBar.svelte's TRIGGER), and this vertical padding 10 -> 15px -- so the bar comes out
+     about 81px tall. */
+  padding: 15px 16px;
+  position: relative;
+}
+
+#topbar::after, #subbar::after {
+  content: "";
+  position: absolute;
+  left: 16px;
+  right: 16px;
+  bottom: -1px;
+  height: 1px;
+  background: var(--panel-edge);
+}
+
+/* The logo, directly left of the title (2026-09-19): about as tall as the title's line and
+   centred on it, rather than bottom-aligned like the menu buttons, and 10px from it rather than
+   the bar's 16px gap, so the two read as one mark. */
+#app-logo {
+  flex: none;
+  display: flex;
+  align-self: center;
+  width: 40px;
+  height: 40px;
+  margin-right: -6px;
+}
+
+#app-logo svg { width: 100%; height: 100%; }
+
+/* The logo and the title both link to the landing page, looking as they did before. */
+#app-logo, #app-title {
+  color: inherit;
+  text-decoration: none;
+}
+
+#app-title {
+  /* The product's fixed name (T-0144), not the open design's -- it never changes, and
+     File > Rename does not touch it. */
+  /* flex: 0 1 auto -- shrink, but never GROW. flex-grow: 1 here would make the title
+     absorb all the spare width and shove the menu bar against the right edge of the
+     window, which is the layout the user rejected ("instead of all the way to the right
+     side"). With no grow, the title and the menu bar pack to the left as one group and
+     the spare width falls after them. */
+  flex: 0 1 auto;
+  min-width: 0;
+  overflow: hidden;
+  font-size: 33px;
+  font-weight: 600;
+  color: var(--text);
+  white-space: nowrap;
+  text-overflow: ellipsis;
+}
+
+/* The menu itself is a shadcn-svelte Menubar (TopBar.svelte), styled by its own classes; the
+   hand-written .menu, .menu-button, .menu-dropdown and .menu-item rules are gone. */
+
+/* A deliberate empty state for Help -- and for Tools until T-0208 filled it with four greyed-out
+   placeholders -- so an empty dropdown reads as "nothing here yet" rather than a zero-height
+   rendering accident. */
+.menu-empty {
+  padding: 6px 10px;
+  color: var(--muted);
+  font-size: 12px;
+  font-style: italic;
+}
