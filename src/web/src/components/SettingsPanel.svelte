@@ -29,6 +29,7 @@
   } from '../lib/session.js';
   import { writeSettingColor } from '../lib/settings.js';
   import { requestRender, syncLuxProgress } from '../lib/viewport.js';
+  import { fullscreen, toggleFullscreen } from '../lib/fullscreen.js';
   import { listen, listeners } from '../lib/native.js';
   import ParamSlider from './ParamSlider.svelte';
   import Slider from './Slider.svelte';
@@ -39,6 +40,8 @@
   import * as NativeSelect from '$lib/components/ui/native-select/index.js';
   import { Button } from '$lib/components/ui/button/index.js';
   import { Label } from '$lib/components/ui/label/index.js';
+  import MaximizeIcon from '@lucide/svelte/icons/maximize';
+  import MinimizeIcon from '@lucide/svelte/icons/minimize';
 
   // The two pickers with a checkbox re-send the color Rust already holds when it is toggled, and
   // then ask their swatch to catch up.
@@ -59,6 +62,28 @@
 </script>
 
 <div id="panel">
+  <!-- Fullscreen (2026-09-20, the user: "add a fullscreen toggle button in the render settings.
+       clicking it hides everything else on the screen except the render settings. clicking on it
+       again brings you back"): the stone and this panel alone, with the top bar and the
+       cutting-instructions pane hidden. See fullscreen.js for what is hidden and why it is
+       hidden rather than unmounted.
+
+       OUTSIDE the `{#if $ready}` below, unlike every other control here: it needs no GemApp, no
+       stone and no wasm, so it still works on a page whose module failed to load -- where all
+       this panel holds is the error box, and a bigger view of the renderer is no use but the
+       button should not be a dead control either. `aria-pressed` rather than a Toggle, because
+       the label says which way it will go and the state is the whole page around it. -->
+  <Button variant="outline" size="sm" id="panel-fullscreen"
+    class="mb-3 h-7 w-full justify-center gap-1.5 text-xs font-normal"
+    aria-pressed={$fullscreen} onclick={toggleFullscreen}
+    data-tip="Shows the stone and these settings alone, hiding the menu bar, the cutting instructions, the rotation sliders and the stone's proportions. Click it again, or press Escape, to bring them back.">
+    {#if $fullscreen}
+      <MinimizeIcon class="size-3.5" aria-hidden="true" />Exit fullscreen
+    {:else}
+      <MaximizeIcon class="size-3.5" aria-hidden="true" />Fullscreen
+    {/if}
+  </Button>
+
   {#if $ready}
     {@render controls()}
   {/if}

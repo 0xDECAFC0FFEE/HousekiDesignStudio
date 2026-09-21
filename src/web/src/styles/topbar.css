@@ -89,6 +89,43 @@
   text-overflow: ellipsis;
 }
 
+/* ---- Small devices (2026-09-20, the user: "can you make the menu bar resize correctly on
+   small devices") ----
+   Every size above is a desktop size, and none of them moved with the window: the 40px logo,
+   the 33px title, the bar's 15px x 16px padding and its 16px gaps, plus the 272px the four
+   18px menu buttons measure (TopBar.svelte's TRIGGER), come to about 370px before the title
+   has a single character to show. Measured on the built page at those sizes: the title's box
+   is 130px at a 500px viewport, 20px (an ellipsis, no title) at 390px and 0px at 360px, and at
+   320px the bar overflows by 34px with the Help button's right edge at x=354 -- off the screen,
+   where nothing can reach it, since `html, body { overflow: hidden }` (base.css) clips the page
+   rather than scrolling it. The menu is the one part of the shell a small screen still has to
+   be able to use. With the two steps below, 320px keeps every button on screen (Help ends at
+   x=310) and still shows 72px of title.
+   The bar steps down in two, at 48rem and 40rem -- Tailwind's own `md` and `sm`, in the rem
+   units it defines them in, because the BUTTONS step at those same two widths and have to be
+   written as Tailwind variants (they are utilities, in a cascade layer above this file, so no
+   selector here can outrank them; see TRIGGER's comment). Max-width queries, so the desktop
+   rules above stay the base case and read unchanged.
+   The title is what absorbs whatever is left over at any width: `flex: 0 1 auto` with
+   `min-width: 0` and an ellipsis (see #app-title), so below the last step it keeps shortening
+   -- "Houseki Design Studio", "Houseki Desi...", "Hou..." -- and the bar stays one row, with
+   every menu button on screen, down to about 280px. The logo is never dropped: it is the
+   link home, and at 26px it costs less than the two characters of title it buys back. */
+@media (max-width: 47.99rem) {
+  #topbar { gap: 10px; padding: 10px 12px; }
+  /* The divider is inset by the bar's own padding (see #topbar::after), so it follows it down. */
+  #topbar::after { left: 12px; right: 12px; }
+  #app-title { font-size: 22px; }
+  #app-logo { width: 30px; height: 30px; margin-right: -4px; }
+}
+
+@media (max-width: 39.99rem) {
+  #topbar { gap: 8px; padding: 8px 10px; }
+  #topbar::after { left: 10px; right: 10px; }
+  #app-title { font-size: 18px; }
+  #app-logo { width: 26px; height: 26px; margin-right: -3px; }
+}
+
 /* The menu itself is a shadcn-svelte Menubar (TopBar.svelte), styled by its own classes; the
    hand-written .menu, .menu-button, .menu-dropdown and .menu-item rules are gone. */
 

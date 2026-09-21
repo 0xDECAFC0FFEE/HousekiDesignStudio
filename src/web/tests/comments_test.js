@@ -15,7 +15,7 @@
  */
 
 import {
-  commentsOf, linesToText, textToLines, sameComments,
+  commentsOf, linesToText, textToLines, sameComments, infoOf, sameInfo, numberOrNull,
 } from "../src/lib/comments.js";
 
 (0, eval)(await Deno.readTextFile(new URL("../../js/edit_history.js", import.meta.url)));
@@ -47,7 +47,7 @@ Deno.test("a design's comments are read as two lists, and a design without them 
   const withBoth = { headers: ["Standard Round Brilliant", "by A. Cutter"], footnotes: ["Cut P1 first."] };
 
   assertEqual(commentsOf(withBoth), withBoth, "a design's own comments");
-  assertEqual(commentsOf({ headers: [], footnotes: [] }), { headers: [], footnotes: [] }, "a .gcs, which carries neither");
+  assertEqual(commentsOf({ headers: [], footnotes: [] }), { headers: [], footnotes: [] }, "a design whose file carried neither");
   assertEqual(commentsOf(null), { headers: [], footnotes: [] }, "no design at all (a plain .obj)");
 });
 
@@ -196,4 +196,52 @@ Deno.test("a saved comment block is undoable and redoable through the real edit 
   replay(history.redo());
   assertEqual(design.headers, ["Standard Round Brilliant", "Cut by hand"], "redo put the first save back");
   assertEqual(design.footnotes, ["Meet at G1."], "redo put its footnotes back");
+});
+
+Deno.test("infoOf reads the <info> fields a .gcs carries, and reads empty for a design without them", () => {
+  // Setup: three designs -- one from a .gcs with every <info> field filled, one whose file gave
+  // only some of them, and one from a .asc/.gem (no <info> element in that format at all, so
+  // `design.info` is absent entirely).
+  //
+  // Test: infoOf on each.
+  //
+  // Verifies: the five fields the Comments dialog edits come back as themselves; an unstated
+  // NUMBER reads as null (not 0, not NaN -- the writer leaves an unstated bound out of the file,
+  // and 0 would be a real claim about the design); an unstated SHAPE reads as ''; and a design
+  // with no info at all reads as all-empty rather than throwing, since the dialog calls this on
+  // whatever `getDesign()` returns. The title/author/date on `design.info` are deliberately NOT
+  // returned: the cut header owns those, and the dialog must not offer a second place to edit them.
+  const full = { info: { title: "T", author: "A", date: "D", shape: "Round", sizeMin: 6, sizeMax: 20, riMin: 1.54, riMax: 2.15 } };
+
+  assertEqual(infoOf(full), { shape: "Round", sizeMin: 6, sizeMax: 20, riMin: 1.54, riMax: 2.15 },
+    "every field stated");
+  assertEqual(infoOf({ info: { shape: "Cushion", sizeMin: null, sizeMax: null, riMin: null, riMax: null } }),
+    { shape: "Cushion", sizeMin: null, sizeMax: null, riMin: null, riMax: null }, "only a shape");
+  assertEqual(infoOf({ headers: [], footnotes: [] }),
+    { shape: "", sizeMin: null, sizeMax: null, riMin: null, riMax: null }, "a design from a .asc/.gem");
+  assertEqual(infoOf(null),
+    { shape: "", sizeMin: null, sizeMax: null, riMin: null, riMax: null }, "no design at all");
+});
+
+Deno.test("numberOrNull and sameInfo: a blank box is 'not stated', not zero", () => {
+  // Setup/Test: the dialog holds its number boxes as TEXT while open, so this is the conversion
+  // that runs on Save, plus the comparison that decides whether Save records an undo step.
+  //
+  // Verifies: a blank or whitespace box, and a box holding something that is not a number, both
+  // become null -- "the design does not say" -- rather than 0, which would be a claim the person
+  // did not make. A real number, including a decimal and a negative, survives. And sameInfo
+  // separates an unchanged save (records nothing) from every single-field edit.
+  assertEqual(numberOrNull(""), null, "empty");
+  assertEqual(numberOrNull("   "), null, "whitespace only");
+  assertEqual(numberOrNull("round"), null, "not a number");
+  assertEqual(numberOrNull(null), null, "nothing at all");
+  assertEqual(numberOrNull("1.54"), 1.54, "a decimal");
+  assertEqual(numberOrNull(" 20 "), 20, "padded");
+
+  const before = { shape: "Round", sizeMin: 6, sizeMax: 20, riMin: 1.54, riMax: 2.15 };
+
+  assert(sameInfo(before, { ...before }), "an identical copy");
+  assert(!sameInfo(before, { ...before, shape: "Cushion" }), "the shape changed");
+  assert(!sameInfo(before, { ...before, sizeMin: 5 }), "a size changed");
+  assert(!sameInfo(before, { ...before, riMax: null }), "a bound cleared");
 });

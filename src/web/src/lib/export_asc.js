@@ -61,7 +61,7 @@ function headerLines(design, title) {
 }
 
 /**
- * One tier's `a` line: `a <angle> <distance> <index> [n <name>] ...  [<cutting instructions>]`,
+ * One tier's `a` line: `a <angle> <distance> <index> [n <name>] ...  [G <cutting instructions>]`,
  * matching `processAscLine`'s own grammar in `gemcad.js` (the `a` branch) exactly, since that is
  * what will read this line back.
  *
@@ -87,15 +87,12 @@ function tierLine(tier) {
 
   // The ASC reader's own `a`-line grammar treats free text as everything from the first token
   // that fails `tryParseFloat` to the end of the line -- so cutting instructions, if any, must
-  // come last, after every index and name. (`gemcad.js`'s reader parses and logs this text but
-  // never stores it on the tier for a `.asc`-parsed design -- see its own comment at the end of
-  // `processAscLine` -- so a design loaded from a `.asc` always has `cuttingInstructions === ''`
-  // and this branch is a no-op for it; it only fires for a `.gem`/`.gcs`-derived design or one a
-  // user has since annotated, where writing the text is still the honest thing to do even though
-  // re-reading this exported file will not recover it -- a property of the read side, not a
-  // defect introduced here.)
+  // come last, after every index and name, behind the `G` marker every real GemCad file puts
+  // there (`... 3 n 1 G Meet center point`, Compear125.asc). The marker is what makes the text
+  // survive a round trip through a real GemCad as well as through this project's own reader,
+  // which strips it again on the way in (T-0214; the reader used to discard this text entirely).
   if (tier.cuttingInstructions) {
-    parts.push(tier.cuttingInstructions);
+    parts.push('G', tier.cuttingInstructions);
   }
 
   return parts.join(' ');

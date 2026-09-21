@@ -457,5 +457,5 @@
     <render material="(from file)" refractive_index="2.1600001" dispersion="0.059999999" clarity="100" density="1" lighting_model="Angle Rings">
         <color r="1" g="1" b="1"/>
     </render>
-    <info title="hex cut v2 (arya)" author="0xDECAFC0FFEE" date="August 2024"/>
+    <info title="hex cut v2" author="0xDECAFC0FFEE" date="August 2026"/>
 </GemCutStudio>

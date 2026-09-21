@@ -36,9 +36,16 @@ export function openComments() {
 
 /**
  * A design's comments as `{ headers, footnotes }`, always two arrays, never null -- a design
- * built from a format that has no comments at all (a `.gcs`, whose reader sets both to `[]`, or
- * a plain `.obj`, which has no design in the first place) reads as two empty lists rather than
- * as something the dialog would have to special-case.
+ * built from a format that carries no comments (a plain `.obj`, which has no design in the first
+ * place, or a file that simply has none) reads as two empty lists rather than as something the
+ * dialog would have to special-case.
+ *
+ * Both GemCad formats carry these as their `H` and `F` lines. A `.gcs` carries them too, as
+ * `<info>`'s own `headerN`/`footerN` attributes (T-0214; the reader used to set both to `[]`),
+ * and there a single comment MAY CONTAIN LINE BREAKS -- three corpus files have one, e.g.
+ * `Ytripex.gcs`'s `footer1`. This dialog is a line-per-comment textarea, so opening and saving
+ * one of those splits it into one comment per line. The design prints identically either way;
+ * only the count changes.
  */
 export function commentsOf(design) {
   if (!design) {
@@ -96,6 +103,49 @@ export function textToLines(text) {
 /** Whether two `{ headers, footnotes }` hold the same comments, so an unchanged Save records nothing. */
 export function sameComments(a, b) {
   return sameLines(a.headers, b.headers) && sameLines(a.footnotes, b.footnotes);
+}
+
+/**
+ * The `<info>` fields a `.gcs` carries beyond the title, author and date (T-0214): the design's
+ * intended `shape`, the stone-size range it is drawn for, and the refractive-index range it is
+ * meant to be cut in. The first three live in the cut header (`cutMeta`, shown above the cutting
+ * instructions) and are edited there, so they are deliberately not repeated in this dialog.
+ *
+ * Always the same five keys, with `''` and `null` for "the file did not say" -- a `.asc`/`.gem`
+ * has no `<info>` at all, so every design not read from a `.gcs` reads as empty here. Numbers
+ * are kept as numbers or `null`, never as `NaN`: `null` means unstated, and the writer leaves an
+ * unstated bound out of the file rather than writing a made-up default.
+ */
+export function infoOf(design) {
+  const info = (design && design.info) || {};
+  const number = value => (Number.isFinite(value) ? value : null);
+
+  return {
+    shape: info.shape || '',
+    sizeMin: number(info.sizeMin),
+    sizeMax: number(info.sizeMax),
+    riMin: number(info.riMin),
+    riMax: number(info.riMax),
+  };
+}
+
+/** A text field's value as a number for `infoOf`'s shape: `null` when blank or not a number. */
+export function numberOrNull(text) {
+  const trimmed = String(text ?? '').trim();
+
+  if (trimmed === '') {
+    return null;
+  }
+
+  const value = Number(trimmed);
+
+  return Number.isFinite(value) ? value : null;
+}
+
+/** Whether two `infoOf` blocks agree, so an unchanged Save records nothing. */
+export function sameInfo(a, b) {
+  return a.shape === b.shape && a.sizeMin === b.sizeMin && a.sizeMax === b.sizeMax
+    && a.riMin === b.riMin && a.riMax === b.riMax;
 }
 
 function sameLines(a, b) {

@@ -19,7 +19,7 @@
    "isPreform": false,
    "angle": -90,
    "distance": 1.101605,
-   "cuttingInstructions": "",
+   "cuttingInstructions": null,
    "indices": [
     {
      "tier": 1,
@@ -156,7 +156,7 @@
    "isPreform": false,
    "angle": -90,
    "distance": 0.555554,
-   "cuttingInstructions": "",
+   "cuttingInstructions": null,
    "indices": [
     {
      "tier": 2,
@@ -173,7 +173,7 @@
    "isPreform": false,
    "angle": -40.5,
    "distance": 0.691987,
-   "cuttingInstructions": "",
+   "cuttingInstructions": null,
    "indices": [
     {
      "tier": 3,
@@ -310,7 +310,7 @@
    "isPreform": false,
    "angle": -40.5,
    "distance": 0.337364,
-   "cuttingInstructions": "",
+   "cuttingInstructions": null,
    "indices": [
     {
      "tier": 4,
@@ -327,7 +327,7 @@
    "isPreform": false,
    "angle": -40,
    "distance": 0.690589,
-   "cuttingInstructions": "Fix girdle width.",
+   "cuttingInstructions": null,
    "indices": [
     {
      "tier": 5,
@@ -529,7 +529,7 @@
    "isPreform": false,
    "angle": 40,
    "distance": 0.400445,
-   "cuttingInstructions": "Meet A-A-girdle",
+   "cuttingInstructions": "Meet A-girdle",
    "indices": [
     {
      "tier": 7,
@@ -676,7 +676,7 @@
    "isPreform": false,
    "angle": 8,
    "distance": 0.479957,
-   "cuttingInstructions": "Meet E-E-D. Table (optional)",
+   "cuttingInstructions": "E  (Beak optional)",
    "indices": [
     {
      "tier": 10,
@@ -693,7 +693,7 @@
    "isPreform": false,
    "angle": 0,
    "distance": 0.470545,
-   "cuttingInstructions": null,
+   "cuttingInstructions": "Meet E-E-D. Table (optional)",
    "indices": [
     {
      "tier": 11,

@@ -64,11 +64,20 @@
  * recovers is refused before `fromGemCad` ever runs, rather than silently accepted
  * because two different numbers happen to round to the same integer.
  *
- * NOT READ: `<render>`. It carries a refractive index, dispersion, clarity, density, a
- * body colour and a lighting model -- applying any of them would silently override the
- * material the user has chosen and change every comparison render. See T-0148's ticket
- * and kb/clean-room-and-licensing-constraints.md's neighbour,
+ * `<render>` (refractive index, dispersion, clarity, density, a body colour and a lighting
+ * model) is READ, into `parsed.render`, so the design keeps it, but NEVER APPLIED:
+ * `parsed.metadata.refractiveIndex` stays 0 and nothing downstream may feed it to the
+ * page's material, because that would silently override the material the user has chosen
+ * and change every comparison render. See T-0148's ticket and
  * kb/the-polar-internal-representation.md.
+ *
+ * EVERY attribute of the format (surveyed 2026-09-20 across the 30 .gcs files of
+ * reference/gemology-project-designs plus the startup stone) is read: root `version`;
+ * `<index>` gear/base/symmetry/mirror; `<tier>` angle/depth/name/instructions/visible/guide;
+ * `<facet>` nx/ny/nz/index_angle/frosting and its `<vertex>` corners; `<render>` and
+ * `<color>` as above; and `<info>` title/author/date/shape/size_min/size_max/ri_min/ri_max
+ * plus `headerN`/`footerN`, which become `metadata.headers`/`metadata.footnotes` (the
+ * .gcs's counterpart of a GemCad file's H and F lines).
  *
  * A classic browser script, like gemcad.js, gemcad_obj.js and design.js: no ES module
  * syntax, nothing loaded over the network, public surface published as
@@ -202,6 +211,31 @@
         return value;
     }
 
+    /** `node`'s `name` attribute as a number, `null` when absent, an Error when present
+     * but not a finite number (a garbled value is refused, never read as absent). */
+    function optionalNumberAttribute(node, name) {
+        return node.attributes[name] === undefined ? null : numberAttribute(node, name);
+    }
+
+    /** `node`'s `name` attribute as a boolean ("true"/"false", the only spellings Gem Cut
+     * Studio writes), `fallback` when absent, an Error for anything else. */
+    function booleanAttribute(node, name, fallback) {
+        var raw = node.attributes[name];
+
+        if (raw === undefined) {
+            return fallback;
+        }
+
+        if (raw === "true" || raw === "false") {
+            return raw === "true";
+        }
+
+        throw new Error(
+            "malformed .gcs: <" + node.tag + "> \"" + name + "\" is not true or false " +
+            "(got " + JSON.stringify(raw) + ")"
+        );
+    }
+
     /* ---------------------------------------------------------------- *
      * Building the GemCadFileData shape
      * ---------------------------------------------------------------- */
@@ -265,6 +299,14 @@
         };
         var indexAngle = numberAttribute(facetNode, "index_angle");
 
+        // `frosting` is optional and only present on a frosted facet (0.5 in every file
+        // in the Gemology Project corpus that has it). Absent means not frosted. When
+        // present it must be a number: a garbled value is refused like any other bad
+        // attribute rather than silently read as unfrosted.
+        var frosting = facetNode.attributes.frosting === undefined
+            ? 0
+            : numberAttribute(facetNode, "frosting");
+
         var points = childrenNamed(facetNode, "vertex").map(function (vertexNode) {
             return {
                 x: numberAttribute(vertexNode, "x"),
@@ -313,6 +355,7 @@
             tier: 0, // unused downstream; GemCadFileTierIndexData carries it but nothing reads it
             name: "",
             index: fileIndex,
+            frosting: frosting, // not part of GemCadFileTierIndexData; readTier folds it into isFrosted
             facetNormal: normal,
             points: points,
             renderingTriangles: [], // .gcs has no smoothed render mesh; toObjText never reads this
@@ -336,7 +379,17 @@
         }
 
         return {
+            // Tier attributes a .gcs carries that GemCad's shape has no field for. All are
+            // additive: nothing that only knows the GemCadFileData shape reads them.
+            name: name, // "P1", "G1", "C3": the file's own tier id (see parseXml's export note)
+            isHidden: booleanAttribute(tierNode, "visible", true) === false,
+            isGuide: booleanAttribute(tierNode, "guide", false),
             isPreform: false, // .gcs marks no tier as a preform stage; nothing reads this for a .gcs
+            // Frosting is per FACET in a .gcs but per TIER in the design (`tier.frosted`, a
+            // display mark). Every frosted tier in the corpus frosts all its facets
+            // (Dragon_Eye C5, Illusional_Eye_Neo C4, Kiss_Kiss C6: 4 of 4 each), so a tier
+            // counts as frosted when any facet is; a mixed tier does not occur in practice.
+            isFrosted: indices.some(function (index) { return index.frosting > 0; }),
             number: 0,
             // POLAR to MAST: see the file header comment. The same conversion the page's
             // own selfCheckTierIdsAgainstHexCutV2Gcs applies before classifying a tier.
@@ -347,16 +400,83 @@
         };
     }
 
-    /** `<info>`'s three attributes, each "" (not undefined) when the file omits it, so a
-     * caller can always destructure the result without a further null check. */
+    /** The values of `node`'s attributes named `<prefix><n>` (header1, header2, footer3...),
+     * in numeric order of `n`. Gaps are not preserved: a file with header2 but no header1
+     * (most of the corpus) yields just its one line. */
+    function numberedAttributes(node, prefix) {
+        var pattern = new RegExp("^" + prefix + "(\\d+)$");
+
+        return Object.keys(node.attributes)
+            .map(function (key) {
+                var match = pattern.exec(key);
+
+                return match === null ? null : { n: Number(match[1]), value: node.attributes[key] };
+            })
+            .filter(function (entry) { return entry !== null; })
+            .sort(function (a, b) { return a.n - b.n; })
+            .map(function (entry) { return entry.value; });
+    }
+
+    /**
+     * `<info>`'s attributes. `title`, `author`, `date`, `shape` are "" (not undefined) when
+     * the file omits them; the four size/RI bounds are `null`. Every attribute in the 30-file
+     * corpus is either here or one of `headerN`/`footerN`, which are returned as `headers`
+     * and `footers` (numeric order) for the caller to file under the design's comment lines.
+     */
     function readInfo(root) {
         var infoNodes = childrenNamed(root, "info");
-        var info = infoNodes.length > 0 ? infoNodes[0].attributes : {};
+        var node = infoNodes.length > 0 ? infoNodes[0] : { tag: "info", attributes: {}, children: [] };
+        var info = node.attributes;
 
         return {
             title: info.title || "",
             author: info.author || "",
             date: info.date || "",
+            shape: info.shape || "",
+            sizeMin: optionalNumberAttribute(node, "size_min"),
+            sizeMax: optionalNumberAttribute(node, "size_max"),
+            riMin: optionalNumberAttribute(node, "ri_min"),
+            riMax: optionalNumberAttribute(node, "ri_max"),
+            headers: numberedAttributes(node, "header"),
+            footers: numberedAttributes(node, "footer"),
+        };
+    }
+
+    /**
+     * `<render>` and its `<color>` child: the material Gem Cut Studio's author rendered the
+     * design with. Returned as data ONLY, on `parsed.render`; nothing here is applied to
+     * the page's own material (see the file header comment and
+     * kb/reading-gem-cut-studio-gcs-design-files.md: applying it would silently change every
+     * comparison render). `null` when the file has no `<render>`; each field is `""` or
+     * `null` when its attribute is missing.
+     */
+    function readRender(root) {
+        var renderNodes = childrenNamed(root, "render");
+
+        if (renderNodes.length === 0) {
+            return null;
+        }
+
+        var node = renderNodes[0];
+        var colorNodes = childrenNamed(node, "color");
+        var color = null;
+
+        if (colorNodes.length > 0) {
+            color = {
+                r: numberAttribute(colorNodes[0], "r"),
+                g: numberAttribute(colorNodes[0], "g"),
+                b: numberAttribute(colorNodes[0], "b"),
+            };
+        }
+
+        return {
+            material: node.attributes.material || "",
+            refractiveIndex: optionalNumberAttribute(node, "refractive_index"),
+            dispersion: optionalNumberAttribute(node, "dispersion"),
+            clarity: optionalNumberAttribute(node, "clarity"),
+            density: optionalNumberAttribute(node, "density"),
+            lightingModel: node.attributes.lighting_model || "",
+            color: color,
         };
     }
 
@@ -419,6 +539,8 @@
             throw new Error("malformed .gcs: no <tier> elements");
         }
 
+        var info = readInfo(root);
+
         var tiers = tierNodes.map(function (tierNode) {
             return readTier(tierNode, designStub);
         });
@@ -432,13 +554,18 @@
                 refractiveIndex: 0,
                 symmetryFolds: symmetryFolds,
                 symmetryMirror: symmetryMirror,
-                headers: [],
-                footnotes: [],
+                headers: info.headers.slice(),
+                footnotes: info.footers.slice(),
+                generator: "",
+                formatVersion: root.attributes.version || "",
             },
             tiers: tiers,
+            // Additive to the GemCadFileData shape, for GemCadDesign.fromGemCad to keep.
+            info: info,
+            render: readRender(root),
         };
 
-        return { parsed: parsed, info: readInfo(root) };
+        return { parsed: parsed, info: info };
     }
 
     globalThis.GemCutStudio = {

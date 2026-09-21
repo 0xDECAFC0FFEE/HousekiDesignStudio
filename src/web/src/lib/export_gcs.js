@@ -28,10 +28,13 @@
  * the same wheel run forwards first (`GemCadDesign.reExpressOnGear`): the geometry is untouched
  * and only the tooth numbers change, so the file is one the reader reads back consistently.
  *
- * WHAT IS NOT WRITTEN. The comments and footnotes have no place in a .gcs (`<info>` holds only
- * a title, an author and a date). A tier's preform and frosted marks have no attribute either;
- * its hidden mark is written as `visible="false"`, but the reader does not read that back, so
- * the tier returns visible. A facet no plane of the stone reaches (its half-space is redundant
+ * WHAT IS NOT WRITTEN. A tier's PREFORM mark: the format has no attribute for it. Everything
+ * else the design carries is written back (T-0214), which is what makes a file survive being
+ * opened and exported again: the header and footer comments as `<info>`'s own `headerN`/
+ * `footerN` attributes, the rest of `<info>` (shape, size and RI bounds), the `<render>` block
+ * the file arrived with, each tier's own `name` and `guide` flag, and a frosted facet's
+ * `frosting`. A tier's hidden mark is written as `visible="false"`, which the reader reads back
+ * as hidden. A facet no plane of the stone reaches (its half-space is redundant
  * and it has no face) has no corners to write, and the reader refuses a facet with fewer than
  * three and a tier with none, so such facets, and the tiers left empty by that, are left out and
  * counted in the result for the caller to report.
@@ -40,8 +43,8 @@
  * hidden from the render, and leaving it out of the geometry would mean it had no corners to
  * write and vanished from the file.
  *
- * `<render>` is written for Gem Cut Studio's benefit only; this project's reader ignores it (see
- * gcs.js). Line endings are CRLF, as in every file Gem Cut Studio writes.
+ * `<render>` is written for Gem Cut Studio's benefit only; this project's reader records it on
+ * the design but never applies it to the page's own material (see gcs.js). Line endings are CRLF, as in every file Gem Cut Studio writes.
  */
 import { getDesign } from './tier_controller.js';
 import { cutMeta, engine, showLoadAlert } from './stores.js';
@@ -60,6 +63,9 @@ const GCS_VERSION = '1000';
 
 /** Gem Cut Studio's line ending. */
 const EOL = '\r\n';
+
+/** The frosting amount every frosted facet in the corpus carries; see the facet loop. */
+const DEFAULT_FROSTING = 0.5;
 
 /**
  * `name` turned into a safe `.gcs` filename, by the same rule as `objFilename` in export_obj.js.
@@ -123,6 +129,47 @@ export function indexAngleOf(design, tier, facet, onAxis) {
   const angle = pavilionOrGirdle ? azimuth - 180 : 180 - azimuth;
 
   return ((angle % 360) + 360) % 360;
+}
+
+/**
+ * The `<info>` element's attributes: the cut header's title/author/date (or the design's own,
+ * when the caller supplies none), the rest of the design's `info` block, and its header and
+ * footer comments as `headerN`/`footerN`.
+ *
+ * The comments are the only home a `.gcs` has for them -- there are no `H`/`F` lines here --
+ * and the reader reads them back from exactly these attributes. Numbering is 1-based and
+ * dense, so a design whose file had a gap (`header2` with no `header1`, most of the corpus)
+ * comes back renumbered from 1; the text and its order are what survive, not the numbering.
+ * An attribute is written only when it has a value, as the corpus's own files do.
+ */
+function infoAttributes(design, { title, author, date }) {
+  const info = design.info || {};
+  const attributes = {
+    title: title || info.title || '',
+    author: author || info.author || '',
+    date: date || info.date || '',
+  };
+
+  if (info.shape) {
+    attributes.shape = info.shape;
+  }
+
+  for (const [key, value] of [['size_min', info.sizeMin], ['size_max', info.sizeMax],
+    ['ri_min', info.riMin], ['ri_max', info.riMax]]) {
+    if (Number.isFinite(value)) {
+      attributes[key] = formatNumber(value);
+    }
+  }
+
+  (design.headers || []).forEach((line, at) => {
+    attributes[`header${at + 1}`] = line;
+  });
+
+  (design.footnotes || []).forEach((line, at) => {
+    attributes[`footer${at + 1}`] = line;
+  });
+
+  return attributes;
 }
 
 /**
@@ -214,14 +261,22 @@ export function designToGcs(design, { title, author, date, refractiveIndex, disp
 
       const { polygon, normal } = corners;
 
-      facetLines.push(`        ${openTag('facet', {
+      // `frosting` is written only for a frosted facet, as the format does: every frosted
+      // facet in the corpus carries 0.5 and no other facet carries the attribute at all. A
+      // facet keeps its own amount when it has one (from a file), and takes the tier's mark
+      // at the corpus's own 0.5 when the tier was frosted here, on the page.
+      const frosting = facet.frosting > 0
+        ? facet.frosting
+        : tier.frosted ? DEFAULT_FROSTING : 0;
+
+      facetLines.push(`        ${openTag('facet', Object.assign({
         nx: formatNumber(normal.x),
         ny: formatNumber(normal.y),
         nz: formatNumber(normal.z),
         index_angle: formatNumber(
           indexAngleOf(forward, tier, facet, GemCadDesign.polarOf(forward, normal).onAxis)
         ),
-      }, false)}`);
+      }, frosting > 0 ? { frosting: formatNumber(frosting) } : {}), false)}`);
 
       for (const point of windLikeGcs(polygon, normal)) {
         facetLines.push(`            ${openTag('vertex', {
@@ -240,33 +295,50 @@ export function designToGcs(design, { title, author, date, refractiveIndex, disp
       return;
     }
 
+    // The tier's own name from the file wins over the id this page generates. They are the
+    // same for 27 of the corpus's 29 designs, but not always: our rule calls a tier the
+    // girdle only within TIER_ANGLE_EPSILON of 90, while Gem Cut Studio's own naming is far
+    // looser (TriZag_A's G1 sits at polar 90.0017, Random_Number_Generator_M2's G2 at
+    // 90.0020), so regenerating would rename those tiers in their own file.
     lines.push(`    ${openTag('tier', {
       angle: formatNumber(GemCadDesign.polarAngleOf(tier.angle)),
       depth: formatNumber(tier.distance),
-      name: ids[t],
+      name: tier.name || ids[t],
       instructions: tier.cuttingInstructions || '',
       visible: tier.hidden ? 'false' : 'true',
-      guide: 'false',
+      guide: tier.guide ? 'true' : 'false',
     }, false)}`);
     lines.push(...facetLines);
     lines.push('    </tier>');
   });
 
+  // The material the page is rendering with wins, then the design's own <render> (kept by the
+  // reader but never applied, see gcs.js), then the format's own defaults. Everything the
+  // caller does not supply comes from the design's <render> so that a file opened and
+  // exported again keeps the block it arrived with instead of being reset to "Random".
+  const render = forward.render || {};
   const index = Number.isFinite(refractiveIndex) && refractiveIndex > 0
     ? refractiveIndex
-    : forward.refractiveIndex > 0 ? forward.refractiveIndex : 1.54;
+    : forward.refractiveIndex > 0 ? forward.refractiveIndex
+      : render.refractiveIndex > 0 ? render.refractiveIndex : 1.54;
+  const colour = render.color || { r: 1, g: 1, b: 1 };
 
   lines.push(`    ${openTag('render', {
-    material: '(from file)',
+    material: render.material || '(from file)',
     refractive_index: formatNumber(index),
-    dispersion: formatNumber(Number.isFinite(dispersion) ? dispersion : 0),
-    clarity: 100,
-    density: 1,
-    lighting_model: 'Random',
+    dispersion: formatNumber(
+      Number.isFinite(dispersion) ? dispersion
+        : Number.isFinite(render.dispersion) ? render.dispersion : 0
+    ),
+    clarity: formatNumber(Number.isFinite(render.clarity) ? render.clarity : 100),
+    density: formatNumber(Number.isFinite(render.density) ? render.density : 1),
+    lighting_model: render.lightingModel || 'Random',
   }, false)}`);
-  lines.push(`        ${openTag('color', { r: 1, g: 1, b: 1 }, true)}`);
+  lines.push(`        ${openTag('color', {
+    r: formatNumber(colour.r), g: formatNumber(colour.g), b: formatNumber(colour.b),
+  }, true)}`);
   lines.push('    </render>');
-  lines.push(`    ${openTag('info', { title: title || '', author: author || '', date: date || '' }, true)}`);
+  lines.push(`    ${openTag('info', infoAttributes(forward, { title, author, date }), true)}`);
   lines.push('</GemCutStudio>');
 
   return { text: lines.join(EOL) + EOL, omittedFacets, omittedTiers };

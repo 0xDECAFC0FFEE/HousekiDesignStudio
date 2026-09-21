@@ -22,6 +22,7 @@
   // hand-written version lacked. Its dropdowns are portalled to <body>, so each carries the id
   // `menu-dropdown-<name>` it always had, on the dropdown itself.
   import { canUndo, canRedo, renameRequest } from '../lib/stores.js';
+  import { fullscreen } from '../lib/fullscreen.js';
   import { eventTargetIsEditable, eventTargetTakesText, isMacPlatform } from '../lib/keys.js';
   import { sessionReady, undo, redo, stepHistory } from '../lib/session.js';
   import { ariaDisabled } from '../lib/native.js';
@@ -178,13 +179,29 @@
   // The buttons are 1.5 times their old size, with the bar (2026-09-19, the user's request): 18px
   // text, was text-xs (12px), and padding 15px x 6px, was px-2.5 py-1 (10px x 4px). The dropdowns
   // keep their size.
-  const TRIGGER = 'rounded-sm border border-transparent px-[15px] py-1.5 text-[18px] font-normal';
+  //
+  // That full size is the `md:` step (2026-09-20, the user: "can you make the menu bar resize
+  // correctly on small devices"). File, Edit, Tools and Help at 18px with 15px of padding either
+  // side need about 280px between them, which with the logo and the bar's own padding left a
+  // phone nothing at all for the title and ran Help off the edge of a 360px screen -- and
+  // `body { overflow: hidden }` (base.css) clips that with no scrollbar to reach it by. So the
+  // buttons step down twice on the way there, and #topbar's own padding, gap, title and logo
+  // step with them at the SAME two widths (topbar.css). Written as Tailwind variants rather
+  // than as media queries beside those rules because these utilities sit in a cascade layer
+  // ABOVE the page's own stylesheets: no selector in topbar.css can outrank them.
+  const TRIGGER = 'rounded-sm border border-transparent font-normal ' +
+    'px-2 py-1 text-[14px] sm:px-3 sm:py-1.5 sm:text-[16px] md:px-[15px] md:text-[18px]';
   const SHORTCUT = 'font-mono text-[11px] tracking-normal';
 </script>
 
 <svelte:document onkeydown={onDocumentKeydown} />
 
-<div id="topbar">
+<!-- Hidden, not unmounted, while the settings panel's fullscreen toggle is on (2026-09-20):
+     this component's `svelte:document` keydown handler is where Cmd/Ctrl+O, Undo and Redo live,
+     and they must keep working with the bar off the screen. Tailwind's `hidden` sits in a cascade
+     layer above topbar.css, so it beats `#topbar { display: flex }` with no !important anywhere;
+     see fullscreen.js. -->
+<div id="topbar" class={$fullscreen ? 'hidden' : ''}>
   <a id="app-logo" href="index.html" aria-label="Houseki Design Studio home">{@html logoSvg}</a>
   <a id="app-title" href="index.html">Houseki Design Studio</a>
 

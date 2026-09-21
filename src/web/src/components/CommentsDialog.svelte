@@ -27,16 +27,32 @@
   // both do nothing mid-composition.
   import { getDesign, setComments } from '../lib/tier_controller.js';
   import {
-    commentsOpen, commentsOf, linesToText, textToLines,
+    commentsOpen, commentsOf, linesToText, textToLines, infoOf, numberOrNull,
   } from '../lib/comments.js';
   import * as Dialog from '$lib/components/ui/dialog/index.js';
   import { Button } from '$lib/components/ui/button/index.js';
+  import { Input } from '$lib/components/ui/input/index.js';
   import { Textarea } from '$lib/components/ui/textarea/index.js';
   import { Label } from '$lib/components/ui/label/index.js';
 
   let headerText = $state('');
   let footerText = $state('');
   let headerField = $state(null);
+
+  // The `<info>` fields a .gcs carries beyond the title, author and date (T-0214): what the
+  // design is drawn for. Held as TEXT while the dialog is open, not as numbers, so a half-typed
+  // "1." is not snapped to 1 under the person's caret; `numberOrNull` converts on save, and a
+  // blank or unparseable box saves as "not stated" rather than as a made-up 0.
+  let shape = $state('');
+  let sizeMin = $state('');
+  let sizeMax = $state('');
+  let riMin = $state('');
+  let riMax = $state('');
+
+  /** A number from the design for one of the boxes above: `null` shows as an empty box. */
+  function numberText(value) {
+    return value === null || value === undefined ? '' : String(value);
+  }
 
   // Prefilled on every OPEN, from whatever design is loaded right now -- which is what makes the
   // user's "make sure to update these headers and footers when opening files" hold: opening a file
@@ -50,18 +66,35 @@
     const open = $commentsOpen;
 
     if (open && !wasOpen) {
-      const comments = commentsOf(getDesign());
+      const design = getDesign();
+      const comments = commentsOf(design);
+      const info = infoOf(design);
 
       headerText = linesToText(comments.headers);
       footerText = linesToText(comments.footnotes);
+      shape = info.shape;
+      sizeMin = numberText(info.sizeMin);
+      sizeMax = numberText(info.sizeMax);
+      riMin = numberText(info.riMin);
+      riMax = numberText(info.riMax);
     }
 
     wasOpen = open;
   });
 
-  /** Saves both blocks as one undoable edit (setComments), then closes. */
+  /** Saves the comments and the `<info>` fields as one undoable edit, then closes. */
   function save() {
-    setComments({ headers: textToLines(headerText), footnotes: textToLines(footerText) });
+    setComments({
+      headers: textToLines(headerText),
+      footnotes: textToLines(footerText),
+      info: {
+        shape: shape.trim(),
+        sizeMin: numberOrNull(sizeMin),
+        sizeMax: numberOrNull(sizeMax),
+        riMin: numberOrNull(riMin),
+        riMax: numberOrNull(riMax),
+      },
+    });
     close();
   }
 
@@ -133,6 +166,43 @@
       <Textarea id="comments-dialog-footers" rows={4} spellcheck="false"
         class="min-h-[72px] rounded-sm px-2 py-1.5 text-xs md:text-xs"
         bind:value={footerText} />
+    </div>
+
+    <!-- The rest of a .gcs's <info> (T-0214): what the design is drawn for. The title, author
+         and date are the cut header's own fields, edited there, so they are not repeated here.
+         A GemCad .asc/.gem has no <info> at all, so for a design read from one these start
+         empty and are written only if the design is later exported as a .gcs. -->
+    <div class="mb-3 grid gap-1.5"
+      data-tip="The shape this design is drawn for, as Gem Cut Studio's own <info> records it (Round, Cushion, Triangle...). Saved in a .gcs; a GemCad file has nowhere to put it.">
+      <Label for="comments-dialog-shape" class="text-xs font-normal text-muted-foreground">Shape</Label>
+      <Input id="comments-dialog-shape" spellcheck="false"
+        class="h-7 rounded-sm px-2 py-1 text-xs md:text-xs" bind:value={shape} />
+    </div>
+
+    <div class="mb-4 grid grid-cols-2 gap-3">
+      <div class="grid gap-1.5"
+        data-tip="The stone sizes, in millimetres, the designer drew this for. Leave either box empty to say nothing about it.">
+        <Label class="text-xs font-normal text-muted-foreground">Size range (mm)</Label>
+        <div class="flex items-center gap-1.5">
+          <Input id="comments-dialog-size-min" inputmode="decimal" aria-label="Smallest size"
+            class="h-7 rounded-sm px-2 py-1 text-xs md:text-xs" bind:value={sizeMin} />
+          <span class="text-xs text-muted-foreground">to</span>
+          <Input id="comments-dialog-size-max" inputmode="decimal" aria-label="Largest size"
+            class="h-7 rounded-sm px-2 py-1 text-xs md:text-xs" bind:value={sizeMax} />
+        </div>
+      </div>
+
+      <div class="grid gap-1.5"
+        data-tip="The refractive indices this design is meant to be cut in -- 1.54 (quartz) to 2.15 (CZ) is the usual range. This is a note for the cutter; it does not change the material the stone is rendered with.">
+        <Label class="text-xs font-normal text-muted-foreground">Refractive index range</Label>
+        <div class="flex items-center gap-1.5">
+          <Input id="comments-dialog-ri-min" inputmode="decimal" aria-label="Lowest refractive index"
+            class="h-7 rounded-sm px-2 py-1 text-xs md:text-xs" bind:value={riMin} />
+          <span class="text-xs text-muted-foreground">to</span>
+          <Input id="comments-dialog-ri-max" inputmode="decimal" aria-label="Highest refractive index"
+            class="h-7 rounded-sm px-2 py-1 text-xs md:text-xs" bind:value={riMax} />
+        </div>
+      </div>
     </div>
 
     <div class="flex justify-end gap-2">

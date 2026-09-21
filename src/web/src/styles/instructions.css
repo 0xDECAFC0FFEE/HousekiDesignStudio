@@ -199,6 +199,10 @@
   grid-template-columns: 2em 3.4em minmax(0, 1.2fr) minmax(0, 1fr);
   grid-template-areas: "label angle indices notes";
   column-gap: 6px;
+  /* Only ever seen when a row has a second line: the two stacked layouts below (which set the
+     same 2px themselves), and the description's editor, which takes a line of its own at the
+     bottom of this file. A one-line row has no row gap to show. */
+  row-gap: 2px;
   align-items: baseline;
   padding: 4px 8px;
   background: var(--raised);
@@ -265,11 +269,17 @@
 
 .tier-row.tier-row-hidden > * { opacity: 0.45; filter: grayscale(1); }
 
-/* A frosted tier (T-0180): its angle and cutting teeth in the accent colour and bold,
-   where every other row shows them muted -- a mark in the list only, since the frosted
-   look is not drawn on the stone yet. */
+/* A frosted tier (T-0180): its angle and cutting teeth on a darker background, the text
+   colour unchanged (the user, 2026-09-20: darken the text's background, do not brighten the
+   text) -- a mark in the list only, since the frosted look is not drawn on the stone yet.
+   A translucent black rather than a token, so it reads as darker than the row in both themes. */
 .tier-row.tier-row-frosted .tier-angle,
-.tier-row.tier-row-frosted .tier-indices { color: var(--accent); font-weight: 700; }
+.tier-row.tier-row-frosted .tier-indices {
+  background: rgba(0, 0, 0, 0.35);
+  border-radius: 3px;
+}
+
+.tier-row.tier-row-frosted .tier-angle { padding: 0 3px; }
 
 .tier-row.tier-row-hidden.tier-row-selected {
   background: rgba(143, 188, 187, 0.08);
@@ -374,3 +384,25 @@
    wobble cannot leave stray selected text on the page, but typing and selecting inside
    the open notes editor itself must work exactly as any other text input does. */
 #instructions-pane .tier-row input.value-entry { font-size: 10px; min-width: 0; user-select: text; }
+
+/* The description's editor takes a LINE OF ITS OWN, the full width of the row, rather than
+   whichever cell it happened to be auto-placed into (2026-09-20, the user: "when i make the
+   faceting instructions small the comments bar is extremely small when i click to edit it").
+   `.tier-notes` is `display: none` while its editor is open, which frees its cell -- and an
+   input with no placement of its own is then auto-placed into the first free cell of the row,
+   WHICHEVER cell that is in whichever of the three layouts the row is currently in. That is
+   the bug: in the one-row layout it is the notes column, a 1fr share of what the id, the angle
+   and the indices leave; but once `.tier-notes-below` has moved the description onto a line of
+   its own, the first free cell on that line is the 2em ID column, and the editor comes out
+   2em -- 22px -- wide. Measured on the built page with the startup stone: 22px at the pane's
+   default 280px (notes-below), 109px at its 200px minimum, 161px at its 480px maximum. None
+   of them is a box the sentence being typed can be read back in.
+   `grid-column: 1 / -1` spans every column the row has in all three of its layouts (four by
+   default, three with `.tier-notes-below`, two in the narrow container query below), and since
+   no line of any of them has that many free columns, the editor is auto-placed on an implicit
+   row underneath instead -- the same shape `.tier-notes-below` already gives the description
+   itself. The editor is then the width of the row, measured 151/191/231/311/431px at pane
+   widths 200/240/280/360/480. The row grows by one line for as long as the editor is open,
+   which is the trade: prose is typed into a box that fits it, and the row springs back to one
+   line the moment the edit is applied. */
+#instructions-pane .tier-row input.tier-notes-entry { grid-column: 1 / -1; }

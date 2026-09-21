@@ -16,9 +16,6 @@
 //   GEM_MODEL_GCS                 the built-in stone, resources/hex_cut_v2.gcs, as text (T-0149):
 //                                 boot runs it through objTextFromBytes, the SAME path an
 //                                 opened .gcs takes, before constructing GemApp
-//   GEM_MODEL_OBJ                 resources/hex_cut_v2.obj, as text: boot's fallback ONLY if
-//                                 GEM_MODEL_GCS fails to parse structurally (never expected,
-//                                 but the built-in stone must not fail to load either)
 //   GEM_ENVIRONMENT_IMAGE_BASE64  the skybox image, base64 encoded (see ENVIRONMENT in make_page.py)
 //   GEM_ENVIRONMENT_IMAGE_TYPE    its MIME type, such as 'image/png'
 //
@@ -66,33 +63,18 @@ export async function boot() {
   // resources/hex_cut_v2.gcs's own text, inlined by make_page.py; re-encoded to bytes because
   // objTextFromBytes's .gcs branch decodes bytes, exactly like a File read would hand it.
   //
-  // A reader or design failure must never stop the stone loading (the same rule T-0153
-  // established for an opened file, restated in objTextFromBytes's own doc comment) -- so a
-  // STRUCTURAL failure here (which objTextFromBytes's .gcs branch would only throw for a
-  // malformed file, never expected of the inlined GEM_MODEL_GCS) falls all the way back to
-  // `GEM_MODEL_OBJ`, the bare mesh resources/hex_cut_v2.obj was already inlined as. A design
-  // that fails only ITS OWN gate (fromGemCad) is already handled inside objTextFromBytes,
-  // which yields a null design rather than throwing here at all.
+  // The bare-mesh fallback (resources/hex_cut_v2.obj as GEM_MODEL_OBJ) was removed on
+  // 2026-09-20: it kept a second copy of the stone in the page for a failure never expected of
+  // the inlined GEM_MODEL_GCS. A structural failure here is now an error, shown like a failed
+  // GemApp construction below. A design that fails only ITS OWN gate (fromGemCad) is still
+  // handled inside objTextFromBytes, which yields a null design rather than throwing.
   let startupModel;
 
   try {
     startupModel = objTextFromBytes('hex_cut_v2.gcs', new TextEncoder().encode(GEM_MODEL_GCS));
   } catch (cause) {
-    // Shown, not only logged (2026-09-19, the user: "when you load a file or open the program, if
-    // the file can't be read ... can you show a warning with the failed to parse error"). A
-    // warning rather than an error because the bare mesh below still gives a stone to look at;
-    // what is lost is the cutting instructions the built-in design would have carried. Carried on
-    // `warnings` so `installLoadedDesign` puts it up AFTER its own `hideError()`, like any other
-    // load's warnings.
-    startupModel = {
-      text: GEM_MODEL_OBJ,
-      gear: null,
-      title: null,
-      design: null,
-      warnings: [
-        `Could not read the built-in hex_cut_v2.gcs, falling back to its bare mesh: ${cause}`,
-      ],
-    };
+    showError(`Could not read the built-in hex_cut_v2.gcs: ${cause}`);
+    return;
   }
 
   let app;
@@ -112,11 +94,8 @@ export async function boot() {
   // runs after loading a saved one, pulled into one place so the three cannot drift the way
   // this and `loadModelFile` had already started to.
   //
-  // `startupModel.title || undefined`: if the GEM_MODEL_OBJ fallback above ran,
-  // `startupModel.title` is `null` and `.author`/`.date` are absent (`undefined`) already, so
-  // this only matters for the normal case, where it guards against a future hex_cut_v2.gcs
-  // whose <info> omits an attribute overwriting the header's sensible defaults with an empty
-  // string.
+  // `startupModel.title || undefined` guards against a future hex_cut_v2.gcs whose <info>
+  // omits an attribute overwriting the header's sensible defaults with an empty string.
   //
   // `installLoadedDesign` also calls `requestRender()`, which here runs BEFORE
   // `attachCanvasControls` gives the render loop its canvas (below) -- safe only because

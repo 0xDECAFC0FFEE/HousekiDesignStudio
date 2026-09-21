@@ -40,7 +40,7 @@ const longDescriptiveName = document.getElementById('canvas');
 
 /** a block comment */
 function helperWithALongName(parameterName) {
-  return parameterName + GEM_MODEL_OBJ.length;
+  return parameterName + GEM_MODEL_GCS.length;
 }
 
 wasm_bindgen.initSync(helperWithALongName(longDescriptiveName));
@@ -69,7 +69,7 @@ class MinifyPageTests(unittest.TestCase):
 
     def test_page_script_names_are_mangled_and_kept_out_of_the_global_scope(self):
         # Setup: PAGE's script, whose own names are long and descriptive, and which reads
-        # GEM_MODEL_OBJ and wasm_bindgen without declaring them. Test: minify the page and
+        # GEM_MODEL_GCS and wasm_bindgen without declaring them. Test: minify the page and
         # take the script after the placeholder. Verifies:
         # - the script's own names are gone (mangled);
         # - the undeclared globals and the gemApp property are untouched, so the script still
@@ -83,7 +83,7 @@ class MinifyPageTests(unittest.TestCase):
         for name in ("longDescriptiveName", "helperWithALongName", "parameterName"):
             self.assertNotIn(name, script)
 
-        for name in ("GEM_MODEL_OBJ", "wasm_bindgen.initSync", "window.gemApp"):
+        for name in ("GEM_MODEL_GCS", "wasm_bindgen.initSync", "window.gemApp"):
             self.assertIn(name, script)
 
         self.assertRegex(script, r"<script>\s*\(\(\)\s*=>|<script>\s*\(function|<script>\s*!function")

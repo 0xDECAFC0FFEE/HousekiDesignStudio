@@ -5,6 +5,7 @@
   // cannot drift.
   import { loadModelFile, applyParam } from '../lib/session.js';
   import { stoneStatsStore, ready, bumpParams } from '../lib/stores.js';
+  import { fullscreen } from '../lib/fullscreen.js';
   import ParamSlider from './ParamSlider.svelte';
   import { Button } from '$lib/components/ui/button/index.js';
   import EditOverlay from './EditOverlay.svelte';
@@ -64,8 +65,13 @@
   <div id="drop-hint">drop an .obj, .asc, .gem or .gcs file to load it</div>
   <!-- The stone's pose (2026-09-19, the user: the View sliders moved here from the settings, "add
        a top button that sets x=0, y=0 and side button that sets x=0 y=90 under the sliders"). -->
+  <!-- Both cards over the canvas are hidden by the fullscreen toggle too (2026-09-21, the user:
+       "please also hide the rotation pane and the facet count pane in the render"), leaving the
+       stone and the index dial alone in the renderer. Hidden the same way the top bar and the
+       instructions pane are, and for the same reasons -- see fullscreen.js. The sliders keep
+       their state while off screen, so the pose is untouched by a trip through fullscreen. -->
   {#if $ready}
-    <div id="view-controls" aria-label="View">
+    <div id="view-controls" aria-label="View" class={$fullscreen ? 'hidden' : ''}>
       <ParamSlider name="spin" label="X rotation (spin)" tip="Turns the stone about its own axis." />
       <ParamSlider name="tilt" label="Y rotation (tilt)"
         tip="Tilts the stone's axis towards or away from you; 0 is face-up." />
@@ -78,7 +84,7 @@
     </div>
   {/if}
   {#if $stoneStatsStore}
-    <dl id="stone-stats" aria-label="Stone proportions">
+    <dl id="stone-stats" aria-label="Stone proportions" class={$fullscreen ? 'hidden' : ''}>
       {#each STATS as stat}
         <div class="stone-stat" data-stat={stat.key} data-tip={stat.tip}>
           <dt>{stat.label}</dt>

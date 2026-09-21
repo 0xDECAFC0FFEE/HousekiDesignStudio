@@ -280,3 +280,51 @@ Deno.test("designToAscText writes a fractional index as a real number, not trunc
   assert(Math.abs(reparsed.tiers[0].facets[0].index - 12.25) < 1e-6,
     `expected the reparsed facet index to be ~12.25, got ${reparsed.tiers[0].facets[0].index}`);
 });
+
+Deno.test("designToAscText writes the G marker, so instructions starting with a number survive", () => {
+  // Setup: two tiers with cutting instructions -- one ordinary ("Meet center point"), one that
+  // STARTS WITH A NUMBER ("2 mm girdle"). The second is the case the `G` marker exists for:
+  // `processAscLine` walks an `a` line's tokens and treats every one that parses as a number as
+  // a facet index, stopping only at the first token that does not. Without a marker in front of
+  // it, that leading "2" is read as a THIRTEENTH FACET rather than as the start of the text.
+  // No file in reference/ has such an instruction, so the corpus round trip cannot catch this
+  // (verified: deleting the marker from the writer leaves all 601 files passing) -- hence this
+  // test, built by hand.
+  //
+  // Test: write the design, read it back, and compare instructions and facet counts.
+  //
+  // Verifies: both tiers' instructions come back exactly, and neither tier gained a facet. The
+  // marker itself is not part of the text: the reader strips it (T-0214), as a real GemCad file
+  // carries it (`... 3 n 1 G Meet center point`, Compear125.asc) and the .gem form of the same
+  // design does not.
+  const design = {
+    gear: { teeth: 96, reversed: false, originIndex: 0, fractional: false },
+    symmetry: { folds: 1, mirror: false },
+    refractiveIndex: 1.54,
+    tiers: [
+      {
+        angle: -42.5, distance: 0.6, cuttingInstructions: "Meet center point",
+        facets: [{ index: 3, name: "" }, { index: 27, name: "" }],
+      },
+      {
+        angle: -90, distance: 0.7, cuttingInstructions: "2 mm girdle",
+        facets: [{ index: 12, name: "" }],
+      },
+    ],
+    headers: [],
+    footnotes: [],
+  };
+
+  const text = designToAscText(design);
+
+  assert(text.includes(" G Meet center point"), `expected a G marker, got:\n${text}`);
+
+  const reparsed = GemCadDesign.fromGemCad(GemCad.importAscText(text, GemCad.nullLogger), {});
+
+  assert(reparsed.tiers[0].cuttingInstructions === "Meet center point",
+    `tier 0 instructions: ${JSON.stringify(reparsed.tiers[0].cuttingInstructions)}`);
+  assert(reparsed.tiers[1].cuttingInstructions === "2 mm girdle",
+    `tier 1 instructions: ${JSON.stringify(reparsed.tiers[1].cuttingInstructions)}`);
+  assert(reparsed.tiers[1].facets.length === 1,
+    `the "2" in the instructions must not become a facet: got ${reparsed.tiers[1].facets.length}`);
+});

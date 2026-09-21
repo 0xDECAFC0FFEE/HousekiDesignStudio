@@ -79,8 +79,8 @@
 <!-- A hidden tier (T-0178, the tier toolbar's Show/Hide) stays in the list, numbered and
      selectable, but its whole row is greyed out (the user: "grey out the entire tier when
      its hidden"), and a screen reader hears why. A frosted tier (T-0180) has its angle and
-     cutting teeth highlighted (the user: "highlights the facet angle and the cutting teeth of
-     the facet"); the stone does not show the frosting yet (T-0183). -->
+     cutting teeth on a darker background (the user, 2026-09-20: darken the text's background,
+     not brighten the text); the stone does not show the frosting yet (T-0183). -->
 <div class="tier-row" class:tier-row-hidden={tier.hidden} class:tier-row-frosted={tier.frosted}
   class:tier-row-selected={$selectedTier === tier} class:tier-row-dragging={dragging}
   role={clickable ? 'button' : undefined} tabindex={clickable ? 0 : undefined}
@@ -105,7 +105,7 @@
        Editable like the author field (the user's request, 2026-09-18), but only once its row
        is selected: the first click on a row selects its tier, and a click on the description
        of the selected row then opens the editor. -->
-  <EditableText cls="tier-notes" inputClass="text-[10px] md:text-[10px]" value={notes} emptyText="description"
+  <EditableText cls="tier-notes" inputClass="tier-notes-entry text-[10px] md:text-[10px]" value={notes} emptyText="description"
     canEdit={() => get(selectedTier) === tier}
     onwrite={value => { editNotes(tier, value); notes = value; }} />
 </div>

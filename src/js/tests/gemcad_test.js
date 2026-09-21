@@ -397,11 +397,34 @@ Deno.test("the a-line parser splits index numbers from cutting instructions corr
     assertEquals(data.tiers[5].indices.map((x) => x.index),
         [66, 30, 70, 26, 74, 22, 78, 18, 82, 14, 86, 10, 90, 6, 94, 2], "crown index numbers");
 
-    // Check: the ASC path never records cuttingInstructions on the tier -- the
-    // original parses them, logs them and throws them away.  Mirrored, so that
-    // the port does not invent data the reference does not produce.
-    assert(data.tiers.every((t) => t.cuttingInstructions === null),
-        "the ASC path should leave cuttingInstructions null, as the reference does");
+    // Check: the ASC path records cuttingInstructions on every tier, as strings
+    // ("" for a tier with none).  The C# original parses them, logs them and drops
+    // them (and the " G ..." continuation line above); this port deliberately does
+    // not, so that a .asc loses nothing its .gem twin keeps.  Turkey's crown tier
+    // (index 5) has its instructions only on the continuation line.
+    assert(data.tiers.every((t) => typeof t.cuttingInstructions === "string"),
+        "the ASC path should record cuttingInstructions as a string on every tier");
+    assertEquals(data.tiers[5].cuttingInstructions, "Fix girdle width.",
+        "instructions from a continuation line");
+});
+
+Deno.test("ASC and GEM carry the same cutting instructions for every design", { ignore: !SAMPLES_PRESENT }, async () => {
+    // Setup: the four bundled designs exist as both .asc and .gem, written by
+    // GemCad from the same design.  The .gem stores each tier's instructions in its
+    // binary records; the .asc stores them after a "G" marker on the tier's "a" line
+    // or on a following " G ..." line.
+    // Test: read both and compare, tier for tier.
+    // Verifies: the .asc reader recovers exactly the text the .gem reader does
+    // (ignoring only empty vs missing), which is the independent check that
+    // the "G" marker and continuation handling is right, not merely self-consistent.
+    for (const design of ["Compear125", "CubeIllusionTri", "SRB", "Turkey"]) {
+        const asc = await parsed(design, ".asc");
+        const gem = await parsed(design, ".gem");
+
+        assertEquals(asc.tiers.map((t) => t.cuttingInstructions || ""),
+            gem.tiers.map((t) => t.cuttingInstructions || ""),
+            design + ": cutting instructions per tier");
+    }
 });
 
 Deno.test("the GEM trailer yields the same headers, footnotes and metadata as the ASC text", { ignore: !SAMPLES_PRESENT }, async () => {

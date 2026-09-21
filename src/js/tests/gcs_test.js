@@ -240,15 +240,22 @@ Deno.test("GemCadObj.toObjText writes a mesh straight from the .gcs's own facet 
 });
 
 /*
- * <info>'s three attributes feed the cutting-instructions pane's header (T-0145/T-0148):
- * cut name, author, date. Read by hand off the file's own <info> element.
+ * <info> feeds the cutting-instructions pane's header (T-0145/T-0148) -- cut name, author,
+ * date -- and, since T-0214, the rest of the element too. Read by hand off the file's own
+ * <info> element, which carries only the first three; the others are absent here and so
+ * read as "" or null, which is the case worth pinning down (the corpus files that DO carry
+ * them are checked in the Dragon_Eye test below).
  */
-Deno.test("reads title, author and date from <info>", async () => {
+Deno.test("reads all of <info>, and absent attributes read as empty rather than undefined", async () => {
     const { info } = await readHexCutV2();
 
-    assertEquals(info.title, "hex cut v2 (arya)", "info/@title");
+    assertEquals(info.title, "hex cut v2", "info/@title");
     assertEquals(info.author, "0xDECAFC0FFEE", "info/@author");
-    assertEquals(info.date, "August 2024", "info/@date");
+    assertEquals(info.date, "August 2026", "info/@date");
+    assertEquals(info.shape, "", "info/@shape, absent from this file");
+    assertEquals([info.sizeMin, info.sizeMax, info.riMin, info.riMax], [null, null, null, null],
+        "the size and RI bounds, all absent from this file");
+    assertEquals([info.headers, info.footers], [[], []], "no headerN/footerN attributes");
 });
 
 /*
@@ -260,14 +267,30 @@ Deno.test("reads title, author and date from <info>", async () => {
  * "the reader doesn't mention <render>" catches a regression where someone innocently
  * wires the attribute up later.
  */
-Deno.test("never reads <render>, even though the file has one", async () => {
+Deno.test("<render> is read into parsed.render but never into the design's refractive index", async () => {
     const text = await Deno.readTextFile(MODEL_URL);
     assert(text.includes("refractive_index=\"2.1600001\""),
-        "fixture check: the file really does carry a <render> the reader must ignore");
+        "fixture check: the file really does carry a <render>");
 
     const { parsed } = await readHexCutV2();
-    assertEquals(parsed.metadata.refractiveIndex, 0,
-        "the render block's refractive index must not leak into the parsed design");
+
+    // Never applied: the render block's refractive index must not leak into the
+    // design's own (the page's material is the user's choice, not the file's).
+    assertEquals(parsed.metadata.refractiveIndex, 0, "metadata.refractiveIndex stays 0");
+    assertEquals(GemCadDesign.fromGemCad(parsed, {}).refractiveIndex, 0,
+        "and so does the design's");
+
+    // But kept: every <render> and <color> attribute, read by hand off the file.
+    assertEquals(parsed.render, {
+        material: "(from file)",
+        refractiveIndex: 2.1600001,
+        dispersion: 0.059999999,
+        clarity: 100,
+        density: 1,
+        lightingModel: "Angle Rings",
+        color: { r: 1, g: 1, b: 1 },
+    }, "parsed.render");
+    assertEquals(parsed.metadata.formatVersion, "1000", "root version attribute");
 });
 
 // ---------------------------------------------------------------------------
@@ -383,6 +406,232 @@ Deno.test("a girdle tier written a hair under 90 (not over, like hex_cut_v2's) s
 
     assertEquals(parsed.tiers.length, 1, "the parse completed instead of throwing");
     assertEquals(parsed.tiers[0].indices.length, 1, "the one facet was read");
+});
+
+/*
+ * SETUP. A two-tier hand-written .gcs, both tiers a single facet at polar 30 degrees (a
+ * crown angle) on a 96-tooth gear. The first tier's facet carries frosting="0.5", as real
+ * frosted facets do (Dragon_Eye C5, Illusional_Eye_Neo C4, Kiss_Kiss C6); the second has
+ * no frosting attribute, as every other facet in the format does. The normal is the
+ * crown normal for index_angle 30 (tooth 56 per the girdle test's convention reversed:
+ * a crown facet's azimuth is 180 - 30 = 150 degrees).
+ *
+ * THE TEST. Parse it, feed the result through GemCadDesign.fromGemCad, and read `frosted`
+ * off both the parsed tiers and the design's tiers. A third parse gives a frosting value
+ * that is not a number.
+ *
+ * WHAT IT VERIFIES. `frosting` on a facet marks its tier frosted (parsed tier `isFrosted`,
+ * design tier `frosted`); a facet with no attribute leaves its tier unfrosted; and a
+ * garbled value is refused rather than silently read as unfrosted.
+ */
+Deno.test("a facet's frosting attribute marks its tier frosted, and a bad value is refused", () => {
+    const s = Math.sin(30 * Math.PI / 180);
+    const c = Math.cos(30 * Math.PI / 180);
+    // Crown facet normal at polar 30, azimuth 150 from +Y towards +X.
+    const nx = s * Math.sin(150 * Math.PI / 180);
+    const ny = s * Math.cos(150 * Math.PI / 180);
+    const facet = (extra) => `<facet nx="${nx}" ny="${ny}" nz="${c}" index_angle="30"${extra}>
+<vertex x="0" y="0" z="0"/>
+<vertex x="1" y="0" z="0"/>
+<vertex x="0" y="1" z="0"/>
+</facet>`;
+    const tier = (name, extra) => `<tier angle="30" depth="1" name="${name}" instructions="" visible="true" guide="false">
+${facet(extra)}
+</tier>`;
+    const document = (tiers) => `<GemCutStudio version="1000">
+<index gear="96" base="0" symmetry="1" mirror="0"/>
+${tiers}
+</GemCutStudio>`;
+
+    const { parsed } = GemCutStudio.importText(
+        document(tier("C1", ` frosting="0.5"`) + tier("C2", "")));
+
+    assertEquals(parsed.tiers.map(t => t.isFrosted), [true, false], "parsed tiers");
+
+    const design = GemCadDesign.fromGemCad(parsed, {});
+
+    assertEquals(design.tiers.map(t => t.frosted), [true, false], "design tiers");
+
+    assertThrows(() => GemCutStudio.importText(document(tier("C1", ` frosting="lots"`))),
+        "frosting", "a non-numeric frosting");
+});
+
+/*
+ * SETUP. A hand-written .gcs whose one tier is written visible="false" guide="true", and
+ * a second tier with neither attribute. Both facets are the crown facet used above.
+ *
+ * THE TEST. Parse, then build the design.
+ *
+ * WHAT IT VERIFIES. visible="false" becomes a HIDDEN tier (the design flag that keeps
+ * a tier's planes out of the stone), guide="true" becomes a recorded `guide` flag, the
+ * file's tier name is kept, and a tier with neither attribute is visible, not a guide.
+ * A value that is not "true"/"false" is refused.
+ */
+Deno.test("a tier's visible, guide and name attributes reach the design", () => {
+    const s = Math.sin(30 * Math.PI / 180);
+    const c = Math.cos(30 * Math.PI / 180);
+    const nx = s * Math.sin(150 * Math.PI / 180);
+    const ny = s * Math.cos(150 * Math.PI / 180);
+    const tier = (name, extra) => `<tier angle="30" depth="1" name="${name}" instructions=""${extra}>
+<facet nx="${nx}" ny="${ny}" nz="${c}" index_angle="30">
+<vertex x="0" y="0" z="0"/>
+<vertex x="1" y="0" z="0"/>
+<vertex x="0" y="1" z="0"/>
+</facet>
+</tier>`;
+    const document = (tiers) => `<GemCutStudio version="1000">
+<index gear="96" base="0" symmetry="1" mirror="0"/>
+${tiers}
+</GemCutStudio>`;
+
+    const { parsed } = GemCutStudio.importText(
+        document(tier("C1", ` visible="false" guide="true"`) + tier("C2", "")));
+    const design = GemCadDesign.fromGemCad(parsed, {});
+
+    assertEquals(design.tiers.map(t => t.hidden), [true, false], "hidden");
+    assertEquals(design.tiers.map(t => Boolean(t.guide)), [true, false], "guide");
+    assertEquals(design.tiers.map(t => t.name), ["C1", "C2"], "tier names");
+    assertEquals(GemCadDesign.renderedPlanesOf(design).map(p => p.tier), [1],
+        "the hidden tier's plane is left out of the stone");
+
+    assertThrows(() => GemCutStudio.importText(document(tier("C1", ` visible="maybe"`))),
+        "visible", "a non-boolean visible");
+});
+
+// ---------------------------------------------------------------------------
+// Every attribute of the real files (needs the reference corpus; skipped without it)
+// ---------------------------------------------------------------------------
+
+const CORPUS_URL = new URL("../../../reference/gemology-project-designs/", import.meta.url);
+
+async function corpusGcsTexts() {
+    const texts = [];
+
+    try {
+        for await (const entry of Deno.readDir(CORPUS_URL)) {
+            if (entry.name.endsWith(".gcs")) {
+                texts.push([entry.name, await Deno.readTextFile(new URL(entry.name, CORPUS_URL))]);
+            }
+        }
+    } catch (_) {
+        return [];
+    }
+
+    return texts.sort((a, b) => a[0] < b[0] ? -1 : 1);
+}
+
+const CORPUS = await corpusGcsTexts();
+const CORPUS_PRESENT = CORPUS.length > 0;
+
+// Every "tag.attribute" gcs.js reads. `<info>`'s headerN / footerN are matched by pattern.
+const KNOWN_ATTRIBUTES = new Set([
+    "GemCutStudio.version",
+    "index.gear", "index.base", "index.symmetry", "index.mirror",
+    "tier.angle", "tier.depth", "tier.name", "tier.instructions", "tier.visible", "tier.guide",
+    "facet.nx", "facet.ny", "facet.nz", "facet.index_angle", "facet.frosting",
+    "vertex.x", "vertex.y", "vertex.z",
+    "render.material", "render.refractive_index", "render.dispersion", "render.clarity",
+    "render.density", "render.lighting_model",
+    "color.r", "color.g", "color.b",
+    "info.title", "info.author", "info.date", "info.shape", "info.size_min", "info.size_max",
+    "info.ri_min", "info.ri_max",
+]);
+
+/*
+ * SETUP. Every .gcs in reference/gemology-project-designs (30 files at the time of
+ * writing), scanned with the reader's own XML scanner (`parseXml`).
+ *
+ * THE TEST. Collect every tag.attribute that occurs and compare with KNOWN_ATTRIBUTES,
+ * the list of what gcs.js reads.
+ *
+ * WHAT IT VERIFIES. The reader drops no attribute silently: a file with an attribute
+ * this list does not name fails here, in the test, instead of losing data unnoticed. When
+ * it fails, teach gcs.js (and design.js) the attribute, then add it to the list.
+ */
+Deno.test("no attribute in the .gcs corpus is unknown to the reader", { ignore: !CORPUS_PRESENT }, () => {
+    const unknown = new Set();
+    const walk = (node) => {
+        for (const name of Object.keys(node.attributes)) {
+            const key = node.tag + "." + name;
+            const numbered = node.tag === "info" && /^(header|footer)\d+$/.test(name);
+
+            if (!numbered && !KNOWN_ATTRIBUTES.has(key)) {
+                unknown.add(key);
+            }
+        }
+        node.children.forEach(walk);
+    };
+
+    for (const [, text] of CORPUS) {
+        walk(GemCutStudio.parseXml(text));
+    }
+
+    assertEquals([...unknown], [], "attributes present in the corpus but not read");
+});
+
+/*
+ * SETUP. Dragon_Eye.gcs, whose <info> carries a shape, both RI bounds, one header line
+ * (header2) and three footer lines (footer1, footer3, footer4), and whose tier C5 is frosted.
+ *
+ * THE TEST. Parse it, build the design, then push the design through toJSON / fromJSON.
+ *
+ * WHAT IT VERIFIES. The <info> fields land on design.info, the header and footer lines on
+ * design.headers / design.footnotes in numeric order, the render block on design.render,
+ * C5 is frosted (and only C5) with frosting 0.5 on each of its facets, and all of it
+ * survives the JSON round trip that a shared URL takes.
+ */
+Deno.test("Dragon_Eye's info, comment lines, render and frosting reach the design and survive JSON", { ignore: !CORPUS_PRESENT }, () => {
+    const [, text] = CORPUS.find(([name]) => name === "Dragon_Eye.gcs");
+    const { parsed } = GemCutStudio.importText(text);
+    const design = GemCadDesign.fromGemCad(parsed, {});
+
+    assertEquals(design.info, {
+        title: "Dragon Eye", author: "A.Collins", date: "Jul 2020", shape: "Round",
+        sizeMin: null, sizeMax: null, riMin: 1.54, riMax: 2.1500001,
+    }, "design.info");
+    assertEquals(design.headers,
+        ["Any similarity to other designs is purely coincidental and unintentional. "],
+        "headers");
+    assertEquals(design.footnotes, [
+        "Designed for Ruby, but will work for quartz to CZ",
+        "Free to use for non profit or personal use. Not for commercial use. ",
+        "Please do not copy or distribute without the permission of the author. Copyright A.Collins 2020",
+    ], "footnotes, footer1 then footer3 then footer4");
+    assert(design.render !== null && design.render.color !== null, "render and its color");
+    assertEquals(design.source, { generator: "", formatVersion: "1000" }, "source");
+
+    const frostedTiers = design.tiers.filter(t => t.frosted).map(t => t.name);
+    assertEquals(frostedTiers, ["C5"], "only C5 is frosted");
+    const c5 = design.tiers.find(t => t.name === "C5");
+    assertEquals(c5.facets.map(f => f.frosting), [0.5, 0.5, 0.5, 0.5], "per-facet frosting");
+
+    const restored = GemCadDesign.fromJSON(JSON.parse(JSON.stringify(GemCadDesign.toJSON(design))));
+    delete design.provenance;
+    assertEquals(restored, design, "the design survives toJSON/fromJSON unchanged");
+});
+
+/*
+ * SETUP. Every .gcs in the corpus.
+ * THE TEST. Parse each, build its design, round-trip it through JSON.
+ * WHAT IT VERIFIES. No file in the corpus is broken by the added fields, and the JSON
+ * round trip is lossless for every one of them (the design is the same object afterwards).
+ */
+Deno.test("every corpus .gcs builds a design that round-trips through JSON", { ignore: !CORPUS_PRESENT }, () => {
+    for (const [name, text] of CORPUS) {
+        let design;
+
+        try {
+            design = GemCadDesign.fromGemCad(GemCutStudio.importText(text).parsed, {});
+        } catch (error) {
+            // Known unreadable corpus members (see the KB article on the corpus) are not this
+            // test's concern; a NEW failure would show as a changed count below.
+            continue;
+        }
+
+        delete design.provenance;
+        const restored = GemCadDesign.fromJSON(JSON.parse(JSON.stringify(GemCadDesign.toJSON(design))));
+        assertEquals(restored, design, name + ": JSON round trip");
+    }
 });
 
 // ---------------------------------------------------------------------------

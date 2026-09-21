@@ -19,7 +19,7 @@
    "isPreform": false,
    "angle": -90,
    "distance": 1.101605,
-   "cuttingInstructions": null,
+   "cuttingInstructions": "",
    "indices": [
     {
      "tier": 1,
@@ -156,7 +156,7 @@
    "isPreform": false,
    "angle": -90,
    "distance": 0.555554,
-   "cuttingInstructions": null,
+   "cuttingInstructions": "",
    "indices": [
     {
      "tier": 2,
@@ -173,7 +173,7 @@
    "isPreform": false,
    "angle": -40.5,
    "distance": 0.691987,
-   "cuttingInstructions": null,
+   "cuttingInstructions": "",
    "indices": [
     {
      "tier": 3,
@@ -310,7 +310,7 @@
    "isPreform": false,
    "angle": -40.5,
    "distance": 0.337364,
-   "cuttingInstructions": null,
+   "cuttingInstructions": "",
    "indices": [
     {
      "tier": 4,
@@ -327,7 +327,7 @@
    "isPreform": false,
    "angle": -40,
    "distance": 0.690589,
-   "cuttingInstructions": null,
+   "cuttingInstructions": "",
    "indices": [
     {
      "tier": 5,
@@ -392,7 +392,7 @@
    "isPreform": false,
    "angle": 35.5,
    "distance": 0.68577,
-   "cuttingInstructions": null,
+   "cuttingInstructions": "Fix girdle width.",
    "indices": [
     {
      "tier": 6,
@@ -529,7 +529,7 @@
    "isPreform": false,
    "angle": 40,
    "distance": 0.400445,
-   "cuttingInstructions": null,
+   "cuttingInstructions": "Meet A-girdle",
    "indices": [
     {
      "tier": 7,
@@ -546,7 +546,7 @@
    "isPreform": false,
    "angle": 34,
    "distance": 0.668238,
-   "cuttingInstructions": null,
+   "cuttingInstructions": "Meet A-A-girdle",
    "indices": [
     {
      "tier": 8,
@@ -611,7 +611,7 @@
    "isPreform": false,
    "angle": 10,
    "distance": 0.484645,
-   "cuttingInstructions": null,
+   "cuttingInstructions": "Meet B-A-A-C. Level step.",
    "indices": [
     {
      "tier": 9,
@@ -676,7 +676,7 @@
    "isPreform": false,
    "angle": 8,
    "distance": 0.479957,
-   "cuttingInstructions": null,
+   "cuttingInstructions": "E  (Beak optional)",
    "indices": [
     {
      "tier": 10,
@@ -693,7 +693,7 @@
    "isPreform": false,
    "angle": 0,
    "distance": 0.470545,
-   "cuttingInstructions": null,
+   "cuttingInstructions": "Meet E-E-D. Table (optional)",
    "indices": [
     {
      "tier": 11,

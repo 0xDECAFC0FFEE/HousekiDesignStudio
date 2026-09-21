@@ -450,6 +450,110 @@
      * Building a design from a parsed GemCad file
      * ---------------------------------------------------------------- */
 
+    /* ---------------------------------------------------------------- *
+     * Fields beyond the polar description: the superset of the file formats
+     * ---------------------------------------------------------------- */
+
+    /*
+     * The design also keeps everything the three file formats (.asc, .gem, .gcs)
+     * carry that the polar description above does not use, so that no attribute
+     * of any format is lost on import. All of it is OPTIONAL and written by
+     * toJSON only when it differs from its default, so a design from a format
+     * without it (and every shared URL made before it existed) is unchanged.
+     * Nothing here changes the stone or the page's material:
+     *
+     *   design.info     { title, author, date, shape, sizeMin, sizeMax, riMin,
+     *                     riMax }  a .gcs's <info> (strings "" and numbers null
+     *                     when absent). Its header/footer lines are in
+     *                     design.headers / design.footnotes, like a GemCad
+     *                     file's H and F lines.
+     *   design.render   { material, refractiveIndex, dispersion, clarity,
+     *                     density, lightingModel, color: {r,g,b} | null }  a
+     *                     .gcs's <render>. RECORDED ONLY, never applied: it
+     *                     would override the material the user chose.
+     *   design.source   { generator, formatVersion }  the .asc "GemCad 5.0"
+     *                     line and the .gcs root's version attribute.
+     *   tier.name       the .gcs tier's own id ("P1", "C3").
+     *   tier.hidden     from a .gcs's visible="false" (already a design flag).
+     *   tier.guide      a .gcs guide tier. Recorded only: unlike `hidden` it
+     *                     does not change what is rendered.
+     *   facet.frosting  a .gcs facet's frosting amount (0.5 in every corpus
+     *                     file that has it); `tier.frosted` is the tier-level
+     *                     display mark the UI toggles.
+     */
+
+    function copyInfo(info) {
+        return {
+            title: info.title || "",
+            author: info.author || "",
+            date: info.date || "",
+            shape: info.shape || "",
+            sizeMin: info.sizeMin === undefined ? null : info.sizeMin,
+            sizeMax: info.sizeMax === undefined ? null : info.sizeMax,
+            riMin: info.riMin === undefined ? null : info.riMin,
+            riMax: info.riMax === undefined ? null : info.riMax
+        };
+    }
+
+    function copyRender(render) {
+        function numberOrNull(value) {
+            return value === undefined ? null : value;
+        }
+
+        return {
+            material: render.material || "",
+            refractiveIndex: numberOrNull(render.refractiveIndex),
+            dispersion: numberOrNull(render.dispersion),
+            clarity: numberOrNull(render.clarity),
+            density: numberOrNull(render.density),
+            lightingModel: render.lightingModel || "",
+            color: render.color
+                ? { r: render.color.r, g: render.color.g, b: render.color.b }
+                : null
+        };
+    }
+
+    /** Copies design-level optional fields from `from` (a design, or a parsed
+     * file for `info`/`render`) onto `to`, leaving absent ones absent. */
+    function copyDesignExtras(from, to) {
+        if (from.info) {
+            to.info = copyInfo(from.info);
+        }
+
+        if (from.render) {
+            to.render = copyRender(from.render);
+        }
+
+        if (from.source && (from.source.generator || from.source.formatVersion)) {
+            to.source = {
+                generator: from.source.generator || "",
+                formatVersion: from.source.formatVersion || ""
+            };
+        }
+    }
+
+    /** Copies `name` and `guide` from `from` onto tier `to` when non-default. */
+    function copyTierExtras(from, to) {
+        if (from.name) {
+            to.name = from.name;
+        }
+
+        if (from.guide) {
+            to.guide = true;
+        }
+    }
+
+    /** A facet `{index, name}`, plus `frosting` when the source facet has any. */
+    function makeFacet(index, name, frosting) {
+        var facet = { index: index, name: name || "" };
+
+        if (frosting > 0) {
+            facet.frosting = frosting;
+        }
+
+        return facet;
+    }
+
     /**
      * A design from the output of `GemCad.importBytes` and friends.
      *
@@ -509,6 +613,16 @@
             footnotes: (metadata.footnotes || []).slice()
         };
 
+        // parsed.info / parsed.render exist only for a .gcs (gcs.js).
+        copyDesignExtras({
+            info: parsed.info,
+            render: parsed.render,
+            source: {
+                generator: metadata.generator,
+                formatVersion: metadata.formatVersion
+            }
+        }, design);
+
         var worstIndexSnap = 0;
         var worstNormalError = 0;
         var anyFractional = false;
@@ -519,9 +633,13 @@
                 angle: source.angle,
                 distance: source.distance,
                 preform: Boolean(source.isPreform),
+                hidden: Boolean(source.isHidden), // .gcs visible="false" (gcs.js)
+                frosted: Boolean(source.isFrosted), // only a .gcs sets this (gcs.js)
                 cuttingInstructions: source.cuttingInstructions || "",
                 facets: []
             };
+
+            copyTierExtras({ name: source.name, guide: source.isGuide }, tier);
 
             for (var i = 0; i < source.indices.length; i++) {
                 var entry = source.indices[i];
@@ -591,10 +709,7 @@
                     index = ((entry.index % teeth) + teeth) % teeth;
                 }
 
-                tier.facets.push({
-                    index: index,
-                    name: entry.name || ""
-                });
+                tier.facets.push(makeFacet(index, entry.name, entry.frosting));
 
                 /* Gate: does the polar description rebuild the geometry?
                  *
@@ -673,7 +788,7 @@
      * that breaks reading, not merely one that adds a new fact.
      */
     function toJSON(design) {
-        return {
+        var json = {
             v: SCHEMA_VERSION,
             name: design.name || "",
             gear: {
@@ -700,13 +815,21 @@
                     frosted: Boolean(tier.frosted),
                     cuttingInstructions: tier.cuttingInstructions,
                     facets: tier.facets.map(function (facet) {
-                        return { index: facet.index, name: facet.name };
+                        return makeFacet(facet.index, facet.name, facet.frosting);
                     })
                 };
             }),
             headers: design.headers.slice(),
             footnotes: design.footnotes.slice()
         };
+
+        copyDesignExtras(design, json);
+
+        design.tiers.forEach(function (tier, t) {
+            copyTierExtras(tier, json.tiers[t]);
+        });
+
+        return json;
     }
 
     /**
@@ -735,7 +858,7 @@
             throw new Error("design document has no tiers");
         }
 
-        return {
+        var design = {
             v: SCHEMA_VERSION,
             name: source.name || "",
             gear: {
@@ -758,13 +881,21 @@
                     frosted: Boolean(tier.frosted),
                     cuttingInstructions: tier.cuttingInstructions || "",
                     facets: (tier.facets || []).map(function (facet) {
-                        return { index: facet.index, name: facet.name || "" };
+                        return makeFacet(facet.index, facet.name, facet.frosting);
                     })
                 };
             }),
             headers: (source.headers || []).slice(),
             footnotes: (source.footnotes || []).slice()
         };
+
+        copyDesignExtras(source, design);
+
+        source.tiers.forEach(function (tier, t) {
+            copyTierExtras(tier, design.tiers[t]);
+        });
+
+        return design;
     }
 
     /* ---------------------------------------------------------------- *
@@ -862,6 +993,8 @@
             footnotes: design.footnotes.slice()
         };
 
+        copyDesignExtras(design, result);
+
         var anyFractional = false;
 
         for (var t = 0; t < design.tiers.length; t++) {
@@ -876,6 +1009,8 @@
                 facets: []
             };
 
+            copyTierExtras(sourceTier, tier);
+
             for (var f = 0; f < sourceTier.facets.length; f++) {
                 var facet = sourceTier.facets[f];
                 var raw = facet.index * ratio;
@@ -884,7 +1019,7 @@
 
                 anyFractional = anyFractional || snapped.fractional;
 
-                tier.facets.push({ index: snapped.index, name: facet.name });
+                tier.facets.push(makeFacet(snapped.index, facet.name, facet.frosting));
             }
 
             result.tiers.push(tier);

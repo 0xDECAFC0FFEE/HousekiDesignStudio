@@ -34,9 +34,8 @@ leaves none.) So nothing is left to load:
     to `wasm_bindgen.initSync`;
   * the startup stone is embedded as a string literal (GEM_MODEL_GCS, T-0149): a Gem Cut
     Studio design, src/resources/hex_cut_v2.gcs, which main() runs through the page's own .gcs
-    reader at load time, the same path an opened .gcs file takes. GEM_MODEL_OBJ, the bare
-    mesh src/resources/hex_cut_v2.obj was inlined as before T-0149, is kept too, as main()'s
-    fallback only if that reader throws on the inlined text (not expected to happen);
+    reader at load time, the same path an opened .gcs file takes. The bare mesh
+    src/resources/hex_cut_v2.obj is no longer inlined (2026-09-20);
   * the skybox image is embedded as base64 (GEM_ENVIRONMENT_IMAGE_BASE64), with its MIME
     type (GEM_ENVIRONMENT_IMAGE_TYPE) so the page can decode PNG and JPEG alike;
   * the GemCad reader, its OBJ writer, the polar design representation, the Gem Cut
@@ -100,15 +99,13 @@ BUILD = PROJECT_ROOT / "build"
 WEB_DIR = SRC / "web"
 TEMPLATE = BUILD / "web" / "index.html"
 # The startup stone (T-0149): a Gem Cut Studio design, run through the page's own .gcs
-# reader (gcs.js) at load time -- see GEM_MODEL_GCS below. MODEL_OBJ_FALLBACK is the bare
-# mesh main() falls back to ONLY if that reader throws on the inlined text, which is not
-# expected to happen; it is src/resources/hex_cut_v2.obj (CLAUDE.md forbids editing that file,
-# and tools/'s CPU oracles read it directly from disk, unrelated to either constant here).
+# reader (gcs.js) at load time -- see GEM_MODEL_GCS below. The bare mesh
+# src/resources/hex_cut_v2.obj is not inlined any more (2026-09-20); CLAUDE.md forbids editing
+# that file, and the Rust tests and tools/'s CPU oracles read it directly from disk.
 MODEL_GCS = SRC / "resources" / "hex_cut_v2.gcs"
-MODEL_OBJ_FALLBACK = SRC / "resources" / "hex_cut_v2.obj"
 # The skybox: a horizontal cross made from the equirectangular panorama
 # src/resources/backrooms_skybox.jpeg by src/scripts/equirect_to_cross.py.
-ENVIRONMENT = SRC / "resources" / "backrooms_skybox_cross.png"
+ENVIRONMENT = SRC / "resources" / "backrooms_skybox_cross.jpg"
 
 # MIME type per supported environment image extension. The page hands the bytes to
 # createImageBitmap as a Blob, which needs the right type to pick a decoder.
@@ -220,7 +217,6 @@ REQUIRED_GLOBALS = (
     "GEM_BINDINGS_GZIP_BASE64",
     "GEM_WASM_GZIP_BASE64",
     "GEM_MODEL_GCS",
-    "GEM_MODEL_OBJ",
     "GEM_ENVIRONMENT_IMAGE_BASE64",
     "GEM_ENVIRONMENT_IMAGE_TYPE",
     "GEM_GEMCAD_GZIP_BASE64",
@@ -468,9 +464,6 @@ def build_page(glue_path, wasm_path, minified):
     model_gcs_literal = inline_script_text(
         json.dumps(MODEL_GCS.read_text()), f"model ({MODEL_GCS})"
     )
-    model_obj_fallback_literal = inline_script_text(
-        json.dumps(MODEL_OBJ_FALLBACK.read_text()), f"model ({MODEL_OBJ_FALLBACK})"
-    )
     environment_literal = base64_literal(environment_bytes)
 
     # One compressed blob for both GemCad scripts: they are always run together, and gzip
@@ -489,7 +482,6 @@ def build_page(glue_path, wasm_path, minified):
         ("skybox image (base64)", len(environment_bytes), len(environment_literal)),
         ("GemCad reader (min, gzip, base64)" if minified else "GemCad reader (gzip, base64)", gemcad_source_size, len(gemcad_literal)),
         ("model (.gcs, startup)", len(MODEL_GCS.read_bytes()), len(model_gcs_literal)),
-        ("model (.obj, fallback)", len(MODEL_OBJ_FALLBACK.read_bytes()), len(model_obj_fallback_literal)),
         # The Svelte app: its script and styles, inline in the shell, as Vite built them.
         ("app (Svelte, Vite build)", len(template.encode("utf-8")), len(template.encode("utf-8"))),
     ]
@@ -522,11 +514,6 @@ def build_page(glue_path, wasm_path, minified):
         "// (src/web/src/lib/boot.js) runs this through the SAME .gcs reader path (objTextFromBytes)\n"
         "// an opened file takes.\n"
         f"const GEM_MODEL_GCS = {model_gcs_literal};\n\n"
-        f"// boot's fallback ONLY if GEM_MODEL_GCS fails to parse structurally (not expected):\n"
-        f"// {MODEL_OBJ_FALLBACK.relative_to(PROJECT_ROOT)}, the bare mesh the page started from\n"
-        "// before T-0149. CLAUDE.md forbids editing that file; tools/'s CPU oracles read it\n"
-        "// from disk directly, unrelated to this constant.\n"
-        f"const GEM_MODEL_OBJ = {model_obj_fallback_literal};\n\n"
         f"// The skybox, {ENVIRONMENT.relative_to(PROJECT_ROOT)}, base64 encoded.\n"
         f"const GEM_ENVIRONMENT_IMAGE_BASE64 = {environment_literal};\n"
         f"const GEM_ENVIRONMENT_IMAGE_TYPE = {json.dumps(environment_type)};\n"

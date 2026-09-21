@@ -15,16 +15,28 @@
   import EditPanel from './components/EditPanel.svelte';
   import Tooltip from './components/Tooltip.svelte';
   import { editing, cancelEditMode } from './lib/edit_mode.js';
+  import { exitFullscreen } from './lib/fullscreen.js';
   import { eventTargetTakesText } from './lib/keys.js';
 
   let gearDialog;
 
   // Escape cancels edit mode (T-0193; the same as its Cancel button, which undoes the edits), unless it is someone else's Escape: a field being typed
   // in, or an open dialog or menu, each of which closes itself on it.
+  //
+  // With no edit session to cancel, the same Escape leaves fullscreen (2026-09-20), which is a
+  // no-op when the page is not in it. Edit mode first, and only one of the two per press: edit
+  // mode swaps the render settings for its own bar, so while both are on, the button that leaves
+  // fullscreen is off the screen and the first Escape has to be the one that brings it back.
   function onkeydown(event) {
-    if (event.key === 'Escape' && $editing && !event.defaultPrevented && !eventTargetTakesText(event) &&
-      !document.querySelector('[role="dialog"], [role="menu"]')) {
+    if (event.key !== 'Escape' || event.defaultPrevented || eventTargetTakesText(event) ||
+      document.querySelector('[role="dialog"], [role="menu"]')) {
+      return;
+    }
+
+    if ($editing) {
       cancelEditMode();
+    } else {
+      exitFullscreen();
     }
   }
 </script>

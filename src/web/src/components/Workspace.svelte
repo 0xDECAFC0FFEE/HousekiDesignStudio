@@ -34,6 +34,7 @@
   import Viewport from './Viewport.svelte';
   import SubBar from './SubBar.svelte';
   import { editing } from '../lib/edit_mode.js';
+  import { fullscreen } from '../lib/fullscreen.js';
   import { beginPaneScoot, endPaneScoot } from '../lib/viewport.js';
   import {
     readSetting, writeSetting, INSTRUCTIONS_WIDTH_SETTING, INSTRUCTIONS_WIDTH_MIN,
@@ -162,15 +163,20 @@
 <Resizable.PaneGroup direction="horizontal" bind:ref={groupElement}
   keyboardResizeBy={groupPx > 0 ? (KEY_STEP_PX / groupPx) * 100 : null}
   class="min-w-0 flex-1">
+  <!-- The pane and its handle are HIDDEN while the settings panel's fullscreen toggle is on
+       (2026-09-20), never removed: PaneForge keeps its layout and this pane keeps the width it
+       was dragged to, and the renderer's pane -- then the only flex item left in the group --
+       takes the whole width on its own. See fullscreen.js. On the handle, `hidden` also displaces
+       the `flex` in its own base classes, which `cn`'s tailwind-merge resolves for us. -->
   <Resizable.Pane bind:this={pane} bind:ref={paneElement} defaultSize={percent} minSize={minPercent}
-    maxSize={maxPercent} {onResize}>
+    maxSize={maxPercent} {onResize} class={$fullscreen ? 'hidden' : ''}>
     <InstructionsPane />
   </Resizable.Pane>
 
   <!-- Drag to resize the instructions pane (2026-09-18). -->
   <Resizable.Handle withHandle id="instructions-resize" aria-label="Resize the cutting instructions pane"
     aria-orientation="vertical" {onDraggingChange} {onkeydown} {onkeyup} onblur={onkeyup}
-    class="w-0 translate-x-[-2px] bg-transparent text-muted-foreground hover:text-primary data-[active]:text-primary after:left-1/2 after:w-2.5 after:rounded-sm hover:after:bg-muted data-[active]:after:bg-muted" />
+    class="w-0 translate-x-[-2px] bg-transparent text-muted-foreground hover:text-primary data-[active]:text-primary after:left-1/2 after:w-2.5 after:rounded-sm hover:after:bg-muted data-[active]:after:bg-muted {$fullscreen ? 'hidden' : ''}" />
 
   <Resizable.Pane>
     <!-- The 10px gap is padding on a wrapper, not on the pane: padding on a flex item that has

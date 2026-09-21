@@ -379,6 +379,12 @@
         this.symmetryMirror = false;
         this.headers = [];
         this.footnotes = [];
+        // The `.asc` "GemCad 5.0" line, verbatim. Not in the C# original (which ignores the
+        // line), added so the design keeps which program wrote the file. "" when the file has
+        // none: a `.gem` has no such text, and a `.gcs` records `formatVersion` instead.
+        this.generator = "";
+        // The `.gcs` root's `version` attribute ("1000"); "" for `.asc`/`.gem`. Set by gcs.js.
+        this.formatVersion = "";
     }
 
     function GemCadFileTierIndexData() {
@@ -1151,7 +1157,24 @@
             return;
         }
 
-        if (parts[0] === "g") {
+        if (parts[0] === "GemCad") {
+            // "GemCad 5.0": the program and version that wrote the file. The C# original
+            // ignores this line; the design keeps it (metadata.generator).
+            fileData.metadata.generator = parts.join(" ").trim();
+        } else if (parts[0] === "G") {
+            // A cutting-instruction CONTINUATION line (" G Fix girdle width."), which the C#
+            // original discards because "G" matches no line type. It belongs to the tier of
+            // the `a` line above it. Some files hold all of a tier's instructions here
+            // (Turkey.asc), some inline on the `a` line, some both.
+            var lastTier = fileData.tiers[fileData.tiers.length - 1];
+            var continuation = parts.slice(1).join(" ").trim();
+
+            if (lastTier !== undefined && continuation !== "") {
+                lastTier.cuttingInstructions = lastTier.cuttingInstructions
+                    ? lastTier.cuttingInstructions + " " + continuation
+                    : continuation;
+            }
+        } else if (parts[0] === "g") {
             if (parts.length === 3) {
                 var gear = tryParseInt(parts[1]);
                 var gearLocation = tryParseFloat(parts[2]);
@@ -1253,6 +1276,11 @@
                     tier.number = tierCounter.value;
                     tier.angle = angle;
                     tier.distance = distance;
+                    // Inline instructions start with the "G" marker, which the `.gem` form of
+                    // the same design omits ("G Meet center point" vs "Meet center point"), so
+                    // strip it to make the two formats agree. The C# original logs this text
+                    // and drops it; the design keeps it.
+                    tier.cuttingInstructions = currentCuttingInstructions.replace(/^G(\s+|$)/, "");
                     for (var t = 0; t < facetIndices.length; t++) {
                         var tierIndex = new GemCadFileTierIndexData();
                         tierIndex.tier = tierCounter.value;
@@ -1265,10 +1293,10 @@
                 }
             }
         }
-        // NOTE: the original never records `CuttingInstructions` on the tier in
-        // the ASC path -- it parses them and only logs them.  Left as is, so
-        // that a .asc-parsed tier has cuttingInstructions === null just as in
-        // the reference.  (The .gem path does fill the field in.)
+        // DELIBERATE DIVERGENCE FROM UPSTREAM: the original never records
+        // `CuttingInstructions` on the tier in the ASC path -- it parses them, logs them
+        // and drops them (and drops "G" continuation lines outright). Both are recorded
+        // here, so a `.asc` loses no more than its `.gem` twin does.
     }
 
     /**
@@ -1467,16 +1495,11 @@
                 rec.tier = out.eodMarker;
 
                 var text = readAnsiString(reader, true).split("\t");
+                var recordInstructions = "";
                 if (text.length > 0) { // always true; kept for fidelity
                     rec.name = text[0].trim();
                     if (text.length > 1) {
-                        // NOTE (upstream quirk): this writes onto `currentTier`,
-                        // which for the first record of a new tier is still the
-                        // PREVIOUS tier, because the tier is only rolled over a
-                        // few lines further down.  Mirrored deliberately.
-                        if (isNullOrWhiteSpace(currentTier.cuttingInstructions)) {
-                            currentTier.cuttingInstructions = text.slice(1).join("\t");
-                        }
+                        recordInstructions = text.slice(1).join("\t");
                     }
                 }
 
@@ -1517,6 +1540,19 @@
                     currentTier = new GemCadFileTierData();
                     currentTier.isPreform = inPreform;
                     currentTier.number = rec.tier;
+                }
+
+                /* DELIBERATE DIVERGENCE FROM UPSTREAM. The C# original stores a record's
+                 * instructions on `currentTier` BEFORE the rollover above, so the first
+                 * record of a new tier writes onto the PREVIOUS tier: Turkey.gem's tier 4
+                 * gets tier 5's "Fix girdle width.", and its tiers 9 and 10 each get the
+                 * next one's text. Storing after the rollover puts them on the tier the
+                 * record belongs to; checked against the .asc of the same four designs
+                 * (gemcad_test.js, "ASC and GEM carry the same cutting instructions").
+                 * Identical to upstream whenever a record's tier is already current. */
+                if (isNullOrWhiteSpace(currentTier.cuttingInstructions) &&
+                    !isNullOrWhiteSpace(recordInstructions)) {
+                    currentTier.cuttingInstructions = recordInstructions;
                 }
 
                 rec.points = indexPoints.slice();

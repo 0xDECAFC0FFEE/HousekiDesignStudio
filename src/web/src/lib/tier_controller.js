@@ -26,7 +26,7 @@ import { writable, get } from 'svelte/store';
 import { flushSync } from 'svelte';
 import { isPavilionTier, splitTiersIntoSections } from './tiers.js';
 import { applyGearSnapshot } from './gear.js';
-import { commentsOf, sameComments } from './comments.js';
+import { commentsOf, sameComments, infoOf, sameInfo } from './comments.js';
 
 /**
  * What the tier tables draw: `hasDesign` (false for the built-in mesh or a plain .obj, which
@@ -395,10 +395,17 @@ export function setComments(comments) {
     return;
   }
 
-  const before = commentsOf(currentDesign);
-  const after = { headers: comments.headers.slice(), footnotes: comments.footnotes.slice() };
+  // The dialog's `<info>` fields (shape, size and RI bounds, T-0214) ride along in the same op
+  // rather than in one of their own: they are saved by the same button press, so one Save is one
+  // undo step. A caller that passes no `info` leaves the design's own alone.
+  const before = { ...commentsOf(currentDesign), info: infoOf(currentDesign) };
+  const after = {
+    headers: comments.headers.slice(),
+    footnotes: comments.footnotes.slice(),
+    info: comments.info ? { ...comments.info } : before.info,
+  };
 
-  if (sameComments(before, after)) {
+  if (sameComments(before, after) && sameInfo(before.info, after.info)) {
     return;
   }
 
@@ -409,10 +416,16 @@ export function setComments(comments) {
   });
 }
 
-/** Puts a `{ headers, footnotes }` onto the loaded design, in place. */
+/** Puts a `{ headers, footnotes, info }` onto the loaded design, in place. */
 function writeComments(comments) {
   currentDesign.headers = comments.headers.slice();
   currentDesign.footnotes = comments.footnotes.slice();
+
+  if (comments.info) {
+    // Merged, not replaced: `design.info` also holds the title, author and date the cut header
+    // owns (design.js's `copyInfo`), which this dialog does not edit and must not clear.
+    currentDesign.info = { ...(currentDesign.info || {}), ...comments.info };
+  }
 }
 
 /**
@@ -518,8 +531,8 @@ const TOOL_TIPS = {
   show: 'Shows the selected tier again: its facets are cut back into the stone.',
   preform: 'Marks the selected tier as a preform, used to set up meetpoints: its teeth are ' +
     'shown in braces {}. It is still cut into the stone as usual. Click again to unmark it.',
-  frosted: 'Marks the selected tier as frosted: its angle and teeth are highlighted in the ' +
-    'list. The stone does not show the frosting yet. Click again to unmark it.',
+  frosted: 'Marks the selected tier as frosted: its angle and teeth are shown on a darker ' +
+    'background in the list. The stone does not show the frosting yet. Click again to unmark it.',
   // The only button here that is about the DESIGN rather than the selected tier (2026-09-19,
   // the user: "a comments button to the instructions menu that opens up a dialog for header and
   // footer comments"), so it needs no selection and never carries SELECT_FIRST_TIP.
@@ -926,7 +939,7 @@ export const toolbarActions = {
     }
   },
 
-  // Frosted (T-0180): the tier's angle and teeth are highlighted in the list. The render is
+  // Frosted (T-0180): the tier's angle and teeth get a darker background in the list. The render is
   // left alone for now (the user: "doesn't update the render for now"; the effect itself is
   // T-0183), so the flag is not one isRenderedTier reads and toggling it never rebuilds.
   frosted() {

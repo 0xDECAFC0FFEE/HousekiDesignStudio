@@ -1,5 +1,15 @@
-# Sample workflow for building and deploying a Jekyll site to GitHub Pages
-name: Deploy Jekyll with GitHub Pages dependencies preinstalled
+# Builds the site with ./setup.sh && ./build.sh and deploys build/www to GitHub Pages.
+#
+# Kept at the filename GitHub's own starter workflow uses, but nothing here is Jekyll: the
+# site is generated, not a Markdown source tree. `actions/upload-pages-artifact` uploads
+# build/www as it stands and `actions/deploy-pages` serves it verbatim, so no .nojekyll
+# marker is needed.
+#
+# What the build needs (see setup.sh): cargo with the wasm32-unknown-unknown target, a
+# wasm-bindgen CLI matching the version pinned in Cargo.toml, Deno (Vite and the page
+# minifier run under it) and python3 (src/scripts/make_page.py). The runner image already
+# has cargo and python3; the rest is installed below.
+name: Build and deploy the site to GitHub Pages
 
 on:
   # Runs on pushes targeting the default branch
@@ -21,6 +31,13 @@ concurrency:
   group: "pages"
   cancel-in-progress: false
 
+env:
+  # make_page.py reads the compiled module from build/target/wasm32-unknown-unknown/release/,
+  # which only happens if cargo is pointed there. The .cargo/config.toml that does it locally
+  # is gitignored, so a clone -- including this one -- has to set it itself, or cargo writes
+  # to ./target and the page build fails with a missing gem_renderer.wasm.
+  CARGO_TARGET_DIR: build/target
+
 jobs:
   # Build job
   build:
@@ -28,15 +45,53 @@ jobs:
     steps:
       - name: Checkout
         uses: actions/checkout@v4
+
       - name: Setup Pages
         uses: actions/configure-pages@v5
-      - name: Build with Jekyll
-        uses: actions/jekyll-build-pages@v1
+
+      - name: Install the Rust wasm target
+        run: rustup target add wasm32-unknown-unknown
+
+      - name: Install Deno
+        uses: denoland/setup-deno@v2
         with:
-          source: ./
-          destination: ./_site
+          # The app and the minifier are built with Deno 2 (src/web/deno.lock is v5).
+          deno-version: v2.x
+
+      # setup.sh installs the wasm-bindgen CLI with `cargo install`, which takes several
+      # minutes. Cache the built binary, keyed on the version Cargo.toml pins: on a hit
+      # setup.sh finds a matching CLI on PATH and skips the install entirely.
+      - name: Read the pinned wasm-bindgen version
+        id: bindgen
+        run: sed -n 's/^wasm-bindgen = "=\([0-9.]*\)".*/version=\1/p' Cargo.toml >> "$GITHUB_OUTPUT"
+
+      - name: Cache the wasm-bindgen CLI
+        uses: actions/cache@v4
+        with:
+          path: ~/.cargo/bin/wasm-bindgen
+          key: wasm-bindgen-${{ runner.os }}-${{ steps.bindgen.outputs.version }}
+
+      # Caches the cargo registry and the build directory. `. -> build/target` tells the
+      # action where CARGO_TARGET_DIR points, so it caches the right directory.
+      - name: Cache cargo
+        uses: Swatinem/rust-cache@v2
+        with:
+          workspaces: ". -> build/target"
+
+      # Installs the wasm target (already there), the wasm-bindgen CLI (cached above) and
+      # the app's npm packages into src/web/node_modules.
+      - name: Setup toolchain
+        run: ./setup.sh
+
+      # cargo test, then src/scripts/make_page.py: build/www/houseki.html (the app, with the
+      # wasm, model and skybox inlined) plus the landing page, robots.txt and sitemap.xml.
+      - name: Build
+        run: ./build.sh
+
       - name: Upload artifact
         uses: actions/upload-pages-artifact@v3
+        with:
+          path: build/www
 
   # Deployment job
   deploy:

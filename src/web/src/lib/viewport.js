@@ -131,6 +131,24 @@ let renderedCssHeight = 0;
 let scooting = false;
 
 /**
+ * The renderer's region changed size on its own, with the window the size it was: the fullscreen
+ * toggle (fullscreen.js) hiding the top bar and the instructions pane. The canvas fills the
+ * region by CSS, but its backing store is only resized by a render, and hiding an element fires
+ * no window `resize` -- the event the canvas otherwise redraws on -- so one is asked for here.
+ *
+ * A no-op before the canvas is wired (`attachCanvasControls`, at the end of boot), which is what
+ * makes it safe to call from a control that exists before the wasm module has loaded, or when it
+ * never does: `renderNow` would read `canvas.clientWidth` off null.
+ */
+export function renderRegionChanged() {
+  if (canvas === null) {
+    return;
+  }
+
+  requestRender();
+}
+
+/**
  * Pins the canvas to its rendered size and centres it in the renderer's region, so the region
  * can change without the picture being redrawn. Harmless before the first render, and a second
  * call while scooting does nothing.

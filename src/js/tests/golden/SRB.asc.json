@@ -17,7 +17,7 @@
    "isPreform": false,
    "angle": -90,
    "distance": 1.026533,
-   "cuttingInstructions": null,
+   "cuttingInstructions": "",
    "indices": [
     {
      "tier": 1,
@@ -154,7 +154,7 @@
    "isPreform": false,
    "angle": -42.5,
    "distance": 0.618194,
-   "cuttingInstructions": null,
+   "cuttingInstructions": "",
    "indices": [
     {
      "tier": 2,
@@ -291,7 +291,7 @@
    "isPreform": false,
    "angle": -41.5,
    "distance": 0.617013,
-   "cuttingInstructions": null,
+   "cuttingInstructions": "",
    "indices": [
     {
      "tier": 3,
@@ -364,7 +364,7 @@
    "isPreform": false,
    "angle": 34,
    "distance": 0.684445,
-   "cuttingInstructions": null,
+   "cuttingInstructions": "",
    "indices": [
     {
      "tier": 4,
@@ -501,7 +501,7 @@
    "isPreform": false,
    "angle": 28,
    "distance": 0.608964,
-   "cuttingInstructions": null,
+   "cuttingInstructions": "",
    "indices": [
     {
      "tier": 5,
@@ -574,7 +574,7 @@
    "isPreform": false,
    "angle": 16,
    "distance": 0.506132,
-   "cuttingInstructions": null,
+   "cuttingInstructions": "",
    "indices": [
     {
      "tier": 6,
@@ -647,7 +647,7 @@
    "isPreform": false,
    "angle": 0,
    "distance": 0.364509,
-   "cuttingInstructions": null,
+   "cuttingInstructions": "",
    "indices": [
     {
      "tier": 7,
