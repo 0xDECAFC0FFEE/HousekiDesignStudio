@@ -1,6 +1,6 @@
 // Builds the page's Svelte app into ONE html file, build/web/index.html, with its script and
 // styles inline. make_page.py takes it from there (it adds the wasm, the model and the skybox
-// and writes build/www/houseki.html), so this config never has to know about them.
+// and writes build/www/studio.html), so this config never has to know about them.
 //
 // Everything is inline because the finished page must open from file://, where Chrome and
 // Firefox give a page an opaque origin and refuse to load a separate module or fetch anything

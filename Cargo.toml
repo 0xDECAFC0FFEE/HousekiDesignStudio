@@ -75,7 +75,7 @@ png = "0.18"
 
 [profile.release]
 lto = true
-# A smaller wasm module, which make_page.py inlines into www/houseki.html. Measured
+# A smaller wasm module, which make_page.py inlines into www/studio.html. Measured
 # 2026-09-14 with wasm-bindgen 0.2.128: 303,982 bytes (110,790 gzipped) with `lto` alone,
 # 239,315 bytes (98,907 gzipped) with both settings below. One codegen unit gives LTO the
 # whole crate at once. `strip` drops the 55 KB `name` section: panics still report their

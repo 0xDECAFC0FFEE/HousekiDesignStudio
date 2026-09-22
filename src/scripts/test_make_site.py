@@ -28,7 +28,7 @@ PROJECT_ROOT = pathlib.Path(__file__).resolve().parents[2]
 
 # Only ever used as the app's file NAME, for the links and the sitemap entry build_site writes;
 # the file itself is never read, so this does not require a build to have run.
-APP = PROJECT_ROOT / "build" / "www" / "houseki.html"
+APP = PROJECT_ROOT / "build" / "www" / "studio.html"
 
 
 class BuildSiteTest(unittest.TestCase):
@@ -61,7 +61,7 @@ class BuildSiteTest(unittest.TestCase):
         self.assertNotIn('rel="canonical"', page)
         self.assertNotIn("og:url", page)
         self.assertIn('href="docs.html"', page)
-        self.assertIn('href="houseki.html"', page)
+        self.assertIn('href="studio.html"', page)
 
         ld = page.split('<script type="application/ld+json">', 1)[1].split("</script>", 1)[0]
         self.assertEqual(json.loads(ld)["name"], "Houseki Design Studio")
@@ -83,16 +83,16 @@ class BuildSiteTest(unittest.TestCase):
         self.assertIn(f'<meta property="og:url" content="{url}">', page)
 
         ld = page.split('<script type="application/ld+json">', 1)[1].split("</script>", 1)[0]
-        self.assertEqual(json.loads(ld)["url"], url + "houseki.html")
+        self.assertEqual(json.loads(ld)["url"], url + "studio.html")
 
         self.assertIn(f"Sitemap: {url}sitemap.xml", (out / "robots.txt").read_text())
         sitemap = (out / "sitemap.xml").read_text()
         self.assertIn(f"<loc>{url}</loc>", sitemap)
-        self.assertIn(f"<loc>{url}houseki.html</loc>", sitemap)
+        self.assertIn(f"<loc>{url}studio.html</loc>", sitemap)
         self.assertNotIn("docs.html", sitemap)
 
     def test_a_bad_url_is_refused(self):
-        # Setup: a url with no trailing slash, which would glue "houseki.html" onto the host
+        # Setup: a url with no trailing slash, which would glue "studio.html" onto the host
         # name. Test: build the site. Verifies: the build stops with an error instead.
         with self.assertRaises(SystemExit):
             self.build({"url": "https://example.com", "docs": "docs.html"})

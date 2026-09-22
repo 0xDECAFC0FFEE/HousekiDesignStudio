@@ -83,7 +83,7 @@ jobs:
       - name: Setup toolchain
         run: ./setup.sh
 
-      # cargo test, then src/scripts/make_page.py: build/www/houseki.html (the app, with the
+      # cargo test, then src/scripts/make_page.py: build/www/studio.html (the app, with the
       # wasm, model and skybox inlined) plus the landing page, robots.txt and sitemap.xml.
       - name: Build
         run: ./build.sh

@@ -18,7 +18,7 @@ header; that header, not this project's licence, governs that file.
     https://github.com/mbparker/gemcad-file-reader
     MIT License
 
-The page (www/houseki.html, built from web/) ships the runtime of Svelte, a UI compiler
+The page (www/studio.html, built from web/) ships the runtime of Svelte, a UI compiler
 and library, inside its single inlined script. It is used under the MIT licence, which is
 compatible with the Apache License 2.0.
 

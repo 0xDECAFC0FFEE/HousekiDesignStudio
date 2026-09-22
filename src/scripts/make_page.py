@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-"""Builds build/www/houseki.html, the design app, as one self-contained file, and
+"""Builds build/www/studio.html, the design app, as one self-contained file, and
 build/www/index.html, the static landing page that links to it.
 
 Everything read is under src/ and everything written is under build/, which is gitignored:
@@ -14,7 +14,7 @@ Everything read is under src/ and everything written is under build/, which is g
 The app is a Svelte app, the project in src/web. This script first runs that build, which
 yields build/web/index.html: the app's script and styles inlined into a small HTML shell
 (src/web/index.html), by vite-plugin-singlefile. It then inlines everything that page needs
-ahead of the app's script and writes build/www/houseki.html, which opens directly from file://
+ahead of the app's script and writes build/www/studio.html, which opens directly from file://
 and works equally over HTTP. Last, it writes the landing page from src/site (build_site below):
 build/www/index.html, robots.txt and, once src/site/site.json has the site's URL, sitemap.xml.
 All of build/www is generated: edit the app under src/web or the landing page under src/site,
@@ -70,7 +70,7 @@ the template notice comment and the inline bundle marker. Each must appear exact
 app must use every inlined global, and it must not fetch or import anything. A violation is
 a hard error rather than a silently broken page.
 
-Usage:  python3 src/scripts/make_page.py [--output build/www/houseki.html] [--skip-build]
+Usage:  python3 src/scripts/make_page.py [--output build/www/studio.html] [--skip-build]
                              [--skip-web-build]
                              [--no-minify]
 """
@@ -141,10 +141,11 @@ GEMCAD_SCRIPTS = (
 WASM_INPUT = BUILD / "target" / "wasm32-unknown-unknown" / "release" / "gem_renderer.wasm"
 BINDGEN_OUT = BUILD / "target" / "nomodules"
 
-# The app is build/www/houseki.html (2026-09-19). build/www/index.html is the landing page built
+# The app is build/www/studio.html (renamed from houseki.html 2026-09-21; first split from the
+# landing page 2026-09-19). build/www/index.html is the landing page built
 # from src/site (see build_site), so a domain's root serves a small, crawlable page rather than
 # half a megabyte of inlined wasm. build/www is the whole deployable site and nothing else.
-DEFAULT_OUTPUT = BUILD / "www" / "houseki.html"
+DEFAULT_OUTPUT = BUILD / "www" / "studio.html"
 
 # The landing page's source, and its settings: `url`, the site's absolute address with a
 # trailing slash (empty until there is a domain), and `docs`, where the documentation link

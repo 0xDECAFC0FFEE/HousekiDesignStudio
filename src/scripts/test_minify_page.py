@@ -136,7 +136,7 @@ let wasm_bindgen = (function (exportsObject) {
             make_page.check_no_comments("<html><!-- left --><body></body></html>", "check-page", "page")
 
     def test_the_built_page_has_no_comments(self):
-        # Setup: build/www/houseki.html as the last build left it. Test: the same check the build ends
+        # Setup: build/www/studio.html as the last build left it. Test: the same check the build ends
         # with. Verifies a built page really is comment-free, including the script of inlined
         # data make_page.py writes after minifying the template, which is where comments were
         # found left behind (2026-09-18). Skipped when the page was built with --no-minify,
@@ -144,7 +144,7 @@ let wasm_bindgen = (function (exportsObject) {
         page = make_page.DEFAULT_OUTPUT.read_text()
 
         if "GENERATED FILE, do not edit" in page:
-            self.skipTest("build/www/houseki.html was built with --no-minify")
+            self.skipTest("build/www/studio.html was built with --no-minify")
 
         make_page.check_no_comments(page, "check-page", "built page")
 

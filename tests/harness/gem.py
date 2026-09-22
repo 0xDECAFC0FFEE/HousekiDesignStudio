@@ -28,7 +28,7 @@ import time
 
 PROJECT_ROOT = os.path.dirname(os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
 # The app. build/www/index.html is the landing page since 2026-09-19.
-INDEX_HTML = os.path.join(PROJECT_ROOT, "build", "www", "houseki.html")
+INDEX_HTML = os.path.join(PROJECT_ROOT, "build", "www", "studio.html")
 
 # Names `set_param`/`get_param` in src/renderer/lib.rs accept, as of 2026-09-17. Kept here so a
 # rename shows up as a loud `unknown parameter` JS exception (cdp.Chrome.evaluate

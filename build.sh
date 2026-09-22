@@ -3,7 +3,7 @@
 # Builds the renderer:
 #
 #   1. host tests (cargo test), so a broken build never reaches the browser;
-#   2. build/www/houseki.html, the app, via src/scripts/make_page.py: the Svelte app in src/web
+#   2. build/www/studio.html, the app, via src/scripts/make_page.py: the Svelte app in src/web
 #      is built with Vite (under Deno, into the single file build/web/index.html), then the wasm
 #      module and its no-modules bindings, the model and the skybox are inlined into it. One file
 #      that opens directly from file://, and works just as well over HTTP. make_page.py then
@@ -71,9 +71,9 @@ cargo test
 
 # make_page.py builds the src/web app (Vite), compiles the wasm and runs wasm-bindgen itself.
 # The app's npm packages come from ./setup.sh (`deno install` in src/web).
-echo "==> building build/www/houseki.html and the landing page"
+echo "==> building build/www/studio.html and the landing page"
 python3 src/scripts/make_page.py
 
 echo
-echo "build complete. Open build/www/houseki.html (the app) or build/www/index.html (the"
+echo "build complete. Open build/www/studio.html (the app) or build/www/index.html (the"
 echo "landing page) directly; no server is needed."

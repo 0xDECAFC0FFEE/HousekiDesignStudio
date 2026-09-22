@@ -386,6 +386,48 @@ pub const SODIUM_D_LINE_NM: f32 = 589.3;
 pub const GEMMOLOGY_G_LINE_NM: f32 = 430.8;
 pub const GEMMOLOGY_B_LINE_NM: f32 = 686.7;
 
+/// The wavelengths the red, green and blue channels refract at, in nanometres.
+///
+/// **These are fitted, not derived, and that is deliberate.** They are the three points on
+/// Cauchy's curve that best reproduce Gem Cut Studio's fire; they are not a claim about what
+/// wavelength a red pixel "is". Three such claims have been made and all three were wrong:
+///
+/// | | red | green | blue | traced spread | 23-view score |
+/// |---|---|---|---|---|---|
+/// | the Fraunhofer B, D and G lines | 686.7 | 589.3 | 430.8 | 100% of dispersion | 7.8772 |
+/// | LuxCore's response-weighted effective lambda | 602.5 | 533.4 | 442.8 | 71.8% | 7.4179 |
+/// | the sRGB primaries' dominant lambda | 611.4 | 549.1 | 464.2 | 60.2% | not rendered |
+/// | **fitted against Gem Cut Studio** | **675** | **520** | **474** | **69.0%** | **6.6280** |
+///
+/// The B, D and G lines above are where dispersion is *defined* (`n_B - n_G`), which is why
+/// they were the first guess and why `cauchy_from_gemmological_constants` still solves the
+/// curve from them. They are not where to sample it.
+///
+/// **How they were obtained** (T-0219): the three were made a runtime parameter on the
+/// `spectral-lines/index-probe` branch and swept against GCS. They fit *independently* --
+/// exactly, not approximately -- because under Angle Rings the output's channel `c` is
+/// component `c` of the ring colour along channel `c`'s refracted direction, and that
+/// direction depends only on channel `c`'s index. Every minimum is sharp, and red and blue
+/// land on the same value when the fit is repeated on a different stone at a 4.7x smaller
+/// dispersion (the hex cut, n_d 2.16 / 0.060, against Hanabi's 2.85 / 0.280); green agrees to
+/// about 10 nm on a visibly flatter curve.
+///
+/// **What this inherits.** Being fitted to GCS, these reproduce whatever GCS does, including
+/// anything GCS gets wrong. If the goal ever changes from "match Gem Cut Studio" to "be
+/// physically right", this is the first constant to revisit -- and re-deriving it from theory
+/// is not the way, because that has now failed three times. Re-fit it, on at least two stones
+/// at different dispersions, and check the minimum is sharp.
+///
+/// **Expressed convention-free**, as offsets from the d-line index in units of the quoted
+/// dispersion `D` (material-independent, since Cauchy's B is linear in `D`), these are
+/// `n_d - 0.210 D`, `n_d + 0.251 D` and `n_d + 0.481 D`. That form survives a change to
+/// `cauchy_from_gemmological_constants`; the wavelengths do not.
+///
+/// See `spectral_indices` and `kb/spectral-sampling-wavelengths.md`.
+pub const CHANNEL_RED_NM: f32 = 675.0;
+pub const CHANNEL_GREEN_NM: f32 = 520.0;
+pub const CHANNEL_BLUE_NM: f32 = 474.0;
+
 /// Converts (index at the sodium D line, B-G dispersion) into LuxCore's Cauchy A and B.
 ///
 /// **`scene.materials.<m>.interiorior` is Cauchy's A, not an index of refraction at any
@@ -934,27 +976,47 @@ impl RenderParams {
     /// Refractive indices for the red, green and blue samples.
     ///
     /// Evaluated on the same Cauchy curve (`n(lambda) = A + B / lambda_um^2`) the ported
-    /// LuxCore path traces, at the same three reference wavelengths the rest of this project
-    /// already uses: red at `GEMMOLOGY_B_LINE_NM`, green at the sodium D line (the quoted
-    /// `refractive_index` itself, by construction of `cauchy_from_gemmological_constants`),
-    /// blue at `GEMMOLOGY_G_LINE_NM`. `n_blue - n_red` still equals the traced dispersion
-    /// exactly, since that difference is literally how Cauchy's B was solved for -- but the
-    /// pair is no longer centred on green the way a straight `n_d +/- half` split is.
+    /// LuxCore path traces, at `CHANNEL_RED_NM` / `CHANNEL_GREEN_NM` / `CHANNEL_BLUE_NM` --
+    /// wavelengths *fitted* against Gem Cut Studio, for the reasons that constant's own doc
+    /// comment gives.
     ///
-    /// **This used to be a plain symmetric split** (`n_d -/+ dispersion / 2`), which is wrong
-    /// by a fixed ~27% of the dispersion value at *every* index and dispersion, not just a
-    /// rounding error: Cauchy's `1/lambda^2` term is convex, so the true index at the G line
-    /// (430.8nm, violet) rises faster above `n_d` than the true index at the B line (686.7nm,
-    /// red) falls below it, and a symmetric split cannot reproduce that skew regardless of how
-    /// the two endpoints are chosen. It was invisible at the hex cut's shipped dispersion of
-    /// 0.06 (a ~0.016 index error) but not at Hanabi's Rutile-like 0.28 (~0.075, more than a
-    /// quarter of the whole spread) -- caught by comparing this renderer's Angle Rings output
-    /// for Hanabi's high-dispersion test against the ported LuxCore path (which already traced
-    /// this same Cauchy curve, continuously) and GCS, both of which agreed with each other and
-    /// disagreed with this renderer on both fire colour and exactly where each facet's internal
-    /// reflections show up -- Snell's law bends each channel by the index traced, so a biased
-    /// index biases which facet a channel's ray actually exits through, not only its hue.
-    /// See kb/hanabi-a-third-comparison-model-and-two-live-captur.md.
+    /// **This has been wrong three times, in three different ways.**
+    ///
+    /// 1. It was a plain symmetric split (`n_d -/+ dispersion / 2`), wrong by a fixed ~27% of
+    ///    the dispersion at *every* index, because Cauchy's `1/lambda^2` term is convex: the
+    ///    index at the G line rises faster above `n_d` than the index at the B line falls
+    ///    below it, and no symmetric split can reproduce that skew. T-0174.
+    /// 2. It then sampled the B, D and G lines themselves -- the interval dispersion is
+    ///    *defined* over, not the wavelengths to trace. That put green at exactly `n_d` and
+    ///    spread red to blue over the full quoted dispersion, both too wide and mis-centred.
+    /// 3. It then sampled the response-weighted effective wavelengths of LuxCore's own
+    ///    `WaveLength2RGB` curve (602.5 / 533.4 / 442.8). That got the *spread* nearly right
+    ///    (71.8% of the quoted dispersion against a fitted 69.0%) and green nearly right, but
+    ///    moved red the wrong way -- 686.7 was within 0.022 D of the fitted value and 602.5 is
+    ///    0.172 D away, eight times worse. T-0212.
+    ///
+    /// Every one of those was a derivation from what red, green and blue "are". The fourth
+    /// answer, the one below, was measured instead. T-0219.
+    ///
+    /// **Two invariants people reach for are false here.** `n_blue - n_red` is *not* the
+    /// quoted dispersion (it is 0.690 of it, a constant of the four wavelengths alone and so
+    /// the same for every material), and `spectral_indices().y` is *not* `refractive_index`
+    /// (520 nm refracts harder than the 589.3 nm D line). The slider still *means* the d-line
+    /// index; it is simply not an index any channel traces.
+    ///
+    /// **`cauchy_from_gemmological_constants` is deliberately untouched by all of this.** The
+    /// curve is still solved from the B, D and G lines, because that is what the dispersion
+    /// number means and what `tools/luxcore_oracle.py` writes into the oracle's `.scn` files.
+    /// Only the three points sampled on it have moved. Anything that changes the conversion
+    /// changes what glass the two renderers are comparing, which is a different and much
+    /// larger claim.
+    ///
+    /// At **dispersion 0** Cauchy's B is 0, every wavelength gives the same index, and the
+    /// choice is exactly a no-op. All 8 zero-dispersion comparison views re-render
+    /// byte-identically across all four choices above; that is the cheapest regression test
+    /// this constant has.
+    ///
+    /// See kb/spectral-sampling-wavelengths.md.
     pub fn spectral_indices(&self) -> Vector3<f32> {
         if self.spectral_samples <= 1 {
             return Vector3::repeat(self.refractive_index);
@@ -965,9 +1027,9 @@ impl RenderParams {
         let n_at = |nm: f32| cauchy_a + cauchy_b * (1000.0 / nm) * (1000.0 / nm);
 
         Vector3::new(
-            n_at(GEMMOLOGY_B_LINE_NM),
-            self.refractive_index,
-            n_at(GEMMOLOGY_G_LINE_NM),
+            n_at(CHANNEL_RED_NM),
+            n_at(CHANNEL_GREEN_NM),
+            n_at(CHANNEL_BLUE_NM),
         )
     }
 
@@ -1325,6 +1387,20 @@ fn clamp_color(color: Vector3<f32>) -> Vector3<f32> {
 mod tests {
     use super::*;
 
+    /// What fraction of the quoted dispersion the three traced wavelengths actually span.
+    ///
+    /// Derived from the constants rather than written down, so a test that uses it cannot
+    /// drift from the sampling it is meant to be checking. The quoted dispersion is
+    /// `B * (inv(G) - inv(B_line))` by construction of `cauchy_from_gemmological_constants`,
+    /// and the traced spread is `B * (inv(blue) - inv(red))`, so Cauchy's B cancels and the
+    /// ratio depends on the four wavelengths alone -- the same for every material.
+    fn traced_spread_fraction() -> f32 {
+        let inv_um2 = |nm: f32| (1000.0 / nm) * (1000.0 / nm);
+
+        (inv_um2(CHANNEL_BLUE_NM) - inv_um2(CHANNEL_RED_NM))
+            / (inv_um2(GEMMOLOGY_G_LINE_NM) - inv_um2(GEMMOLOGY_B_LINE_NM))
+    }
+
     /// Blue must bend more than green, and green more than red. This ordering is
     /// what creates fire; reversing it would tint the stone's flashes backwards.
     #[test]
@@ -1339,11 +1415,25 @@ mod tests {
         );
     }
 
-    /// The spread between the extremes must equal the quoted dispersion exactly
-    /// (that is how Cauchy's B is solved for), and green must sit at the nominal
-    /// refractive index (Cauchy's A is solved so the D line reproduces it exactly).
+    /// The traced spread is a fixed *fraction* of the quoted dispersion, and green does not
+    /// sit at the nominal index.
+    ///
+    /// Setup: a stone at index 2.0 and dispersion 0.06, read through `spectral_indices`.
+    ///
+    /// Test: `n_blue - n_red` is 0.690430 of the quoted dispersion, and `n_green` is above
+    /// `refractive_index` rather than equal to it.
+    ///
+    /// Verifies the two invariants this project kept reaching for and which the fitted
+    /// sampling makes false. **Both used to be exact equalities** -- when red and blue sat on
+    /// the B and G lines, `n_blue - n_red` *was* the dispersion, because that difference is
+    /// literally how Cauchy's B is solved for; and green sat on the D line, which Cauchy's A
+    /// is solved to reproduce exactly. Sampling anywhere else breaks both, and a reader who
+    /// assumes either one will be quietly wrong. The fraction is a constant of the four
+    /// wavelengths alone -- the same for every material and every dispersion, as the second
+    /// half of this test checks -- so pinning it also pins the three constants against a
+    /// silent edit.
     #[test]
-    fn spectral_spread_equals_dispersion() {
+    fn traced_spread_is_a_fixed_fraction_of_the_quoted_dispersion() {
         let mut params = RenderParams::default();
 
         params.refractive_index = 2.0;
@@ -1352,25 +1442,48 @@ mod tests {
         let indices = params.spectral_indices();
 
         assert!(
-            (indices.z - indices.x - 0.06).abs() < 1e-5,
-            "blue minus red should equal dispersion, got {}",
-            indices.z - indices.x
+            ((indices.z - indices.x) / 0.06 - 0.690430).abs() < 1e-4,
+            "traced spread should be 0.690430 of the quoted dispersion, got {}",
+            (indices.z - indices.x) / 0.06
         );
         assert!(
-            (indices.y - 2.0).abs() < 1e-6,
-            "green should sit at the nominal index, got {}",
+            indices.y > 2.0 + 1e-4,
+            "green traces 520 nm, which refracts harder than the 589.3 nm D line the index is \
+             quoted at, so it must sit above the nominal index; got {}",
             indices.y
+        );
+
+        // The fraction is a property of the wavelengths, not of the material: a stone with
+        // four times the dispersion and a different index must give the same ratio.
+        params.refractive_index = 2.85;
+        params.dispersion = 0.28;
+
+        let hanabi = params.spectral_indices();
+
+        assert!(
+            ((hanabi.z - hanabi.x) / 0.28 - 0.690430).abs() < 1e-4,
+            "the fraction must not depend on the material, got {}",
+            (hanabi.z - hanabi.x) / 0.28
         );
     }
 
-    /// The Cauchy curve is convex in `1/lambda^2`, so the true index at the violet-side G
-    /// line (430.8nm) rises further above the nominal index than the true index at the
-    /// red-side B line (686.7nm) falls below it. A green channel sitting at the nominal
-    /// index is therefore closer to red than to blue, not equidistant -- the fixed point
-    /// this test pins down so a regression back to a symmetric `n_d +/- dispersion / 2`
-    /// split (silently wrong by about a quarter of the dispersion value, invisible at the
-    /// hex cut's shipped 0.06 but not at Hanabi's 0.28 -- see spectral_indices' own doc
-    /// comment) cannot pass unnoticed.
+    /// The three indices are not evenly spaced, and a regression to a symmetric
+    /// `n_d +/- dispersion / 2` split must not pass unnoticed.
+    ///
+    /// Setup: Hanabi's material, n_d 2.85 and dispersion 0.28, where the skew is largest.
+    ///
+    /// Test: the ratio of the blue-to-green gap to the green-to-red gap is far from 1.
+    ///
+    /// **This is a ratio, and deliberately direction-agnostic, because both facts an earlier
+    /// version asserted have since flipped.** That version checked `blue_to_green >
+    /// green_to_red` and `|blue_to_green - 0.14| > 0.05`, reading the skew off absolute
+    /// numbers while red and blue sat on the B and G lines. Sampling 675 / 520 / 474 nm puts
+    /// green *nearer blue than red* -- the gap ratio is 0.5006, the reverse of the old
+    /// ordering -- and would have put `blue_to_green` at 0.0645, passing the second check for
+    /// the wrong reason. Neither assertion was wrong when written; both were phrased about a
+    /// particular sampling rather than about the property being defended. A symmetric split
+    /// gives a ratio of exactly 1.0 by construction, whatever the wavelengths, so this form
+    /// cannot be invalidated by re-sampling.
     #[test]
     fn spectral_indices_are_not_symmetric_about_green() {
         let mut params = RenderParams::default();
@@ -1381,19 +1494,16 @@ mod tests {
         let indices = params.spectral_indices();
         let green_to_red = indices.y - indices.x;
         let blue_to_green = indices.z - indices.y;
+        let skew = blue_to_green / green_to_red;
 
         assert!(
-            blue_to_green > green_to_red,
-            "expected blue further from green than red is (green_to_red {}, blue_to_green {})",
+            (skew - 1.0).abs() > 0.25,
+            "the gaps either side of green are too close to equal (green_to_red {}, \
+             blue_to_green {}, ratio {}); a symmetric n_d +/- dispersion / 2 split gives \
+             exactly 1.0",
             green_to_red,
-            blue_to_green
-        );
-        // A symmetric split would have put both gaps at dispersion / 2 = 0.14; the true
-        // skew is about 27% of the dispersion each way.
-        assert!(
-            (blue_to_green - 0.14).abs() > 0.05,
-            "blue_to_green {} is too close to the old symmetric split's 0.14",
-            blue_to_green
+            blue_to_green,
+            skew
         );
     }
 
@@ -1502,8 +1612,9 @@ mod tests {
                 at_low
             );
             assert!(
-                (at_low.z - at_low.x - 2.0 * (low - 1.0)).abs() < 1e-5,
-                "via {}: the traced spread should be limited to 2(n - 1), got {:?}",
+                (at_low.z - at_low.x - traced_spread_fraction() * 2.0 * (low - 1.0)).abs() < 1e-5,
+                "via {}: the traced spread should be that fraction of the limit 2(n - 1) the \
+                 sampling wavelengths span, got {:?}",
                 low,
                 at_low
             );
@@ -1520,8 +1631,9 @@ mod tests {
             let restored = params.spectral_indices();
 
             assert!(
-                (restored.z - restored.x - 0.060).abs() < 1e-5,
-                "via {}: back at 2.16 the spread should be 0.060 again, got {:?}",
+                (restored.z - restored.x - traced_spread_fraction() * 0.060).abs() < 1e-5,
+                "via {}: back at 2.16 the traced spread should match the stored 0.060 again, \
+                 got {:?}",
                 low,
                 restored
             );
@@ -2232,7 +2344,15 @@ mod tests {
             }
 
             // The margin the fix recovers, and proof the assertion above is not vacuous.
-            let expected = if name == "Rutile" { 0.018 } else { 0.004 };
+            //
+            // These bounds are sized against the *traced* spread, not the quoted dispersion,
+            // so they move whenever the sampling wavelengths do. They were 0.018 / 0.004 when
+            // red and blue sat on the B and G lines and the spread was the full dispersion;
+            // the fitted sampling narrows it to 0.690 of that, which takes Rutile's worst case
+            // to 0.0170 and cubic zirconia's to about 0.0041. Lowered to keep a margin without
+            // making the check vacuous -- if a future sampling narrows the spread much
+            // further, this test stops discriminating and needs rethinking, not re-lowering.
+            let expected = if name == "Rutile" { 0.012 } else { 0.003 };
 
             assert!(
                 worst_shared_error > expected,

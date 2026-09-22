@@ -95,9 +95,9 @@ fi
 
 echo
 echo "setup complete. Next:"
-echo "  ./build.sh                   test, then build build/www/houseki.html (the src/web app,"
+echo "  ./build.sh                   test, then build build/www/studio.html (the src/web app,"
 echo "                               wasm, model and skybox inlined)"
-echo "  open build/www/index.html    the landing page; build/www/houseki.html is the app, no"
+echo "  open build/www/index.html    the landing page; build/www/studio.html is the app, no"
 echo "                               server needed"
 echo
 echo "optional: install glslangValidator to enable GLSL compile checks in cargo test."
