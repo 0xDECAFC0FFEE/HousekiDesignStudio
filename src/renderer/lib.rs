@@ -207,7 +207,12 @@ fn glsl_function_signatures(source: &'static str) -> Vec<(&'static str, usize)> 
     let mut signatures = Vec::new();
     let mut offset = 0usize;
 
-    for line in source.lines() {
+    // `split_inclusive` keeps each line's terminator, so `raw_line.len()` is exactly how
+    // many bytes the line occupies in `source` -- one more for "\n", two for "\r\n", none
+    // at all for a last line with no terminator. `offset` therefore stays a true byte
+    // offset into `source` on every platform; see the note where it is advanced.
+    for raw_line in source.split_inclusive('\n') {
+        let line = raw_line.trim_end_matches('\n').trim_end_matches('\r');
         let is_definition_line = !line.starts_with(char::is_whitespace);
 
         if is_definition_line && !line.starts_with("//") {
@@ -232,10 +237,16 @@ fn glsl_function_signatures(source: &'static str) -> Vec<(&'static str, usize)> 
             }
         }
 
-        // `+ 1` for the '\n' `.lines()` strips. Overshooting on a file with no trailing
-        // newline is harmless: the offset is only ever used as a search start, never
-        // indexed into directly, and by definition nothing follows the last line anyway.
-        offset += line.len() + 1;
+        // The terminator is still on `raw_line`, so this needs no guess about how long it
+        // is. The previous version walked `lines()` and added `line.len() + 1`, which is
+        // right only where a line ends in a bare "\n": on a Windows checkout of this
+        // repository (`core.autocrlf=true` rewrites every source file to CRLF) it lost one
+        // byte per line, so `offset` pointed steadily further back into the file and
+        // `glsl_function_body` returned some earlier function's text. That mis-attributed
+        // body fed the call-graph walk above it, and `flat_ignored_uniforms` /
+        // `lux_ignored_uniforms` then reported the wrong uniforms -- the two assertion
+        // failures this fixes, which could only ever appear on Windows.
+        offset += raw_line.len();
     }
 
     signatures
@@ -2769,6 +2780,62 @@ mod tests {
              Branch body was:\n{}",
             project_branch
         );
+    }
+
+    /// The offsets `glsl_function_signatures` reports must be true byte offsets into the
+    /// source whatever line ending that source uses.
+    ///
+    /// Setup: one tiny two-function GLSL source written twice, identical but for its line
+    /// terminators -- once with Unix "\n" and once with Windows "\r\n". Test: for each,
+    /// take the signature list and hand the *second* function's reported offset to
+    /// `glsl_function_body`, which is exactly the pair of steps `gem_frag_functions` takes.
+    /// Verifies that what comes back is `second`'s body in both cases, rather than a slice
+    /// that has slid back into `first`.
+    ///
+    /// This is the shape of the bug it guards. The scanner used to walk `lines()` and
+    /// advance by `line.len() + 1`, which is one byte short per line on CRLF, so on a
+    /// Windows checkout -- where this repository's `core.autocrlf=true` rewrites every
+    /// source file to CRLF -- each offset pointed further and further back into the file
+    /// and `glsl_function_body` returned an earlier function's text. `flat_ignored_uniforms`
+    /// and `lux_ignored_uniforms` read those mis-attributed bodies and reported the wrong
+    /// uniforms, so `the_flat_renderer_hides_the_optics_bounces_and_window_colour` and
+    /// `lux_ignored_uniforms_matches_the_known_gcs_only_uniforms` failed on Windows while
+    /// passing on macOS. The shaders themselves are checked in with "\n", so nothing in the
+    /// suite would have noticed.
+    #[test]
+    fn function_offsets_survive_windows_line_endings() {
+        const UNIX: &str = "float first(float x) {\n    return x;\n}\n\nfloat second(float y) {\n    return y + 1.0;\n}\n";
+        const WINDOWS: &str =
+            "float first(float x) {\r\n    return x;\r\n}\r\n\r\nfloat second(float y) {\r\n    return y + 1.0;\r\n}\r\n";
+
+        for (ending, source) in [("unix", UNIX), ("windows", WINDOWS)] {
+            let signatures = super::glsl_function_signatures(source);
+            let names: Vec<&str> = signatures.iter().map(|(name, _)| *name).collect();
+
+            assert_eq!(
+                names,
+                vec!["first", "second"],
+                "{} line endings: both functions should be found",
+                ending
+            );
+
+            let (_, second_offset) = signatures[1];
+            let body = super::glsl_function_body(source, second_offset);
+
+            assert!(
+                body.starts_with("float second"),
+                "{} line endings: the body at the reported offset should be second's, was:\n{}",
+                ending,
+                body
+            );
+            assert!(
+                body.contains("y + 1.0") && !body.contains("return x;"),
+                "{} line endings: second's body should be whole and should not reach back \
+                 into first's, was:\n{}",
+                ending,
+                body
+            );
+        }
     }
 
     /// `lux_ignored_uniforms` -- the computed set the page's control visibility is built
