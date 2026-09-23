@@ -91,6 +91,12 @@
 //     header already flags that branch as "ported live... so a future non-delta material
 //     makes it fire again for free"), Illuminate becomes required then, and should be ported
 //     at that point, not before.
+//     T-0183 was that point: frosted facets are RoughGlassMaterial, which is not delta. What
+//     it needed of Illuminate is ConstantInfiniteLight::Illuminate's direction sampling,
+//     ported as Env_SampleDirection at the bottom of this file and applied to the whole
+//     (collapsed) environment; SunLight::Illuminate's cone sampling is still not ported, for
+//     the reason given there. From then on the "no direct light sampling" statements above
+//     are true of polished facets only.
 //   - LightSource::GetPower (constantinfinitelight.cpp:42-47, sunlight.cpp:144-148) is NOT
 //     ported. It exists upstream to feed power-based light-picking strategies
 //     (LightStrategyPower/LogPower/DLSC, src/slg/lights/strategies/*.cpp) that this file does
@@ -639,13 +645,12 @@ vec3 Env_GetRadiance(vec3 direction, out float directPdfW) {
     // and every assessment model reading its own antipode, which looks plausible on a
     // faceted stone and is wrong.
     if (LUX_ENVIRONMENT_SOURCE == LUX_ENVIRONMENT_PROJECT) {
-        // Honest, and deliberately not load-bearing. The project's environments have no
-        // sampling distribution at all -- nothing here ever builds one, because a polished
-        // gem is never lit by direct light sampling (GlassMaterial::IsDelta() is
-        // unconditionally true; see this file's header), so the only branch that reads this
-        // value cannot run. The uniform-sphere pdf is the pdf of the only strategy that
-        // could exist for an arbitrary radiance distribution with no importance map, and it
-        // is exactly what ConstantInfiniteLight_GetRadiance returns for the same reason.
+        // The project's environments have no sampling distribution of their own, so the
+        // uniform-sphere pdf is the pdf of the only strategy that exists for them -- and
+        // since T-0183 it is load-bearing: frosted facets are not delta, so
+        // PathTracer_DirectLightSampling samples the environment with exactly that strategy
+        // (Env_SampleDirection below) and PathTracer_DirectHitInfiniteLight's MIS weight reads
+        // this value. It is what ConstantInfiniteLight_GetRadiance returns for the same reason.
         directPdfW = UniformSpherePdf();
 
         return Env_ProjectRadiance(-direction);
@@ -666,13 +671,35 @@ vec3 Env_GetRadiance(vec3 direction, out float directPdfW) {
         vec3 sunRadiance = SunLight_GetRadiance(sun, direction, sunDirectPdfA);
         if (!Spectrum_IsBlack(sunRadiance)) {
             radiance += sunRadiance;
-            // Last-contributor-wins; see file header RESTRUCTURINGS for why this is a safe,
-            // arbitrary choice rather than a real semantic decision.
-            directPdfW = sunDirectPdfA;
+            // Until T-0183 the last contributing light's pdf was reported here, an arbitrary
+            // choice with no live effect (see file header RESTRUCTURINGS). It is live now:
+            // PathTracer_DirectHitInfiniteLight's MIS weight reads it after a frosted-facet
+            // bounce, and it must be the pdf PathTracer_DirectLightSampling samples this
+            // collapsed environment with -- Env_SampleDirection's uniform sphere, the sky's
+            // own pdf set above. So the sun's cone pdf is computed (SunLight_GetRadiance is
+            // ported whole) and deliberately not reported.
         }
     }
 
     return radiance;
+}
+
+// ConstantInfiniteLight::Illuminate's direction sampling (constantinfinitelight.cpp:135-137,
+// the arm taken without a visibility-map cache, T-0117), for PathTracer_DirectLightSampling
+// (T-0183). Returns the direction from the shading point TOWARDS the environment -- upstream's
+// `shadowRayDir` -- and its solid-angle pdf.
+//
+// Applied to the whole environment, not only the sky. This port exposes the environment as a
+// single light (Env_GetRadiance sums the sky and every sun; Env_GetLightPickPdf is 1), and
+// for the project's own environments (the image, the Studio rig, the assessment models) there
+// is no importance map to sample by at all. Uniform sphere sampling is an unbiased strategy for
+// any radiance distribution; it is simply noisier than per-light cone sampling would be on
+// small bright sources, which the MIS weight hands over to BSDF sampling. It must stay in step
+// with the `directPdfW` Env_GetRadiance reports, which the MIS weight on the other side reads.
+vec3 Env_SampleDirection(float u0, float u1, out float directPdfW) {
+    directPdfW = UniformSpherePdf();
+
+    return UniformSampleSphere(u0, u1);
 }
 
 // Stands in for `scene.GetLightSources().GetIlluminateLightStrategy().SampleLightPdf(...)`
@@ -688,6 +715,12 @@ vec3 Env_GetRadiance(vec3 direction, out float directPdfW) {
 // be the straightforward faithful next step, matching LightStrategyUniform's shape without
 // its power-weighting) -- not before, per this ticket's own "port a bug faithfully, don't
 // pre-fix it" instruction applied to dead code instead of a bug.
+//
+// T-0183 made that branch live (frosted facets) and kept 1.0 on purpose: the environment is
+// still ONE light to both sides of the MIS weight -- PathTracer_DirectLightSampling samples
+// all of it at once through Env_SampleDirection -- so the probability of picking it is 1.
+// Splitting the sky and the suns into separately picked lights would need this, Env_GetRadiance
+// and Env_SampleDirection to change together.
 float Env_GetLightPickPdf() {
     return 1.0;
 }

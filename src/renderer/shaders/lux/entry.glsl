@@ -101,13 +101,30 @@ uint luxPixelSeed(uvec2 pixel, uint extra) {
     return seed == 0u ? 1u : seed;
 }
 
-// The scene's one material, as the oracle's .scn configures it:
+// THE MICROFACET ROUGHNESS OF A FROSTED FACET -- the one place it is set.            T-0183
+//
+// LuxCore's roughglass `uroughness` and `vroughness`, used for both (isotropic). The user chose
+// 0.2 on 2026-09-23 ("for now use .2 for the roughness of the microfacets ... later we might
+// need to revisit the roughness"), so changing it is meant to be this one line. It is in
+// LuxCore's own convention: lux/roughglass.glsl multiplies the two, so the Schlick
+// distribution sees u * v = 0.04. No page control sets it, on purpose. The Rust test
+// `frosted_facet_roughness_is_the_users_0_2_in_one_place` pins the value, so a change here is
+// deliberate and updates that test in the same commit.
+const float FROSTED_FACET_ROUGHNESS = 0.2;
+
+// The scene's glass, as the oracle's .scn configures it:
 //   scene.materials.gem.type = glass
 //   scene.materials.gem.kr = 1 1 1 ; kt = 1 1 1
 //   scene.materials.gem.exteriorior = 1.0
 //   scene.materials.gem.interiorior = <Cauchy A>  ; cauchyb = <Cauchy B>
 // No thin-film coating is ever configured, so filmThickness stays 0 and glass.glsl's
 // CalcFilmColor stub is never reached (T-0103).
+//
+// Frosted facets (T-0183) are the same glass as a LuxCore `roughglass` material, which takes the
+// same kr, kt, exteriorior and interiorior plus:
+//   scene.materials.frosted.uroughness = FROSTED_FACET_ROUGHNESS
+//   scene.materials.frosted.vroughness = FROSTED_FACET_ROUGHNESS
+// (and no cauchyb: LuxCore's roughglass does not disperse; see lux/roughglass.glsl).
 GlassParams luxGlassParams() {
     GlassParams glass;
 
@@ -118,6 +135,8 @@ GlassParams luxGlassParams() {
     glass.cauchyB = uLuxCauchyB;
     glass.filmThickness = 0.0;
     glass.filmIor = 1.0;
+    glass.uRoughness = FROSTED_FACET_ROUGHNESS;
+    glass.vRoughness = FROSTED_FACET_ROUGHNESS;
 
     return glass;
 }

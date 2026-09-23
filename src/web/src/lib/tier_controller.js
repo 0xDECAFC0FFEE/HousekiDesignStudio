@@ -73,7 +73,8 @@ let recordEdit = null;
 // How the pane reaches the stone, set by the session once GemApp exists (null before then, when
 // there is no stone to reach): `rebuild()` regenerates the mesh from the current design
 // (rebuildStoneFromDesign) and `select(tier)` highlights a tier on the stone and in the pane,
-// or clears both for null.
+// or clears both for null, and `frosted()` re-sends which facets the renderer draws frosted
+// (selection.js's syncFrostedFacets, T-0183; a rebuild re-sends them by itself).
 let stoneHooks = null;
 
 /** Which of T-0165's two reorder groups a tier belongs to -- the SAME girdle/angle rule
@@ -208,6 +209,26 @@ export function setEditedTier(reader) {
 /** The tier edit mode is holding, or null when edit mode is off. */
 export function tierBeingEdited() {
   return editedTier();
+}
+
+// ---- the whole design held by a mode that rewrites every tier (T-0231, scale height)
+//
+// Scale height mode recomputes EVERY tier from a snapshot taken when it opened, and its session
+// is one entry in the history, recorded on Done. Another edit made while it is open (a Delete, a
+// reorder, a description) would land inside that entry, out of reach of the mode's own undo, and
+// a tier added or removed under it would be missing from its snapshot. So while it is open the
+// whole design is held, the way edit mode holds its one tier: every toolbar button goes inactive
+// and says why, and a reorder or a description edit is refused. Registered by
+// scale_height_mode.js rather than imported, for the reason `setEditedTier` gives above.
+let designLock = () => false;
+
+export function setDesignLock(reader) {
+  designLock = reader;
+}
+
+/** True while a whole-design mode (scale height) holds the design. */
+export function designLocked() {
+  return designLock();
 }
 
 export function setStoneHooks(hooks) {
@@ -351,8 +372,9 @@ export function recordEditEntry(entry) {
  */
 export function applyReorder(section, newSectionOrder, focusTier = null) {
   // Not while a tier is being edited (T-0202): a reorder moves tiers the open session is not
-  // about, and edit mode is applied to one tier alone.
-  if (!currentDesign || tierBeingEdited() !== null) {
+  // about, and edit mode is applied to one tier alone. Nor while scale height holds the whole
+  // design (T-0231).
+  if (!currentDesign || tierBeingEdited() !== null || designLocked()) {
     return;
   }
 
@@ -392,7 +414,7 @@ export function editNotes(tier, value) {
   // already only opens on the selected row, and the selection is pinned to the tier being edited
   // (selection.js), so nothing on the page reaches this today; the rule is kept here all the
   // same, where every other "only that tier" check lives.
-  if (edited !== null && edited !== tier) {
+  if ((edited !== null && edited !== tier) || designLocked()) {
     return;
   }
 
@@ -566,8 +588,12 @@ const TOOL_TIPS = {
   show: 'Shows the selected tier again: its facets are cut back into the stone.',
   preform: 'Marks the selected tier as a preform, used to set up meetpoints: its teeth are ' +
     'shown in braces {}. It is still cut into the stone as usual. Click again to unmark it.',
-  frosted: 'Marks the selected tier as frosted: its angle and teeth are shown on a darker ' +
-    'background in the list. The stone does not show the frosting yet. Click again to unmark it.',
+  // T-0183 (the user, 2026-09-23: the tip must say the facets are modelled as a rough dielectric
+  // surface with single scattering).
+  frosted: 'Marks the selected tier as frosted: its angle and teeth get a darker background in ' +
+    'the list, and in the Monte Carlo renderer its facets are modelled as a rough dielectric ' +
+    'surface with single scattering (a microfacet model), so they look frosted. Click again to ' +
+    'unmark it.',
   // The only button here that is about the DESIGN rather than the selected tier (2026-09-19,
   // the user: "a comments button to the instructions menu that opens up a dialog for header and
   // footer comments"), so it needs no selection and never carries SELECT_FIRST_TIP.
@@ -588,6 +614,12 @@ const SELECT_FIRST_TIP = ' Select a tier first.';
  * editing"). Edit could only mean the tier already open, since the selection is pinned to it.
  */
 const FINISH_EDITING_TIP = ' Finish editing this tier first: Done, or Cancel.';
+
+/**
+ * Added to every button's tooltip while scale height holds the whole design, which is why they
+ * are all inactive (T-0231; see `setDesignLock`).
+ */
+const FINISH_SCALING_TIP = ' Finish scaling the height first: Done, or Cancel.';
 
 /**
  * Delete's tooltip while the selected tier is the last one of its section, which is why the
@@ -621,6 +653,26 @@ function toolbarState(tier) {
   // as they are: Delete, Show/Hide, Preform and Frosted are changes to that one tier, and
   // Comments is about the design's own header and footer rather than any tier.
   const editing = tierBeingEdited() !== null;
+
+  // Scale height holds the whole design (T-0231): every button off, each saying why, with the
+  // labels and pressed states still those of the selected tier so nothing on the bar jumps.
+  if (designLocked()) {
+    const held = tip => ({ active: false, tip: tip + FINISH_SCALING_TIP });
+
+    return {
+      new: held(TOOL_TIPS.new),
+      edit: held(TOOL_TIPS.edit),
+      delete: held(TOOL_TIPS.delete),
+      visibility: {
+        ...held(showing ? TOOL_TIPS.show : TOOL_TIPS.hide),
+        label: showing ? 'Show' : 'Hide',
+        ariaLabel: showing ? 'Show the selected tier' : 'Hide the selected tier',
+      },
+      preform: { ...held(TOOL_TIPS.preform), pressed: tier !== null && Boolean(tier.preform) },
+      frosted: { ...held(TOOL_TIPS.frosted), pressed: tier !== null && Boolean(tier.frosted) },
+      comments: held(TOOL_TIPS.comments),
+    };
+  }
 
   return {
     new: editing
@@ -665,9 +717,14 @@ function renderedTiers() {
 /**
  * Finishes a toolbar edit, or its undo or redo: redraws the rows, rebuilds the stone only
  * when the set of tiers on it changed since `renderedBefore` (a Delete or a Show/Hide of a
- * shown tier; not a Delete of a hidden tier, a Preform or a Frosted), and selects `tier` --
- * on the stone too, which a rebuild has just cleared, since `load_obj` gives the facets new
- * ids -- or clears the selection for null.
+ * shown tier; not a Delete of a hidden tier, a Preform or a Frosted), re-sends the frosted
+ * facets when it did not (a rebuild re-sends them itself), and selects `tier` -- on the stone
+ * too, which a rebuild has just cleared, since `load_obj` gives the facets new ids -- or clears
+ * the selection for null.
+ *
+ * The frosted facets are re-sent after EVERY toolbar edit that does not rebuild, not only a
+ * Frosted toggle: it is one small upload, and it means no op (nor a future one) can leave the
+ * render's mask disagreeing with the flags in the list.
  */
 function afterToolbarEdit(renderedBefore, tier, rebuildAnyway = false) {
   selectedTier.set(tier);
@@ -679,6 +736,8 @@ function afterToolbarEdit(renderedBefore, tier, rebuildAnyway = false) {
 
   if (stoneChanged || rebuildAnyway) {
     stoneHooks?.rebuild();
+  } else {
+    stoneHooks?.frosted?.();
   }
 
   if (stoneHooks) {
@@ -778,6 +837,36 @@ export function setTierValue(tier, field, value, { quick = false } = {}) {
   tier[field] = value;
   render(currentDesign, currentOnRowClick, { preserveSelection: true });
   stoneHooks?.rebuild({ quick });
+}
+
+/**
+ * Sets many tiers' angles and distances at once (scale height, T-0231: both gauges rewrite every
+ * tier of their half), `values` being `[{ tier, angle, distance }]`, then redraws the rows and
+ * rebuilds the stone ONCE -- a rebuild per tier would multiply a 300 ms-2 s rebuild (T-0194) by
+ * the number of tiers. `quick` as for `setTierValue`. Does nothing, not even a rebuild, when no
+ * value actually changed -- unless `force`: a drag's release that lands on the value its last
+ * quick write already set still needs the full rebuild a quick one skipped (the facet map and
+ * the proportions in the corner).
+ */
+export function setTierValues(values, { quick = false, force = false } = {}) {
+  if (!currentDesign) {
+    return;
+  }
+
+  let changed = false;
+
+  for (const { tier, angle, distance } of values) {
+    if (tier.angle !== angle || tier.distance !== distance) {
+      tier.angle = angle;
+      tier.distance = distance;
+      changed = true;
+    }
+  }
+
+  if (changed || force) {
+    render(currentDesign, currentOnRowClick, { preserveSelection: true });
+    stoneHooks?.rebuild({ quick });
+  }
 }
 
 /** Records a finished slider drag as one update, for undo and redo. */
@@ -974,9 +1063,10 @@ export const toolbarActions = {
     }
   },
 
-  // Frosted (T-0180): the tier's angle and teeth get a darker background in the list. The render is
-  // left alone for now (the user: "doesn't update the render for now"; the effect itself is
-  // T-0183), so the flag is not one isRenderedTier reads and toggling it never rebuilds.
+  // Frosted (T-0180): the tier's angle and teeth get a darker background in the list, and (T-0183)
+  // the Monte Carlo renderer draws its facets as rough glass. Frosting is a surface finish, not a
+  // change to which planes cut the stone, so the flag is not one isRenderedTier reads and toggling
+  // it never rebuilds: afterToolbarEdit re-sends the frosted facets to the renderer instead.
   frosted() {
     if (get(toolbar).frosted.active) {
       toggleTierFlag('frosted', get(selectedTier).frosted ? 'Unmark frosted' : 'Mark frosted');
@@ -987,8 +1077,8 @@ export const toolbarActions = {
 /** The keyboard equivalent of a drag (T-0165): moves `tier` one place within its own
  * section, clamped at the ends (no wraparound), and keeps keyboard focus on its row. */
 export function moveTier(tier, direction) {
-  // The keyboard's half of the reorder, refused for the same reason (T-0202).
-  if (!currentDesign || tierBeingEdited() !== null) {
+  // The keyboard's half of the reorder, refused for the same reasons (T-0202, T-0231).
+  if (!currentDesign || tierBeingEdited() !== null || designLocked()) {
     return;
   }
 

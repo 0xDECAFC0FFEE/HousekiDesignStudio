@@ -372,8 +372,11 @@
      *            the list, but a preform tier is kept, for its meetpoints.
      *            (design_mesh.js used to leave a file's preform tiers out of
      *            the mesh, following the reference viewer; that stopped here.)
-     *   frosted  a display mark only for now (the user: "doesn't update the
-     *            render for now").
+     *   frosted  cut normally too: frosting changes how a facet's surface
+     *            scatters light, not which planes cut the stone. The page
+     *            sends a frosted tier's facets to the renderer as a separate
+     *            mask (selection.js's syncFrostedFacets, T-0183), which the
+     *            Monte Carlo renderer draws as rough glass.
      *
      * The page and the mesh builder both ask this one function, so the
      * rendered stone (DesignMesh) and the facet<->tier map the page builds

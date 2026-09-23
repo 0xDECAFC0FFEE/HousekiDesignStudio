@@ -33,6 +33,10 @@
   import { getDesign } from '../lib/tier_controller.js';
   import { designToAscText } from '../lib/export_asc.js';
   import { saveFileAs } from '../lib/export_file.js';
+  // Edit > Scale height (T-0231): what it needs to know to be live or inert, and the mode it opens.
+  import { tierView } from '../lib/tier_controller.js';
+  import { editing } from '../lib/edit_mode.js';
+  import { scaleHeightOpen, enterScaleHeightMode } from '../lib/scale_height_mode.js';
   // T-0204/T-0205/T-0207 originally wired these three through onSelect={() => import(...)},
   // a dynamic import, each deliberately avoiding this file's own top-level import lines so three
   // concurrent agents' edits could never collide on the same line. That safely built and tested
@@ -197,6 +201,18 @@
     'h-[26px] px-2.5 py-0 text-[13px] ' +
     '[@media(min-width:40rem)_and_(min-height:500.02px)]:h-8 [@media(min-width:40rem)_and_(min-height:500.02px)]:px-3 [@media(min-width:40rem)_and_(min-height:500.02px)]:text-[15px]';
   const SHORTCUT = 'font-mono text-[11px] tracking-normal';
+
+  // Scale height's tip (T-0231), in the voice of the placeholders it replaced, plus why it is
+  // inert when it is: no design to scale (the built-in mesh or a plain .obj), or another mode
+  // already open -- one session at a time, as edit mode has it. A greyed item that cannot say
+  // why is exactly what T-0208's tips were written against.
+  const SCALE_HEIGHT_TIP = 'Makes the crown or the pavilion taller or flatter, each by its own ratio: every facet turns so the tangent of its angle is multiplied by the ratio, and moves so its meets still meet. The girdle stays where it is.';
+  const scaleHeightInert = $derived(!$tierView.hasDesign || $editing !== null || $scaleHeightOpen);
+  const scaleHeightTip = $derived(
+    !$tierView.hasDesign ? `${SCALE_HEIGHT_TIP} There is no design loaded to scale.`
+      : $editing !== null ? `${SCALE_HEIGHT_TIP} Finish editing the tier first: Done, or Cancel.`
+        : $scaleHeightOpen ? `${SCALE_HEIGHT_TIP} It is already open.`
+          : SCALE_HEIGHT_TIP);
 </script>
 
 <svelte:document onkeydown={onDocumentKeydown} />
@@ -305,14 +321,15 @@
           class="{ITEM} {INERT}"
           data-tip="Turns the design over: the crown becomes the pavilion and the pavilion the crown. {PLACEHOLDER_TIP}"
           >Flip crown and pavilion</Menubar.Item>
-        <Menubar.Item id="menu-item-scale-xy" {@attach ariaDisabled(() => true)}
-          class="{ITEM} {INERT}"
-          data-tip="Stretches the design across the girdle, changing its width against its length. The angles move with it. {PLACEHOLDER_TIP}"
-          >Scale X-Y</Menubar.Item>
-        <Menubar.Item id="menu-item-scale-z" {@attach ariaDisabled(() => true)}
-          class="{ITEM} {INERT}"
-          data-tip="Stretches the design along its axis, making the stone deeper or shallower. The angles move with it. {PLACEHOLDER_TIP}"
-          >Scale Z</Menubar.Item>
+        <!-- Scale height (T-0231, 2026-09-23, the user: "can you delete the scale x-y and scale
+             z and only have a scale height? when this is selected, we need to enter the 'scale
+             height mode'"). The first of these transforms to be built, and so the first live one:
+             it opens scale_height_mode.js. Inert with no design loaded, and while edit mode or
+             this mode is open. -->
+        <Menubar.Item id="menu-item-scale-height" {@attach ariaDisabled(() => scaleHeightInert)}
+          class="{ITEM} {INERT}" data-tip={scaleHeightTip}
+          onSelect={() => { if (!scaleHeightInert) enterScaleHeightMode(); }}
+          >Scale height</Menubar.Item>
       </Menubar.Content>
     </Menubar.Menu>
 

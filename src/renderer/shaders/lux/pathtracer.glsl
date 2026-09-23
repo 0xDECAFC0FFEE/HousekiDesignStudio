@@ -90,6 +90,25 @@
 //    branch needs *some* light source to query without pulling that machinery in. Stubbed the
 //    same way, for the same reason, so the wiring ticket has one place to look for both.
 //
+// SINCE T-0183 THERE ARE TWO MATERIALS, AND THE SECOND ONE IS NOT DELTA. A facet the page has
+// marked frosted (GemApp::set_frosted_facets -> uFrostedTexture -> LUX_FACET_IS_FROSTED, see
+// lux/host.glsl) is LuxCore's RoughGlassMaterial (lux/roughglass.glsl), a glossy microfacet
+// dielectric; every other facet is still GlassMaterial. LuxBSDF carries which one it is
+// (`frosted`), set by BSDF_Init from the hit's facet id, and BSDF_GetEventTypes / BSDF_IsDelta /
+// BSDF_Sample / BSDF_Evaluate dispatch on it -- the same "material pointer" upstream's BSDF
+// holds, reduced to one bit. What that revives, exactly as upstream would:
+//   - PathTracer_DirectLightSampling now has its real body (pathtracer.cpp:137-260) and runs
+//     at every frosted vertex: the environment is sampled as a light, a shadow ray is traced,
+//     and the result is MIS-weighted (power heuristic) against BSDF sampling. See that
+//     function for the one restructuring it needed (the environment as a single light).
+//   - PathTracer_DirectHitInfiniteLight's MIS-weight branch is live after a GLOSSY event, and
+//     reads the lastBSDFPdfW RoughGlassMaterial_Sample produced.
+//   - Russian roulette is live in principle (a GLOSSY event clears the SPECULAR bit), but with
+//     rrDepth = the maximum depth (lux/entry.glsl) GetRRDepth() >= rrDepth can only hold on a
+//     path that has already reached the depth limit, so it still never fires in practice.
+// The paragraph below is the pre-T-0183 account and remains exactly true for a stone with no
+// frosted facets.
+//
 // RUSSIAN ROULETTE AND DIRECT LIGHT SAMPLING ARE BOTH DEAD CODE FOR THIS MATERIAL, AND FOR A
 // DIFFERENT REASON EACH. Both are ported faithfully (bodies present, called from the same
 // places upstream calls them) precisely so that stays true structurally instead of by
@@ -99,7 +118,8 @@
 //     `!bsdf.IsDelta()`. GlassMaterial::IsDelta() is `true` unconditionally (glass.h:43), so
 //     this is dead in upstream LuxCore too, not just in this port -- the earlier glass.glsl /
 //     kb/luxcore-as-a-reference-oracle.md finding that "GlassMaterial::Pdf returns 0" is the
-//     same fact from the other direction. Stubbed to `return NOT_VISIBLE;` (see the function).
+//     same fact from the other direction. It was stubbed to `return NOT_VISIBLE;` until T-0183
+//     gave it a non-delta material to run for and ported its body.
 //
 //   - Russian roulette (PathInfo::UseRR, pathinfo.cpp:34-36) requires
 //     `!(lastBSDFEvent & SPECULAR)`. GlassMaterial_Sample (glass.glsl) always sets
@@ -169,7 +189,8 @@
 //   - T-0115 (speed-up, P3): PathTracer_DirectLightSampling's 5 sampler draws
 //     (sampleOffset+1..+5) are unconditionally taken every vertex purely to keep the RNG
 //     stream's per-vertex layout identical to upstream's 9-dimension VERTEX_SAMPLE_SIZE
-//     budget, even though the values are always discarded (see the dead-code note above).
+//     budget, even though the values are discarded at every polished (delta) vertex (see the
+//     dead-code note above). Since T-0183 a frosted vertex genuinely uses them.
 //     Dropping them would shrink each vertex's sampler footprint from 9 draws to 4, at the
 //     cost of the RNG stream no longer lining up dimension-for-dimension with LuxCore's.
 //
@@ -192,7 +213,21 @@
 //     GlassParams (this file's own struct, not upstream) plus thin BSDF_* wrapper functions
 //     that call straight through to glass.glsl's GlassMaterial_* functions -- continuing
 //     glass.glsl's own T-0096 precedent of stripping dispatch machinery for a scene with
-//     exactly one material.
+//     exactly one material. Since T-0183 there are two (GlassMaterial and, on frosted
+//     facets, RoughGlassMaterial), so the "material pointer" survives as one bit,
+//     LuxBSDF.frosted, and the BSDF_* wrappers branch on it. Both materials share
+//     GlassParams: upstream's roughglass takes the same kr/kt/exteriorior/interiorior plus
+//     uroughness/vroughness, which GlassParams now carries too.
+//   - SIDE AFTER A GLOSSY TRANSMISSION (T-0183). `side` used to flip on every TRANSMIT event.
+//     That is exact for a delta refraction, which always crosses the surface, but a microfacet
+//     "transmission" sampled near grazing can leave on the SAME side of the macro surface it
+//     arrived from (RoughGlassMaterial_Sample checks this only for reflection). Upstream's
+//     PathVolumeInfo would then believe the ray is inside the gem's volume while it travels
+//     outside; here it would be worse, because gem.frag's traceScene enforces the side rule,
+//     so a ray labelled "inside" while outside could only ever find back faces. `side` is
+//     therefore read off the geometry instead: whichever side of the facet the new ray
+//     actually leaves on, the same test BSDF_GetRayOrigin already uses to pick its nudge. For
+//     GlassMaterial the two rules agree on every event, so nothing changes for polished facets.
 //   - GLSL has no unbounded `for(;;)`; a fragment shader that hangs cannot be interrupted (see
 //     gem.frag's own comment on traceScene's hard iteration cap for the same reason). The
 //     `for(;;)` loop becomes `for (int step = 0; step < LUX_MAX_PATH_VERTICES; ++step)`, a
@@ -221,6 +256,9 @@
 // even though they can never be set by anything in this scene. Own guard, not glass.glsl's --
 // re-opening LUX_BSDFEVENTS_GLSL here would silently skip this block whenever glass.glsl has
 // already been concatenated (which tools/glsl_check.sh's required file order guarantees).
+// Since T-0183 lux/roughglass.glsl, which does produce GLOSSY, opens the same guard with the
+// same two constants; it is concatenated first, so in the assembled shader this block is the
+// one skipped, and it still defines both when this file is checked on its own.
 // -----------------------------------------------------------------------------
 #ifndef LUX_PATHTRACER_BSDFEVENTS_GLSL
 #define LUX_PATHTRACER_BSDFEVENTS_GLSL
@@ -476,11 +514,35 @@ vec3 Env_GetRadiance(vec3 direction, out float directPdfW);
 // function for why 1.0 is exact for every case that can actually read it.
 float Env_GetLightPickPdf();
 
+// The direction-sampling half of the environment light's Illuminate, for
+// PathTracer_DirectLightSampling (T-0183): a direction from the shading point towards the
+// environment, and the solid-angle pdf it was drawn with. Defined in lights.glsl, which owns
+// the environment; see its comment for why this is ConstantInfiniteLight::Illuminate's
+// uniform-sphere sampling applied to the whole collapsed environment.
+vec3 Env_SampleDirection(float u0, float u1, out float directPdfW);
+
+// -----------------------------------------------------------------------------
+// FROSTED FACETS -- HOST INTEGRATION POINT (T-0183).
+//
+// Whether the facet with this id is frosted, i.e. uses RoughGlassMaterial rather than
+// GlassMaterial. lux/host.glsl defines it as a lookup in uFrostedTexture, the per-facet mask
+// GemApp::set_frosted_facets uploads. Standalone (tools/glsl_check.sh on this file) nothing is
+// frosted, which is what the page shows until a tier is marked.
+// -----------------------------------------------------------------------------
+#ifndef LUX_FACET_IS_FROSTED
+#define LUX_FACET_IS_FROSTED(facet) false
+#endif
+
 // -----------------------------------------------------------------------------
 // GlassParams. Not an upstream type -- see the file header's RESTRUCTURINGS note. Bundles the
 // arguments glass.glsl's GlassMaterial_Sample takes in place of upstream's texture/eval-stack
 // resolution (glass.glsl:52-57), so BSDF_Sample below has one material-parameters argument
 // instead of seven.
+//
+// `uRoughness`/`vRoughness` are RoughGlassMaterial's `uroughness`/`vroughness` (T-0183), read
+// only on frosted facets; every other field means the same thing to both materials, as it does
+// upstream (roughglass.cpp's constructor takes the same Kr, Kt, exteriorIor and interiorIor as
+// glass.cpp's). `cauchyB` is GlassMaterial's alone: LuxCore's roughglass has no dispersion.
 // -----------------------------------------------------------------------------
 struct GlassParams {
     vec3 kr;
@@ -490,6 +552,8 @@ struct GlassParams {
     float cauchyB;
     float filmThickness;
     float filmIor;
+    float uRoughness;
+    float vRoughness;
 };
 
 // -----------------------------------------------------------------------------
@@ -500,12 +564,16 @@ struct GlassParams {
 // `p` (hitPoint.p), `geometryN` (hitPoint.geometryN -- also hitPoint.shadeN/interpolatedN here,
 // see LuxHit's comment on flat shading), `fixedDir` (hitPoint.fixedDir), and `frame`
 // (BSDF::frame, math.glsl's Frame struct).
+//
+// `frosted` (T-0183) stands in for the `material` pointer: false is GlassMaterial, true is
+// RoughGlassMaterial. See the file header.
 // -----------------------------------------------------------------------------
 struct LuxBSDF {
     vec3 p;
     vec3 geometryN;
     vec3 fixedDir;
     Frame frame;
+    bool frosted;
 };
 
 // bsdf.cpp:29-72 (BSDF::Init, the "hit a surface" overload) + hitpoint.cpp:33-73
@@ -528,11 +596,24 @@ void BSDF_Init(vec3 rayDirection, LuxHit hit, out LuxBSDF bsdf) {
     bsdf.geometryN = hit.geometricNormal;
     bsdf.fixedDir = -rayDirection;
     Frame_SetFromZ(bsdf.frame, bsdf.geometryN);
+    // `material = &sceneObject->GetMaterial();` -- bsdf.cpp:47, reduced to which of the two
+    // materials this facet has (T-0183). The facet id is per facet, not per triangle, so every
+    // triangle of a frosted facet is frosted.
+    bsdf.frosted = LUX_FACET_IS_FROSTED(hit.facet);
 }
 
-// glass.h:41 (GlassMaterial::GetEventTypes). Hard-coded: there is only ever this one material.
-BSDFEvent BSDF_GetEventTypes() {
+// BSDF::GetEventTypes -> material->GetEventTypes(): glass.h:41 (GlassMaterial) or
+// roughglass.h:41 (RoughGlassMaterial, T-0183).
+BSDFEvent BSDF_GetEventTypes(LuxBSDF bsdf) {
+    if (bsdf.frosted)
+        return RoughGlassMaterial_GetEventTypes();
     return SPECULAR | REFLECT | TRANSMIT;
+}
+
+// BSDF::IsDelta -> material->IsDelta(): GlassMaterial's is `true` (glass.h:43);
+// RoughGlassMaterial inherits Material::IsDelta(), `false` (material.h:126).
+bool BSDF_IsDelta(LuxBSDF bsdf) {
+    return !bsdf.frosted;
 }
 
 // bsdf.cpp:363-397 (BSDF::Sample), restructured: `material->Sample(...)` becomes a direct call
@@ -548,20 +629,87 @@ BSDFEvent BSDF_GetEventTypes() {
 // light-tracing code downstream of this ticket's scope would). Returns `false` where upstream's
 // `if (result.Black()) return result;` would hand back a black Spectrum, matching
 // GlassMaterial_Sample's own bool-return convention (glass.glsl, T-0096).
+//
+// T-0183: `material->Sample` dispatches on LuxBSDF.frosted. The shadow-terminator correction
+// stays dropped for RoughGlassMaterial's GLOSSY | REFLECT events too: it needs
+// `shadeN != interpolatedN`, which a flat-shaded mesh never has.
 bool BSDF_Sample(LuxBSDF bsdf, GlassParams glass, float u0, float u1, float passThroughEvent,
         out vec3 sampledDir, out float pdfW, out BSDFEvent event, out vec3 result) {
     vec3 localFixedDir = Frame_ToLocal(bsdf.frame, bsdf.fixedDir);
     vec3 localSampledDir;
 
-    bool sampled = GlassMaterial_Sample(localFixedDir, u0, u1, passThroughEvent,
-            glass.kr, glass.kt, glass.nc, glass.nt, glass.cauchyB,
-            glass.filmThickness, glass.filmIor,
-            localSampledDir, pdfW, event, result);
+    bool sampled;
+    if (bsdf.frosted) {
+        sampled = RoughGlassMaterial_Sample(localFixedDir, u0, u1, passThroughEvent,
+                glass.kr, glass.kt, glass.nc, glass.nt, glass.uRoughness, glass.vRoughness,
+                glass.filmThickness, glass.filmIor,
+                localSampledDir, pdfW, event, result);
+    } else {
+        sampled = GlassMaterial_Sample(localFixedDir, u0, u1, passThroughEvent,
+                glass.kr, glass.kt, glass.nc, glass.nt, glass.cauchyB,
+                glass.filmThickness, glass.filmIor,
+                localSampledDir, pdfW, event, result);
+    }
     if (!sampled)
         return false;
 
     sampledDir = Frame_ToWorld(bsdf.frame, localSampledDir);
     return true;
+}
+
+// bsdf.cpp:288-339 (BSDF::Evaluate), T-0183. Only ever called by
+// PathTracer_DirectLightSampling, i.e. only for a non-delta BSDF, so in practice only at a
+// frosted facet; the GlassMaterial arm is kept so the dispatch is total, and returns black
+// exactly as GlassMaterial::Evaluate does (glass.glsl). Dropped, each for a reason that holds
+// for every hit in this scene:
+//   - the eye/light swap on `hitPoint.fromLight` and the adjoint-BSDF factor at the end: this
+//     is an eye-path integrator, fromLight is always false (T-0110), so eyeDir = fixedDir;
+//   - the `IsVolume()` guards: this BSDF is never a volume scatter point (T-0113/T-0131);
+//   - the interpolated-normal side test (bsdf.cpp:312-316) and the shadow-terminator factor:
+//     the mesh is flat-shaded, interpolatedN == shadeN == geometryN (see LuxHit), so the
+//     first repeats the geometric-normal test verbatim and the second never applies.
+// Returns false where upstream returns a black Spectrum.
+bool BSDF_Evaluate(LuxBSDF bsdf, GlassParams glass, vec3 generatedDir,
+        out BSDFEvent event, out float directPdfW, out vec3 result) {
+    event = NONE;
+    directPdfW = 0.0;
+    result = BLACK;
+
+    vec3 eyeDir = bsdf.fixedDir;
+    vec3 lightDir = generatedDir;
+
+    float dotLightDirNG = dot(lightDir, bsdf.geometryN);
+    float absDotLightDirNG = fabs(dotLightDirNG);
+    float dotEyeDirNG = dot(eyeDir, bsdf.geometryN);
+    float absDotEyeDirNG = fabs(dotEyeDirNG);
+
+    // Avoid glancing angles
+    if ((absDotLightDirNG < DEFAULT_COS_EPSILON_STATIC) ||
+            (absDotEyeDirNG < DEFAULT_COS_EPSILON_STATIC))
+        return false;
+
+    // Check geometry normal and light direction side
+    float sideTestNG = dotEyeDirNG * dotLightDirNG;
+    BSDFEvent matEvents = BSDF_GetEventTypes(bsdf);
+    if (((sideTestNG > 0.0) && ((matEvents & REFLECT) == 0)) ||
+            ((sideTestNG < 0.0) && ((matEvents & TRANSMIT) == 0)))
+        return false;
+
+    vec3 localLightDir = Frame_ToLocal(bsdf.frame, lightDir);
+    vec3 localEyeDir = Frame_ToLocal(bsdf.frame, eyeDir);
+
+    if (!bsdf.frosted) {
+        result = GlassMaterial_Evaluate(localLightDir, localEyeDir, event);
+        return false;
+    }
+
+    bool evaluated = RoughGlassMaterial_Evaluate(localLightDir, localEyeDir,
+            glass.kr, glass.kt, glass.nc, glass.nt, glass.uRoughness, glass.vRoughness,
+            glass.filmThickness, glass.filmIor,
+            result, event, directPdfW);
+
+    // if (result.Black()) return result; -- bsdf.cpp:323-324
+    return evaluated && !Spectrum_IsBlack(result);
 }
 
 // bsdf.h:166-174 (BSDF::GetRayOrigin). The `IsVolume()` branch (bsdf.h:168, `return
@@ -580,18 +728,6 @@ vec3 BSDF_GetRayOrigin(LuxBSDF bsdf, vec3 sampleDir) {
 const int ILLUMINATED = 0;
 const int SHADOWED = 1;
 const int NOT_VISIBLE = 2;
-
-// pathtracer.cpp:137-260 (PathTracer::DirectLightSampling), stubbed. See the file header's
-// dead-code note: the entire body upstream is gated on `if (!bsdf.IsDelta())`, and
-// GlassMaterial::IsDelta() is always true (glass.h:43), so this function's real body never
-// executes for this project's material -- in upstream LuxCore either, not only in this port.
-// u0..u4 are accepted, matching DirectLightSampling's real signature, and unused, matching the
-// never-entered body; the caller still draws all five from the sampler (see
-// PathTracer_RenderEyePath) purely to keep each vertex's sampler-dimension footprint the same
-// shape as upstream's (see the T-0115 speed-up cut for the alternative).
-DirectLightResult PathTracer_DirectLightSampling(float u0, float u1, float u2, float u3, float u4) {
-    return NOT_VISIBLE;
-}
 
 // pathtracer.cpp:262-275 (CheckDirectHitVisibilityFlags), restructured: upstream asks the hit
 // *light source* whether it opts into being visible after a diffuse/glossy/specular indirect
@@ -613,6 +749,136 @@ bool PathTracer_CheckDirectHitVisibilityFlags(PathDepthInfo depthInfo, BSDFEvent
     return false;
 }
 
+// This port's own shadow-ray / next-ray bounds; see the comment where they are used first,
+// in PathTracer_RenderEyePath below. Defined here because PathTracer_DirectLightSampling
+// (T-0183) traces a shadow ray with the same bounds and GLSL, like C, needs a macro defined
+// before its first use.
+#ifndef LUX_SELF_HIT_EPSILON
+#define LUX_SELF_HIT_EPSILON 1e-6
+#endif
+#ifndef LUX_MAX_DISTANCE
+#define LUX_MAX_DISTANCE 1e9
+#endif
+
+// pathtracer.cpp:137-260 (PathTracer::DirectLightSampling). The whole body is gated on
+// `!bsdf.IsDelta()`, which until T-0183 was never true (GlassMaterial is delta, see the file
+// header), so this was a `return NOT_VISIBLE;` stub. RoughGlassMaterial is not delta, and on a
+// frosted facet this is now the real function. Its contribution is added to `radiance`
+// (standing in for `sampleResult->AddDirectLight`, whose arithmetic core is
+// `radiance[lightID] += pathThroughput * incomingRadiance`, sampleresult.cpp:84-87; the AOV
+// bucketing after it is T-0111's cut).
+//
+// RESTRUCTURINGS, each forced by something this port already is:
+//   - THE ENVIRONMENT IS ONE LIGHT. Upstream asks the illuminate light strategy to pick one of
+//     the scene's lights (`lightStrategy.SampleLights(..., u0, ...)`) and calls that light's
+//     Illuminate. This port has only ever exposed the environment as ONE light:
+//     Env_GetRadiance (lights.glsl) already sums the sky and every sun into one radiance, and
+//     Env_GetLightPickPdf is 1. So there is nothing to pick (u0 is drawn and unused, as
+//     upstream's own single-light strategies leave it), and Illuminate is
+//     ConstantInfiniteLight::Illuminate's own direction sampling (constantinfinitelight.cpp:
+//     135-137, the no-visibility-map arm: a uniform direction on the sphere, pdf
+//     1/(4 pi), from u1 and u2) applied to that whole environment -- see Env_SampleDirection.
+//     That is a valid estimator for ANY environment radiance, the project's image-based and
+//     analytical ones included, which have no importance map of their own. Its one cost is
+//     variance on LuxCore's small suns, which BSDF sampling picks up through the MIS weight.
+//     `u3` is Illuminate's passThroughEvent, read upstream only by the visibility-map cache
+//     this project never enables (T-0117), so it is drawn and unused too.
+//   - RADIANCE IS LOOKED UP AFTER THE SHADOW RAY, not before it. Upstream's Illuminate returns
+//     the light's radiance and the shadow ray then says whether anything blocks it. Here the
+//     environment's radiance is not a pure function of direction: Env_GetRadiance reads
+//     host.glsl's gLuxSkyVisibility (the LuxCore rig's horizon quad) and gLuxPathHitStone,
+//     both written by Scene_Intersect. Tracing first and then calling Env_GetRadiance with
+//     exactly the arguments PathTracer_DirectHitInfiniteLight would use for the same ray
+//     makes this estimate and the BSDF-sampled one evaluate the SAME function -- which is
+//     what MIS needs to be unbiased -- and gives the horizon quad upstream's own effect (a
+//     black matte in the way contributes nothing). Only a hit on the STONE is SHADOWED: glass
+//     has no pass-through transparency, so, as upstream, a shadow ray never sees light through
+//     the gem; that light arrives by BSDF sampling instead.
+//   - `Illuminate`'s `cosAtLight < DEFAULT_COS_EPSILON_STATIC` test against the scene's
+//     bounding sphere (constantinfinitelight.cpp:143-157) is dropped: a shading point on a
+//     stone of radius 1 is always deep inside LuxCore's environment sphere, where that cosine
+//     is 1 to within float precision. `shadowRayDistance` becomes LUX_MAX_DISTANCE likewise.
+//   - `light->GetAvgPassThroughTransparency()` is 1 for an environment light (light.h's
+//     default), and `shadowBsdf.hitPoint.throughShadowTransparency` is always false (the gem
+//     has no shadow transparency), so both are omitted from the arithmetic.
+//   - The hybridBackForward / IsCausticPath arm, the shadow-catcher arm and the irradiance AOV
+//     are cut (T-0112, T-0111), as everywhere else in this file.
+DirectLightResult PathTracer_DirectLightSampling(float u0, float u1, float u2, float u3, float u4,
+        EyePathInfo pathInfo, vec3 pathThroughput, LuxBSDF bsdf, GlassParams glass,
+        bool lastPathVertex, uint rrDepth, float rrImportanceCap, inout vec3 radiance) {
+    if (!BSDF_IsDelta(bsdf)) {
+        // Pick a light source to sample -- the environment, the only one; see above.
+        float lightPickPdf = Env_GetLightPickPdf();
+
+        // light->Illuminate(scene, bsdf, time, u1, u2, u3, shadowRay, directPdfW)
+        float directPdfW;
+        vec3 shadowRayDir = Env_SampleDirection(u1, u2, directPdfW);
+        vec3 shadowRayOrig = BSDF_GetRayOrigin(bsdf, shadowRayDir);
+
+        BSDFEvent event;
+        float bsdfPdfW;
+        vec3 bsdfEval;
+        if (!BSDF_Evaluate(bsdf, glass, shadowRayDir, event, bsdfPdfW, bsdfEval))
+            return NOT_VISIBLE;
+
+        // Create a new PathDepthInfo for the path to the light source
+        PathDepthInfo directLightDepthInfo = pathInfo.depth;
+        PathDepthInfo_IncDepths(directLightDepthInfo, event);
+
+        // Check if the light source is visible. The side follows the direction the shadow
+        // ray actually leaves the facet in -- see the file header's note on `side`.
+        float shadowSide = (dot(shadowRayDir, bsdf.geometryN) > 0.0) ? LUX_RAY_FROM_OUTSIDE : LUX_RAY_FROM_INSIDE;
+        LuxHit shadowHit;
+        if (Scene_Intersect(shadowRayOrig, shadowRayDir, LUX_SELF_HIT_EPSILON, LUX_MAX_DISTANCE, shadowSide, shadowHit))
+            return SHADOWED;
+
+        // `connectionThroughput` from the shadow ray's Scene::Intersect: the interior volume's
+        // transmittance when the ray runs inside the gem. A shadow ray that starts inside a
+        // watertight stone always hits it and is SHADOWED above, so this is the numerical-
+        // escape case only, handled as the eye path's own volume block handles it.
+        vec3 connectionThroughput = WHITE;
+        if (shadowSide == LUX_RAY_FROM_INSIDE) {
+            vec3 connectionEmission = BLACK;
+            HomogeneousVolume_Scatter(LUX_SELF_HIT_EPSILON, shadowHit.t,
+                    u4, false, LUX_VOLUME_MULTISCATTERING,
+                    LUX_VOLUME_SIGMA_A, LUX_VOLUME_SIGMA_S, LUX_VOLUME_EMISSION,
+                    connectionThroughput, connectionEmission);
+        }
+
+        // The light's radiance along the shadow ray, looked up the way an escaping eye ray's
+        // is (PathTracer_DirectHitInfiniteLight): `-shadowRayDir` is upstream's `-ray.d`.
+        float unusedDirectPdfW;
+        vec3 lightRadiance = Env_GetRadiance(-shadowRayDir, unusedDirectPdfW);
+        if (Spectrum_IsBlack(lightRadiance))
+            return NOT_VISIBLE;
+
+        // I'm ignoring volume emission because it is not sampled in
+        // direct light step.
+        float directLightSamplingPdfW = directPdfW * lightPickPdf;
+        float factor = 1.0 / directLightSamplingPdfW;
+
+        if (PathDepthInfo_GetRRDepth(directLightDepthInfo) >= rrDepth) {
+            // Russian Roulette
+            bsdfPdfW *= RenderEngine_RussianRouletteProb(bsdfEval, rrImportanceCap);
+        }
+
+        // MIS between direct light sampling and BSDF sampling
+        //
+        // Note: I have to avoid MIS on the last path vertex
+        bool misEnabled = !lastPathVertex &&
+            PathTracer_CheckDirectHitVisibilityFlags(directLightDepthInfo, event);
+
+        float weight = misEnabled ? PowerHeuristic(directLightSamplingPdfW, bsdfPdfW) : 1.0;
+        vec3 incomingRadiance = bsdfEval * (weight * factor) * connectionThroughput * lightRadiance;
+
+        radiance += pathThroughput * incomingRadiance;
+
+        return ILLUMINATED;
+    }
+
+    return NOT_VISIBLE;
+}
+
 // pathtracer.cpp:320-349 (DirectHitInfiniteLight), restructured: upstream loops
 // `scene.GetLightSources().GetEnvLightSources()` (any number of constantinfinite/sky/sun
 // lights) and asks each in turn; this project has exactly one environment (Env_GetRadiance,
@@ -620,10 +886,13 @@ bool PathTracer_CheckDirectHitVisibilityFlags(PathDepthInfo depthInfo, BSDFEvent
 // `bsdf->hitPoint.throughShadowTransparency` early return (pathtracer.cpp:325-326) is dropped:
 // GlassMaterial has no pass-through/shadow-transparency (T-0111/T-0112's cuts cover the
 // generality this would need), so it is always false. The MIS-weight branch
-// (pathtracer.cpp:337-342) is ported live but is dead for this project's material -- see the
-// file header's Russian-roulette/DirectLightSampling dead-code note, which applies here too:
-// `pathInfo.lastBSDFEvent` always has SPECULAR set (both its EyePathInfo default and every
-// value GlassMaterial_Sample ever produces), so `weight = 1.f` unconditionally in practice.
+// (pathtracer.cpp:337-342) is ported live. It was dead while every material was GlassMaterial
+// -- `pathInfo.lastBSDFEvent` always had SPECULAR set (both its EyePathInfo default and every
+// value GlassMaterial_Sample ever produces), so `weight = 1.f` unconditionally -- and since
+// T-0183 it runs whenever the last bounce was off a frosted facet (GLOSSY): the ray that
+// escaped here is weighted against PathTracer_DirectLightSampling having found the same
+// direction. `directPdfW` must then be the pdf that function samples with, which is why
+// Env_GetRadiance reports UniformSpherePdf() for every environment (see lights.glsl).
 // Matches only the arithmetic core of `sampleResult->AddEmission` (sampleresult.cpp:59-65):
 // `radiance[lightID] += pathThroughput * incomingRadiance` -- the AOV channel-bucketing the
 // rest of that function does is T-0111.
@@ -638,7 +907,7 @@ vec3 PathTracer_DirectHitInfiniteLight(EyePathInfo pathInfo, vec3 pathThroughput
 
     float weight;
     if ((pathInfo.lastBSDFEvent & SPECULAR) == 0) {
-        // Dead for this project's material -- see the comment above the function.
+        // Live after a frosted (GLOSSY) bounce only -- see the comment above the function.
         float lightPickProb = Env_GetLightPickPdf();
         weight = PowerHeuristic(pathInfo.lastBSDFPdfW, directPdfW * lightPickProb);
     } else {
@@ -845,7 +1114,7 @@ vec3 PathTracer_RenderEyePath(vec3 eyeOrigin, vec3 eyeDirection, GlassParams gla
 
         // sampleResult.lastPathVertex = pathInfo.depth.IsLastPathVertex(maxPathDepth,
         // bsdf.GetEventTypes()); -- pathtracer.cpp:477
-        bool lastPathVertex = PathDepthInfo_IsLastPathVertex(pathInfo.depth, maxPathDepth, BSDF_GetEventTypes());
+        bool lastPathVertex = PathDepthInfo_IsLastPathVertex(pathInfo.depth, maxPathDepth, BSDF_GetEventTypes(bsdf));
 
         // Baked-material check (pathtracer.cpp:483-489) -- no baked/lightmap materials in this
         // scene (T-0111/T-0112).
@@ -865,15 +1134,18 @@ vec3 PathTracer_RenderEyePath(vec3 eyeOrigin, vec3 eyeDirection, GlassParams gla
 
         // const DirectLightResult directLightResult = DirectLightSampling(..., sampler.
         // GetSample(sampleOffset+1)...+5, pathInfo, pathThroughput, bsdf, &sampleResult); --
-        // pathtracer.cpp:578-587. Dead body (see PathTracer_DirectLightSampling above); the
-        // five draws are still taken, in the same order, to preserve the per-vertex
-        // sampler-dimension layout (see that function's own comment and the T-0115 cut).
+        // pathtracer.cpp:578-587. Returns at once for a polished (delta) facet, and the five
+        // draws are still taken, in the same order, to preserve the per-vertex
+        // sampler-dimension layout (see the T-0115 cut); on a frosted facet (T-0183) it
+        // samples the environment and adds the MIS-weighted result to `radiance`.
         DirectLightResult directLightResult = PathTracer_DirectLightSampling(
                 Sampler_GetSample(sampler, sampleOffset + 1u),
                 Sampler_GetSample(sampler, sampleOffset + 2u),
                 Sampler_GetSample(sampler, sampleOffset + 3u),
                 Sampler_GetSample(sampler, sampleOffset + 4u),
-                Sampler_GetSample(sampler, sampleOffset + 5u));
+                Sampler_GetSample(sampler, sampleOffset + 5u),
+                pathInfo, pathThroughput, bsdf, glass,
+                lastPathVertex, rrDepth, rrImportanceCap, radiance);
         // directLightResult is never read again in this project (it exists upstream only to
         // gate the shadow-catcher branch immediately below, which this scene has no material
         // for -- see next comment); kept as a named local anyway, matching upstream's shape.
@@ -917,8 +1189,8 @@ vec3 PathTracer_RenderEyePath(vec3 eyeOrigin, vec3 eyeDirection, GlassParams gla
         // PathDepthInfo_GetRRDepth() -- same order as upstream.
         EyePathInfo_AddVertex(pathInfo, bsdfEvent, bsdfPdfW);
 
-        // Russian Roulette. pathtracer.cpp:634-643. See the file header: always inert for this
-        // project's material, ported live anyway.
+        // Russian Roulette. pathtracer.cpp:634-643. See the file header: inert for GlassMaterial,
+        // and in practice for RoughGlassMaterial too at this project's rrDepth; ported live.
         float rrProb = 1.0;
         if (PathInfo_UseRR(pathInfo, rrDepth)) {
             rrProb = RenderEngine_RussianRouletteProb(bsdfSample, rrImportanceCap);
@@ -936,10 +1208,12 @@ vec3 PathTracer_RenderEyePath(vec3 eyeOrigin, vec3 eyeDirection, GlassParams gla
         // irradiance AOV (pathtracer.cpp:648-656) -- T-0111.
 
         // T-0113 restructuring: PathVolumeInfo's job (tracking which side of the interface the
-        // next ray starts on) reduced to flipping `side` on every TRANSMIT event, matching
-        // gem.frag's own single-closed-solid invariant (see the file header).
-        if ((bsdfEvent & TRANSMIT) != 0)
-            side = -side;
+        // next ray starts on) reduced to one `side`, matching gem.frag's own single-closed-solid
+        // invariant (see the file header). It used to flip on every TRANSMIT event; since
+        // T-0183 it is read off the side of the facet the new ray actually leaves on, because a
+        // glossy transmission need not cross the macro surface. For GlassMaterial the two rules
+        // agree on every event -- see the file header's "SIDE AFTER A GLOSSY TRANSMISSION".
+        side = (dot(sampledDir, bsdf.geometryN) > 0.0) ? LUX_RAY_FROM_OUTSIDE : LUX_RAY_FROM_INSIDE;
 
         // eyeRay.Update(bsdf.GetRayOrigin(sampledDir), sampledDir); -- pathtracer.cpp:658
         rayOrigin = BSDF_GetRayOrigin(bsdf, sampledDir);

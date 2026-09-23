@@ -24,7 +24,7 @@
  */
 
 import {
-  designToPdf, facetCounts, formatSheetIndex, girdleFrame, pdfFilename, sheetData, sheetToPdf,
+  designToPdf, facetCounts, formatSheetIndex, frostedFacesToward, girdleFrame, pdfFilename, sheetData, sheetToPdf,
   tierIndexText, visibleEdges,
 } from "../src/lib/export_pdf.js";
 import { PdfDocument, textWidth, winAnsiCodes, wrapText } from "../src/lib/pdf_writer.js";
@@ -98,21 +98,21 @@ const HEX_CUT_V2_SHEET = {
     {
       heading: "Pavilion",
       rows: [
-        { id: "P1", angle: "36.6", indices: "04-12-20-28-36-44-52-60-68-76-84-92", notes: "Cut to centerpoint." },
-        { id: "G1", angle: "90.0", indices: "96-16-32-48-64-80", notes: "Set stone size." },
-        { id: "P2", angle: "41.5", indices: "96-16-32-48-64-80", notes: "Level girdle." },
+        { id: "P1", angle: "36.6", indices: "04-12-20-28-36-44-52-60-68-76-84-92", notes: "Cut to centerpoint.", frosted: false },
+        { id: "G1", angle: "90.0", indices: "96-16-32-48-64-80", notes: "Set stone size.", frosted: false },
+        { id: "P2", angle: "41.5", indices: "96-16-32-48-64-80", notes: "Level girdle.", frosted: false },
       ],
     },
     {
       heading: "Crown",
       rows: [
-        { id: "C1", angle: "55.1", indices: "96-16-32-48-64-80", notes: "Set girdle width." },
-        { id: "C2", angle: "35.2", indices: "03-13-19-29-35-45-51-61-67-77-83-93", notes: "Meet G1, C1" },
-        { id: "C3", angle: "28.5", indices: "08-24-40-56-72-88", notes: "Meet G1, C1, C2" },
-        { id: "C4", angle: "24.9", indices: "96-16-32-48-64-80", notes: "Meet C1, C2" },
-        { id: "C5", angle: "28.2", indices: "08-24-40-56-72-88", notes: "Float to establish hexagons." },
-        { id: "C6", angle: "14.9", indices: "08-24-40-56-72-88", notes: "Float to establish hexagons." },
-        { id: "T", angle: "0.0", indices: "Table", notes: "Float to establish hexagon." },
+        { id: "C1", angle: "55.1", indices: "96-16-32-48-64-80", notes: "Set girdle width.", frosted: false },
+        { id: "C2", angle: "35.2", indices: "03-13-19-29-35-45-51-61-67-77-83-93", notes: "Meet G1, C1", frosted: false },
+        { id: "C3", angle: "28.5", indices: "08-24-40-56-72-88", notes: "Meet G1, C1, C2", frosted: false },
+        { id: "C4", angle: "24.9", indices: "96-16-32-48-64-80", notes: "Meet C1, C2", frosted: false },
+        { id: "C5", angle: "28.2", indices: "08-24-40-56-72-88", notes: "Float to establish hexagons.", frosted: false },
+        { id: "C6", angle: "14.9", indices: "08-24-40-56-72-88", notes: "Float to establish hexagons.", frosted: false },
+        { id: "T", angle: "0.0", indices: "Table", notes: "Float to establish hexagon.", frosted: false },
       ],
     },
   ],
@@ -160,6 +160,52 @@ Deno.test("the written PDF carries the sheet's text", async () => {
 
   // One page: hex_cut_v2's ten tiers fit on the first.
   assertEquals((text.match(/\/Type \/Page\b/g) || []).length, 1, "page count");
+});
+
+Deno.test("frosted tiers are shaded in the views and their teeth printed on a gray band", async () => {
+  // Setup: hex_cut_v2 with its crown tier C2 frosted, as the tier toolbar's Frosted (or a .gcs
+  // facet's `frosting`) marks it, and C3 marked preform. The user's example of a frosted design,
+  // reference/application_images/hex_cut_v3/hex_cut_v3.pdf, fills frosted facets and a frosted
+  // tier's teeth with 0.85 gray and draws everything else in black on white.
+  const design = await hexCutV2();
+  const byAngle = angle => design.tiers.find(tier => Math.abs(tier.angle - angle) < 0.05);
+  const c2 = byAngle(35.2);
+  const c3 = byAngle(28.5);
+
+  assert(c2 && c3, "hex_cut_v2 should have crown tiers at 35.2 (C2) and 28.5 (C3) degrees");
+  c2.frosted = true;
+  c3.preform = true;
+
+  const data = sheetData(design, PRINT_OPTIONS);
+  const crownRows = data.sections[1].rows;
+  const rowOf = id => crownRows.find(row => row.id === id);
+
+  // The test, part 1, the instruction rows: only C2 is flagged frosted, and C3's teeth, being a
+  // preform tier's, are in braces. The braces are the tier table's own mark (tierIndexText).
+  assertEquals(crownRows.filter(row => row.frosted).map(row => row.id), ["C2"], "frosted rows");
+  assertEquals(rowOf("C3").indices, "{08-24-40-56-72-88}", "preform teeth in braces");
+
+  // Part 2, the drawings: seen from above, the faces to shade are C2's and every C2 facet the
+  // crown view sees is among them (all twelve face up, being crown facets). Seen from below
+  // none is, since C2 is on the crown; a shading that ignored which way a face points would
+  // shade C2 through the pavilion.
+  const shownC2 = data.shown.tiers.indexOf(c2);
+  const fromAbove = frostedFacesToward(data.geometry, data.shown.tiers, { x: 0, y: 0, z: 1 });
+
+  assert(fromAbove.length > 0, "the crown view shades C2");
+  assert(fromAbove.every(face => face.tier === shownC2), "only C2's facets are shaded");
+  assertEquals(new Set(fromAbove.map(face => face.facet)).size, c2.facets.length, "every C2 facet");
+  assertEquals(frostedFacesToward(data.geometry, data.shown.tiers, { x: 0, y: 0, z: -1 }).length, 0,
+    "nothing on the pavilion view");
+
+  // Part 3, the file: the gray is set for the fills and put back to black before text, and
+  // the unfrosted startup sheet never sets it, so an unfrosted design prints as it did before.
+  const text = String.fromCharCode(...sheetToPdf(data).toBytes());
+  const plain = String.fromCharCode(...designToPdf(await hexCutV2(), PRINT_OPTIONS));
+
+  assert(text.includes("0.85 g"), "the frosted fill is 0.85 gray");
+  assert(/0\.85 g[^]*\n0 g\nBT/.test(text), "text after a gray fill is black again");
+  assert(!plain.includes("0.85 g"), "an unfrosted design has no gray");
 });
 
 Deno.test("the refractive index set in the app wins over the design's own", async () => {

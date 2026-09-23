@@ -1274,6 +1274,11 @@ impl RenderParams {
 /// * `environment_generation` -- bumped whenever the environment texture is regenerated,
 ///   including `set_environment_image` replacing the image behind an unchanged
 ///   `lighting_model`.
+/// * `frosted_facets` -- the facet ids drawn as rough glass (T-0183), ascending. Like the
+///   geometry they live in a texture, so nothing else here would notice them change. Held as
+///   the set itself rather than a generation counter because the page re-sends the same set
+///   after every rebuild and design load: comparing contents means a resend that changes
+///   nothing does not throw a converged image away.
 #[derive(Debug, Clone, PartialEq)]
 pub struct AccumulationKey {
     pub params: RenderParams,
@@ -1282,6 +1287,7 @@ pub struct AccumulationKey {
     pub height: u32,
     pub model_generation: u64,
     pub environment_generation: u64,
+    pub frosted_facets: Vec<u32>,
 }
 
 /// What one `render()` call should do, decided by [`AccumulationState::begin_pass`].
@@ -3191,6 +3197,7 @@ mod tests {
             height: 64,
             model_generation: 0,
             environment_generation: 0,
+            frosted_facets: Vec::new(),
         }
     }
 
@@ -3299,6 +3306,8 @@ mod tests {
             ("height (a resize)", |key| key.height += 1),
             ("model load", |key| key.model_generation += 1),
             ("environment upload", |key| key.environment_generation += 1),
+            // T-0183: marking (or unmarking) a facet as frosted changes its material.
+            ("frosted facets", |key| key.frosted_facets.push(3)),
             ("refractiveIndex", |key| key.params.refractive_index = 1.5),
             ("dispersion", |key| key.params.dispersion = 0.02),
             ("absorption", |key| key.params.absorption = Vector3::repeat(0.5)),
@@ -3373,6 +3382,41 @@ mod tests {
             );
             assert_eq!(plan.index, 0, "changing {} must restart at pass 0", name);
         }
+    }
+
+    /// Re-sending the same frosted facets must NOT restart the accumulation; sending a
+    /// different set must.                                                          T-0183
+    ///
+    /// Setup: a key with facets 2 and 5 frosted, accumulated for two passes. The page re-sends
+    /// its frosted set after every rebuild and design load, often unchanged, which is why the
+    /// key holds the set's contents rather than a counter bumped on every call.
+    ///
+    /// Test: a third pass with an identical set, then a fourth with facet 5 unfrosted.
+    ///
+    /// Verifies both halves of that choice: the identical set continues the sum (pass index 2,
+    /// no restart), so a no-op resend does not throw a converged image away; and removing a
+    /// facet restarts it at pass 0, because that facet's material -- and so the image -- has
+    /// changed, and averaging in passes taken with it frosted would smear the two looks.
+    #[test]
+    fn accumulation_follows_the_frosted_set_not_the_number_of_times_it_was_sent() {
+        let mut state = AccumulationState::new();
+
+        let mut frosted = accumulation_key();
+        frosted.frosted_facets = vec![2, 5];
+
+        state.begin_pass(frosted.clone());
+        state.begin_pass(frosted.clone());
+
+        let resent = state.begin_pass(frosted.clone());
+        assert!(!resent.restarted, "an unchanged frosted set must not restart the sum");
+        assert_eq!(resent.index, 2, "the sum must carry on from where it was");
+
+        let mut unfrosted = frosted.clone();
+        unfrosted.frosted_facets = vec![2];
+
+        let changed = state.begin_pass(unfrosted);
+        assert!(changed.restarted, "unfrosting a facet changes the image and must restart");
+        assert_eq!(changed.index, 0);
     }
 
     /// Draft mode must restart the accumulation in both directions.

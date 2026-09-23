@@ -9,9 +9,10 @@
  *   - top right, four line drawings of the stone: the crown seen from above with the gear's
  *     index numbers round it, the stone from the side, from the front, and the pavilion from
  *     below, with the measurements the ratios are made of drawn on the side and front views and
- *     each tier's name written on one of its facets;
+ *     each tier's name written on one of its facets, and a frosted tier's facets shaded gray;
  *   - below, the cutting instructions: the pavilion's tiers, then the crown's, each with its
- *     angle, its index teeth and its note; then the design's footnotes. Further pages follow if
+ *     angle, its index teeth (on a gray band for a frosted tier, in braces for a preform one)
+ *     and its note; then the design's footnotes. Further pages follow if
  *     the instructions do not fit on the first.
  *
  * THE DRAWINGS are orthographic and show only the edges the viewer can see. The stone is convex
@@ -28,6 +29,12 @@
  * is the stone seen from the bottom of that drawing, the side view to its right the stone seen
  * from its right, with the crown on the left, and the pavilion view is the stone turned over
  * about the page's vertical, so the tooth at the bottom stays at the bottom.
+ *
+ * FROSTED TIERS are marked as in the user's second example,
+ * reference/application_images/hex_cut_v3/hex_cut_v3.pdf (2026-09-23): their facets are filled
+ * 0.85 gray in every view that sees them, and their teeth are printed on a band of the same
+ * gray. The user asked for both: "frosted facets' tiers should be highlighted" and "frosted
+ * facets should be highlighted in the diagram as well".
  *
  * THE RATIOS. L is the longest dimension in the girdle plane and W the stone's width 90 degrees
  * off that long axis (the user, 2026-09-23: "l is the longest dimension on the girdle plane and
@@ -389,6 +396,14 @@ export function visibleEdges(geometry, toward) {
 }
 
 /**
+ * The faces a view shows that belong to a frosted tier: those to shade gray. `tiers` is the
+ * list the geometry was built from, which each face's `tier` indexes.
+ */
+export function frostedFacesToward(geometry, tiers, toward) {
+  return geometry.faces.filter(face => tiers[face.tier]?.frosted && facesToward(face, toward));
+}
+
+/**
  * Where each tier's name goes in a view: `{ tier, at }`, `at` being the view-space centre of
  * one of the tier's facets that faces the viewer. Of a tier's facets, the one nearest the
  * direction `prefer` (a view-space unit vector) is chosen, so the names run out from the middle
@@ -459,6 +474,7 @@ export function sheetData(design, { title, author, date, decimals = 2, refractiv
     angle: formatTierAngle(tier, decimals).replace('°', ''),
     indices: tierIndexText(tier, teeth),
     notes: tier.cuttingInstructions || '',
+    frosted: Boolean(tier.frosted),
   });
 
   return {
@@ -506,6 +522,8 @@ const MAX_RADIUS = 64;
 const MAX_HEIGHT = 108;
 const EDGE_WIDTH = 0.5;
 const THIN = 0.4;
+/** The gray a frosted facet and a frosted tier's teeth are filled with (the example's 0.85). */
+const FROST_GRAY = 0.85;
 const PAGE_BOTTOM = 792 - MARGIN;
 const ROW_SIZE = 9;
 const ROW_LEADING = 11;
@@ -601,6 +619,13 @@ function drawViews(page, data) {
 
     return [cx + across * scale, cy + down * scale];
   };
+
+  // Frosted facets first, so the edges are drawn over their fill.
+  for (const name of Object.keys(views)) {
+    for (const face of frostedFacesToward(geometry, shown.tiers, views[name].toward)) {
+      page.fillPolygon(face.indices.map(i => toPage(name, geometry.positions[i])), FROST_GRAY);
+    }
+  }
 
   for (const name of Object.keys(views)) {
     const edges = visibleEdges(geometry, views[name].toward);
@@ -785,6 +810,21 @@ function drawInstructions(firstPage, y, data, nextPage) {
       const lines = Math.max(indices.length, notes.length, 1);
 
       room(lines * ROW_LEADING);
+
+      // A frosted tier's teeth on a gray band, one per line, as wide as the line's text and as
+      // tall as the leading, so a wrapped list's bands meet into one block.
+      if (row.frosted) {
+        indices.forEach((line, i) => {
+          const top = y + i * ROW_LEADING - ROW_SIZE * 0.85;
+          const right = COLUMNS.indices + textWidth(line, 'helvetica', ROW_SIZE) + 1;
+
+          page.fillPolygon([
+            [COLUMNS.indices - 1, top], [right, top],
+            [right, top + ROW_LEADING], [COLUMNS.indices - 1, top + ROW_LEADING],
+          ], FROST_GRAY);
+        });
+      }
+
       page.text(row.id, COLUMNS.id, y, { size: ROW_SIZE });
       page.text(row.angle, COLUMNS.angle, y, { size: ROW_SIZE });
       indices.forEach((line, i) => page.text(line, COLUMNS.indices, y + i * ROW_LEADING, { size: ROW_SIZE }));

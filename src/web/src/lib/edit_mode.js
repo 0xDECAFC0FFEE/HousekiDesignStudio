@@ -48,6 +48,7 @@ import {
 import {
   tierView, getDesign, setTierIndices, recordTierFacets, tierFacetState, beginHistoryFrame, commitHistoryFrame, cancelHistoryFrame,
   setEditFinisher, applyFacetTarget, setTierValue, selectOnStone, setEditedTier, syncToolbar,
+  designLocked,
 } from './tier_controller.js';
 import { startingFacet, rockShape, shownFacets, cutAwayFacets } from './edit_geometry.js';
 import { budgetedTask } from './work_budget.js';
@@ -96,6 +97,13 @@ export function enterEditMode(tier, facet = null) {
   // rule; Done, Cancel or Escape ends the session first. Returning false is what makes the
   // stone's double click fall back to doing nothing rather than turning (viewport.js).
   if (get(editing) !== null) {
+    return false;
+  }
+
+  // Nor while scale height mode holds the whole design (T-0231): one mode at a time, and that
+  // mode rewrites every tier from a snapshot an edit here would go behind the back of. It refuses
+  // to open while this one is open in turn (scale_height_mode.js).
+  if (designLocked()) {
     return false;
   }
 

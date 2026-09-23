@@ -76,6 +76,10 @@ const VERTEX_SHADER: &str = include_str!("shaders/gem.vert");
 ///   `lux/lights.glsl` leaves open; a `#define` only affects text that follows it.
 /// * `lux/math.glsl` before `lux/glass.glsl`, whose deliberately-wrong `CosTheta` /
 ///   `SinTheta2` / `WaveLength2RGB` stubs are suppressed by math.glsl's own header guard.
+/// * `lux/roughglass.glsl` (T-0183) after `lux/glass.glsl`, whose `FresnelCauchy_Evaluate`,
+///   `Spectrum_*` helpers, BSDF event flags and `CalcFilmColor` stub it calls, and before
+///   `lux/pathtracer.glsl`, which dispatches to it on frosted facets. It opens the same
+///   `DIFFUSE`/`GLOSSY` guard `lux/pathtracer.glsl` does, so it must come first to own it.
 /// * `lux/volume.glsl` after `lux/glass.glsl`, whose guarded block defines the `WHITE` /
 ///   `BLACK` / `MAKE_FLOAT3` / `Spectrum_IsBlack` / `Spectrum_Filter` the volume maths uses,
 ///   and before `lux/pathtracer.glsl`, which calls `HomogeneousVolume_Scatter`.
@@ -92,6 +96,7 @@ const FRAGMENT_SHADER: &str = concat!(
     include_str!("shaders/lux/host.glsl"),
     include_str!("shaders/lux/math.glsl"),
     include_str!("shaders/lux/glass.glsl"),
+    include_str!("shaders/lux/roughglass.glsl"),
     include_str!("shaders/lux/volume.glsl"),
     include_str!("shaders/lux/sampler.glsl"),
     include_str!("shaders/lux/pathtracer.glsl"),
@@ -113,6 +118,7 @@ const LUX_SOURCE: &str = concat!(
     include_str!("shaders/lux/host.glsl"),
     include_str!("shaders/lux/math.glsl"),
     include_str!("shaders/lux/glass.glsl"),
+    include_str!("shaders/lux/roughglass.glsl"),
     include_str!("shaders/lux/volume.glsl"),
     include_str!("shaders/lux/sampler.glsl"),
     include_str!("shaders/lux/pathtracer.glsl"),
@@ -534,6 +540,10 @@ const UNIT_ACCUMULATION: u32 = 3;
 /// fixed-size uniform array, so a selection can be a whole design tier of any size with no
 /// cap that could silently drop facets; see `GemApp::upload_highlight_texture`.
 const UNIT_HIGHLIGHT: u32 = 4;
+/// One texel per facet id, red channel 1.0 frosted / 0.0 polished (T-0183), built exactly like
+/// the highlight texture; read only by the ported LuxCore path (`uFrostedTexture` in
+/// `lux/host.glsl`). See `GemApp::set_frosted_facets`.
+const UNIT_FROSTED: u32 = 5;
 
 /// Values of the `uLuxPass` uniform: what a given draw is for. Must match the
 /// `LUX_PASS_*` constants in `src/shaders/lux/host.glsl`, which is where each one is
@@ -606,6 +616,15 @@ pub struct GemApp {
     /// (`uHighlightTexture`): red channel 1.0 selected, 0.0 not. Sized to the loaded model's
     /// facet count, not to a fixed cap -- see `upload_highlight_texture`.
     highlight_texture: WebGlTexture,
+    /// The facets the ported LuxCore path draws as rough (frosted) glass, by id (T-0183): the
+    /// page sends every facet of every tier whose Frosted flag is on. Cleared whenever the
+    /// stone is rebuilt, like `highlighted_facets` and for the same reason -- facet ids belong
+    /// to one mesh -- and re-sent by the page after every rebuild. A `BTreeSet` so the texture
+    /// build and the accumulation key see it in one deterministic order.
+    frosted_facets: std::collections::BTreeSet<u32>,
+    /// One texel per facet id, mirroring `frosted_facets` for the shader (`uFrostedTexture`),
+    /// sized to the loaded model's facet count exactly as `highlight_texture` is.
+    frosted_texture: WebGlTexture,
 
     // ---- progressive accumulation for the ported LuxCore path (T-0122)
     /// The float ping-pong pair the ported path sums radiance into, or `None` when the
@@ -712,6 +731,14 @@ impl GemApp {
         )
         .map_err(|e| js_error(&e))?;
 
+        // The same, for the frosted mask (T-0183): sized to this model, nothing frosted yet.
+        let frosted_texture = build_facet_mask_texture(
+            &gl,
+            model.diagnostics.facet_count,
+            &std::collections::BTreeSet::new(),
+        )
+        .map_err(|e| js_error(&e))?;
+
         // No depth or blending: the whole image is one full-screen triangle, and
         // every pixel is fully determined by its own trace. The accumulation pass adds to
         // the previous sum by reading it, not by blending, so this stays true (see
@@ -767,6 +794,8 @@ impl GemApp {
             drag_quality: 1.0,
             highlighted_facets: std::collections::BTreeSet::new(),
             highlight_texture,
+            frosted_facets: std::collections::BTreeSet::new(),
+            frosted_texture,
             accumulation,
             accumulation_status,
             accumulation_state: params::AccumulationState::new(),
@@ -790,6 +819,10 @@ impl GemApp {
         self.source_text = obj_text.to_string();
         self.model_generation += 1;
         self.set_highlighted_facet(-1);
+        // Facet ids belong to one mesh: the old mask would frost arbitrary facets of the new
+        // stone, and its texture is the old stone's size. The page re-sends the mask after
+        // every rebuild (T-0183).
+        self.set_frosted_facets(&[]);
 
         Ok(())
     }
@@ -829,6 +862,7 @@ impl GemApp {
         self.model_axis = parsed;
         self.model_generation += 1;
         self.set_highlighted_facet(-1);
+        self.set_frosted_facets(&[]);
 
         Ok(())
     }
@@ -920,6 +954,7 @@ impl GemApp {
             height,
             model_generation: self.model_generation,
             environment_generation: self.environment_generation,
+            frosted_facets: self.frosted_facets.iter().copied().collect(),
         });
 
         if plan.restarted {
@@ -1113,6 +1148,56 @@ impl GemApp {
                 // selection's).
                 web_sys::console::warn_1(&JsValue::from_str(&format!(
                     "gem renderer: could not upload the highlight texture: {}",
+                    error
+                )));
+            }
+        }
+    }
+
+    /// Marks a SET of facets as frosted, by id (the page's facet-to-tier map, the same ids
+    /// `set_highlighted_facets` takes); replaces whatever was frosted before, and an empty
+    /// slice clears it. T-0183.
+    ///
+    /// A frosted facet is drawn by the Monte Carlo renderer (the ported LuxCore path) as
+    /// LuxCore's RoughGlass material -- a rough dielectric surface with single-scattering
+    /// microfacets, of roughness `FROSTED_FACET_ROUGHNESS` in `lux/entry.glsl` -- instead of
+    /// polished glass, whether the path meets it from outside the stone or from inside. The
+    /// deterministic and flat renderers ignore it.
+    ///
+    /// Mirrors `set_highlighted_facets` exactly: one texel per facet id, sized to the current
+    /// model's facet count with no cap, cleared whenever a new stone loads or the model axis
+    /// changes (the page re-sends it after every rebuild and design load). Ids at or beyond the
+    /// facet count are kept in the set but have no texel, so they frost nothing. Changing the
+    /// set restarts the Monte Carlo accumulation, because the image depends on it; sending the
+    /// same set again does not.
+    pub fn set_frosted_facets(&mut self, facets: &[u32]) {
+        self.frosted_facets = facets.iter().copied().collect();
+        self.upload_frosted_texture();
+    }
+
+    /// Every currently frosted facet id, in ascending order. For the page and tests to read
+    /// back what `set_frosted_facets` stored.
+    pub fn frosted_facets(&self) -> Vec<u32> {
+        self.frosted_facets.iter().copied().collect()
+    }
+
+    /// Rebuilds `uFrostedTexture` from `self.frosted_facets` and the current model's facet
+    /// count. The frosted twin of `upload_highlight_texture`, for the same reasons: the texture
+    /// must track both the set and the model's size, so both are read fresh each time.
+    fn upload_frosted_texture(&mut self) {
+        match build_facet_mask_texture(
+            &self.gl,
+            self.model.diagnostics.facet_count,
+            &self.frosted_facets,
+        ) {
+            Ok(texture) => {
+                self.gl.delete_texture(Some(&self.frosted_texture));
+                self.frosted_texture = texture;
+            }
+            Err(error) => {
+                // As for the highlight: keep the previous (valid) texture rather than crash.
+                web_sys::console::warn_1(&JsValue::from_str(&format!(
+                    "gem renderer: could not upload the frosted-facet texture: {}",
                     error
                 )));
             }
@@ -1788,6 +1873,8 @@ impl GemApp {
         gl.bind_texture(Gl::TEXTURE_2D, Some(&self.environment_texture));
         gl.active_texture(Gl::TEXTURE0 + UNIT_HIGHLIGHT);
         gl.bind_texture(Gl::TEXTURE_2D, Some(&self.highlight_texture));
+        gl.active_texture(Gl::TEXTURE0 + UNIT_FROSTED);
+        gl.bind_texture(Gl::TEXTURE_2D, Some(&self.frosted_texture));
 
         // Bound on every draw, not only on an accumulating one: an unbound unit behind a
         // live sampler uniform is the kind of thing a driver is entitled to complain
@@ -1969,6 +2056,9 @@ impl GemApp {
         self.uniform1i("uLuxPassCount", pass_count.max(1) as i32);
         self.uniform1i("uLuxAccum", UNIT_ACCUMULATION as i32);
 
+        // Which facets are rough glass (T-0183); see `set_frosted_facets` and lux/host.glsl.
+        self.uniform1i("uFrostedTexture", UNIT_FROSTED as i32);
+
         // The ported sampler jitters within the pixel, so it needs the film size to turn
         // `pixelX + rnd` back into normalised device coordinates. This is the same size the
         // canvas backing store was just set to, not the CSS size.
@@ -2089,6 +2179,7 @@ impl Drop for GemApp {
         self.release_model_textures();
         self.gl.delete_texture(Some(&self.environment_texture));
         self.gl.delete_texture(Some(&self.highlight_texture));
+        self.gl.delete_texture(Some(&self.frosted_texture));
 
         if let Some(targets) = self.accumulation.as_ref() {
             targets.delete(&self.gl);
@@ -2331,16 +2422,43 @@ fn build_highlight_texture(
     facet_count: u32,
     highlighted: &std::collections::BTreeSet<u32>,
 ) -> Result<WebGlTexture, String> {
+    build_facet_mask_texture(gl, facet_count, highlighted)
+}
+
+/// Uploads a per-facet mask -- `facet_mask_texels` -- as a `facet_count.max(1)` x 1 data
+/// texture. Shared by the highlight (`uHighlightTexture`) and the frosted facets
+/// (`uFrostedTexture`, T-0183), which are the same shape of data for different readers.
+fn build_facet_mask_texture(
+    gl: &Gl,
+    facet_count: u32,
+    facets: &std::collections::BTreeSet<u32>,
+) -> Result<WebGlTexture, String> {
+    let (width, data) = facet_mask_texels(facet_count, facets);
+
+    gpu::create_data_texture(gl, width, 1, &data)
+}
+
+/// The texels of a per-facet mask texture: `(width, RGBA32F data)`, one texel per facet id,
+/// red channel 1.0 for a facet in `facets` and 0.0 otherwise, every other channel 0.0.
+///
+/// Pure, so the part of `set_highlighted_facets` / `set_frosted_facets` that decides what the
+/// shader sees can be unit tested without a GL context. `width` is the model's own facet count
+/// (at least 1, because `create_data_texture` needs a real allocation); ids at or beyond it
+/// have no texel and are dropped here, not wrapped or clamped onto another facet.
+fn facet_mask_texels(
+    facet_count: u32,
+    facets: &std::collections::BTreeSet<u32>,
+) -> (u32, Vec<f32>) {
     let width = facet_count.max(1);
     let mut data = vec![0.0f32; width as usize * 4];
 
-    for &facet in highlighted {
+    for &facet in facets {
         if facet < width {
             data[facet as usize * 4] = 1.0;
         }
     }
 
-    gpu::create_data_texture(gl, width, 1, &data)
+    (width, data)
 }
 
 /// Backing-store pixels per CSS pixel, from the frame's height and the canvas element's CSS
@@ -2391,6 +2509,10 @@ mod tests {
         (
             "src/renderer/shaders/lux/glass.glsl",
             include_str!("shaders/lux/glass.glsl"),
+        ),
+        (
+            "src/renderer/shaders/lux/roughglass.glsl",
+            include_str!("shaders/lux/roughglass.glsl"),
         ),
         (
             "src/renderer/shaders/lux/volume.glsl",
@@ -3524,5 +3646,346 @@ mod tests {
         assert!(table.spin.abs() < 1e-6 && table.tilt.abs() < 1e-4, "table pose {:?}", table);
 
         assert_eq!(crate::facet_pose_at(&accel, &face_up, aspect, 1.0, 1.0), None);
+    }
+
+    // ----------------------------------------------------------------------------------
+    // Frosted facets (T-0183)
+    // ----------------------------------------------------------------------------------
+
+    /// The red channel of every texel of a mask, as a plain list, for readable assertions.
+    fn mask_reds(data: &[f32]) -> Vec<f32> {
+        data.chunks_exact(4).map(|texel| texel[0]).collect()
+    }
+
+    /// The texels `set_frosted_facets` (and `set_highlighted_facets`) upload must mark exactly
+    /// the facets asked for, at their own ids, in a texture sized to the stone.
+    ///
+    /// Setup: a 6-facet stone and the set {1, 4}.
+    ///
+    /// Test: `facet_mask_texels`, the pure half of both setters (the GL upload itself needs a
+    /// browser).
+    ///
+    /// Verifies:
+    /// - the texture is exactly 6 texels wide -- one per facet, so the shader's
+    ///   `texelFetch(uFrostedTexture, ivec2(facet, 0), 0)` is in bounds for every facet id;
+    /// - facets 1 and 4 read 1.0 in red and every other facet 0.0, so the mask is neither
+    ///   shifted by one nor applied to the wrong texel;
+    /// - green, blue and alpha stay 0.0 everywhere, since only red is read.
+    #[test]
+    fn a_facet_mask_marks_exactly_the_given_facets_in_a_texture_the_size_of_the_stone() {
+        let facets: std::collections::BTreeSet<u32> = [1, 4].into_iter().collect();
+
+        let (width, data) = super::facet_mask_texels(6, &facets);
+
+        assert_eq!(width, 6, "one texel per facet");
+        assert_eq!(data.len(), 6 * 4, "RGBA per texel");
+        assert_eq!(mask_reds(&data), vec![0.0, 1.0, 0.0, 0.0, 1.0, 0.0]);
+        assert!(
+            data.chunks_exact(4).all(|texel| texel[1] == 0.0 && texel[2] == 0.0 && texel[3] == 0.0),
+            "only the red channel carries the mask"
+        );
+    }
+
+    /// An empty set must clear the mask, which is how the page unfrosts everything.
+    ///
+    /// Setup: the same 6-facet stone and an empty set -- what `set_frosted_facets(&[])` and
+    /// every model reload store.
+    ///
+    /// Test: `facet_mask_texels`.
+    ///
+    /// Verifies the texture is still full-size (a valid texture the shader can fetch from for
+    /// any facet) and every texel reads 0.0: nothing is frosted, so the Monte Carlo renderer
+    /// draws the stone exactly as it did before T-0183.
+    #[test]
+    fn an_empty_facet_set_clears_the_mask_but_keeps_the_texture_full_size() {
+        let (width, data) = super::facet_mask_texels(6, &std::collections::BTreeSet::new());
+
+        assert_eq!(width, 6);
+        assert!(mask_reds(&data).iter().all(|&red| red == 0.0), "nothing may be frosted");
+    }
+
+    /// The mask must follow the stone's facet count in both directions, with no cap.
+    ///
+    /// Setup: one set, {0, 7, 300}, laid over three stones: 8 facets, 400 facets (bigger
+    /// than any fixed uniform array the shader could have used -- the reason T-0160 made the
+    /// highlight a texture), and a degenerate stone with no facets at all.
+    ///
+    /// Test: `facet_mask_texels` for each.
+    ///
+    /// Verifies what a rebuild relies on (`load_obj` and `set_model_axis` re-upload the mask
+    /// for the new stone's size):
+    /// - on the 8-facet stone the texture is 8 wide, facets 0 and 7 are marked, and id 300,
+    ///   which that stone does not have, is dropped rather than wrapped or clamped onto a real
+    ///   facet;
+    /// - on the 400-facet stone the same set marks all three, so a large tier is never cut off;
+    /// - with no facets the texture is still 1 texel (a real allocation, which
+    ///   `create_data_texture` needs) and nothing panics.
+    #[test]
+    fn a_facet_mask_resizes_with_the_facet_count_and_drops_ids_the_stone_does_not_have() {
+        let facets: std::collections::BTreeSet<u32> = [0, 7, 300].into_iter().collect();
+
+        let (small_width, small) = super::facet_mask_texels(8, &facets);
+        assert_eq!(small_width, 8);
+        assert_eq!(mask_reds(&small), vec![1.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 1.0]);
+
+        let (large_width, large) = super::facet_mask_texels(400, &facets);
+        let large_reds = mask_reds(&large);
+        assert_eq!(large_width, 400);
+        assert_eq!(large_reds.iter().filter(|&&red| red == 1.0).count(), 3);
+        assert_eq!((large_reds[0], large_reds[7], large_reds[300]), (1.0, 1.0, 1.0));
+
+        let (empty_width, empty) = super::facet_mask_texels(0, &facets);
+        assert_eq!(empty_width, 1, "a stone with no facets still gets a valid 1x1 texture");
+        assert_eq!(empty.len(), 4);
+    }
+
+    /// The frosted mask must reach the ported path, and only the ported path.
+    ///
+    /// Setup: the text of `lux/host.glsl`, `lux/pathtracer.glsl` and `gem.frag`, and the
+    /// production `lux_ignored_uniforms`.
+    ///
+    /// Test: host.glsl declares `uFrostedTexture`, reads it with `texelFetch` at the facet id
+    /// and wires `LUX_FACET_IS_FROSTED` to that lookup; pathtracer.glsl keeps a guarded
+    /// standalone default for the macro and calls it from `BSDF_Init` with the hit's facet;
+    /// `gem.frag` never names `uFrostedTexture`; and the list of `gem.frag` uniforms the
+    /// ported path ignores is unchanged by it.
+    ///
+    /// Verifies the whole chain from `set_frosted_facets` to the material choice, which fails
+    /// silently if any link breaks: without the `#define` the standalone `false` wins and no
+    /// facet is ever frosted, with no error; and a read in `gem.frag` would mean the
+    /// deterministic renderer -- which T-0183 leaves as it was -- had started to depend on it.
+    /// (`every_shader_uniform_is_set_and_every_set_uniform_is_declared` separately checks that
+    /// `lib.rs` sets the uniform.)
+    #[test]
+    fn the_frosted_mask_reaches_the_ported_path_and_not_the_deterministic_one() {
+        let host = shader_file("src/renderer/shaders/lux/host.glsl");
+        let pathtracer = shader_file("src/renderer/shaders/lux/pathtracer.glsl");
+        let gem = shader_file("src/renderer/shaders/gem.frag");
+
+        assert!(host.contains("uniform highp sampler2D uFrostedTexture;"));
+        assert!(
+            host.contains("texelFetch(uFrostedTexture, ivec2(int(facet + 0.5), 0), 0).r > 0.5"),
+            "host.glsl must read the mask one texel per facet id, as the highlight is read"
+        );
+        assert!(host.contains("#define LUX_FACET_IS_FROSTED(facet) luxFacetIsFrosted(facet)"));
+
+        assert!(
+            pathtracer.contains("#ifndef LUX_FACET_IS_FROSTED"),
+            "pathtracer.glsl must guard its standalone default so host.glsl's define wins"
+        );
+        assert!(
+            pathtracer.contains("bsdf.frosted = LUX_FACET_IS_FROSTED(hit.facet);"),
+            "BSDF_Init must choose the material from the hit facet's mask texel"
+        );
+
+        assert!(
+            !super::identifier_occurs(&super::strip_glsl_comments(gem), "uFrostedTexture"),
+            "gem.frag (the deterministic and flat renderers) must not read the frosted mask"
+        );
+        assert!(
+            !super::lux_ignored_uniforms().contains(&"uFrostedTexture"),
+            "uFrostedTexture is declared by the ported path, not by gem.frag"
+        );
+    }
+
+    /// Frosted facets must use the rough glass BSDF for every BSDF operation, and polished ones
+    /// must keep the delta glass.
+    ///
+    /// Setup: the text of `lux/pathtracer.glsl`, sliced into the bodies of `BSDF_GetEventTypes`,
+    /// `BSDF_IsDelta`, `BSDF_Sample` and `BSDF_Evaluate`.
+    ///
+    /// Test: each body branches on `bsdf.frosted`; `BSDF_Sample` calls `RoughGlassMaterial_Sample`
+    /// and still calls `GlassMaterial_Sample`; `BSDF_Evaluate` calls
+    /// `RoughGlassMaterial_Evaluate`; `BSDF_IsDelta` is the negation of `frosted`; and the
+    /// path loop asks for the event types of *this* hit's BSDF.
+    ///
+    /// Verifies the dispatch the whole feature rests on. Any one arm left on the old
+    /// hard-coded glass would be a mixed material that no LuxCore scene describes -- e.g. a
+    /// rough-sampled direction whose depth bookkeeping still says SPECULAR, which would switch
+    /// off the MIS weight on one side only and bias the frosted facets' brightness.
+    #[test]
+    fn frosted_facets_dispatch_every_bsdf_operation_to_rough_glass() {
+        let pathtracer = shader_file("src/renderer/shaders/lux/pathtracer.glsl");
+
+        let body = |signature: &str| -> String {
+            let start = pathtracer
+                .find(signature)
+                .unwrap_or_else(|| panic!("pathtracer.glsl should define `{}`", signature));
+            super::glsl_function_body(pathtracer, start).to_string()
+        };
+
+        let event_types = body("BSDFEvent BSDF_GetEventTypes(LuxBSDF bsdf) {");
+        assert!(event_types.contains("if (bsdf.frosted)"));
+        assert!(event_types.contains("RoughGlassMaterial_GetEventTypes()"));
+        assert!(event_types.contains("SPECULAR | REFLECT | TRANSMIT"));
+
+        let is_delta = body("bool BSDF_IsDelta(LuxBSDF bsdf) {");
+        assert!(is_delta.contains("return !bsdf.frosted;"));
+
+        let sample = body("bool BSDF_Sample(LuxBSDF bsdf, GlassParams glass,");
+        assert!(sample.contains("if (bsdf.frosted)"));
+        assert!(sample.contains("RoughGlassMaterial_Sample(localFixedDir"));
+        assert!(sample.contains("GlassMaterial_Sample(localFixedDir"));
+        assert!(sample.contains("glass.uRoughness, glass.vRoughness"));
+
+        let evaluate = body("bool BSDF_Evaluate(LuxBSDF bsdf, GlassParams glass,");
+        assert!(evaluate.contains("RoughGlassMaterial_Evaluate(localLightDir, localEyeDir"));
+
+        assert!(
+            pathtracer.contains(
+                "PathDepthInfo_IsLastPathVertex(pathInfo.depth, maxPathDepth, BSDF_GetEventTypes(bsdf));"
+            ),
+            "the depth limit must use the event types of the material actually hit"
+        );
+    }
+
+    /// Direct light sampling must be live for a non-delta BSDF and MIS-consistent with the
+    /// BSDF-sampled environment hit.
+    ///
+    /// Setup: the text of `lux/pathtracer.glsl` and `lux/lights.glsl`.
+    ///
+    /// Test: `PathTracer_DirectLightSampling` is gated on `!BSDF_IsDelta`, samples with
+    /// `Env_SampleDirection`, evaluates the BSDF, traces a shadow ray, and weights with the
+    /// power heuristic; the path loop passes it the live `radiance`; `Env_SampleDirection`
+    /// reports the uniform-sphere pdf; and `Env_GetRadiance` no longer reports a sun's cone
+    /// pdf in place of it.
+    ///
+    /// Verifies the part of T-0183 a picture checks only weakly. MIS is unbiased only if the
+    /// light-sampling pdf used on the direct-lighting side (here) and the one used on the
+    /// BSDF-hit side (`PathTracer_DirectHitInfiniteLight`, which reads Env_GetRadiance's
+    /// `directPdfW`) are the same function. If they drift -- e.g. the pre-T-0183
+    /// "last contributor wins" sun pdf coming back -- frosted facets turn silently too bright
+    /// or too dark inside a sun's cone, and still look plausible.
+    #[test]
+    fn direct_light_sampling_is_live_for_frosted_facets_and_mis_consistent() {
+        let pathtracer = shader_file("src/renderer/shaders/lux/pathtracer.glsl");
+        let lights = shader_file("src/renderer/shaders/lux/lights.glsl");
+
+        let start = pathtracer
+            .find("DirectLightResult PathTracer_DirectLightSampling(")
+            .expect("pathtracer.glsl should define PathTracer_DirectLightSampling");
+        let dls = super::glsl_function_body(pathtracer, start);
+
+        for needle in [
+            "if (!BSDF_IsDelta(bsdf)) {",
+            "Env_SampleDirection(u1, u2, directPdfW)",
+            "BSDF_Evaluate(bsdf, glass, shadowRayDir, event, bsdfPdfW, bsdfEval)",
+            "Scene_Intersect(shadowRayOrig, shadowRayDir,",
+            "PowerHeuristic(directLightSamplingPdfW, bsdfPdfW)",
+            "radiance += pathThroughput * incomingRadiance;",
+        ] {
+            assert!(dls.contains(needle), "PathTracer_DirectLightSampling lost `{}`", needle);
+        }
+
+        assert!(
+            pathtracer.contains("lastPathVertex, rrDepth, rrImportanceCap, radiance);"),
+            "the path loop must hand direct light sampling the path's own radiance accumulator"
+        );
+
+        let sample_start = lights
+            .find("vec3 Env_SampleDirection(float u0, float u1, out float directPdfW) {")
+            .expect("lights.glsl should define Env_SampleDirection");
+        let sample_direction = super::glsl_function_body(lights, sample_start);
+        assert!(sample_direction.contains("directPdfW = UniformSpherePdf();"));
+        assert!(sample_direction.contains("UniformSampleSphere(u0, u1)"));
+
+        let radiance_start = lights
+            .find("vec3 Env_GetRadiance(vec3 direction, out float directPdfW) {")
+            .expect("lights.glsl should define Env_GetRadiance");
+        let get_radiance = super::strip_glsl_comments(super::glsl_function_body(lights, radiance_start));
+        assert!(
+            !get_radiance.contains("directPdfW = sunDirectPdfA"),
+            "Env_GetRadiance must report the pdf Env_SampleDirection samples with, not a sun's"
+        );
+    }
+
+    /// The microfacet roughness must be the user's 0.2, defined once, and used for both axes.
+    ///
+    /// Setup: every file of the assembled fragment shader.
+    ///
+    /// Test: `const float FROSTED_FACET_ROUGHNESS = 0.2;` appears exactly once across all of
+    /// them, in `lux/entry.glsl`; `luxGlassParams` sets both `uRoughness` and `vRoughness` from
+    /// it; and no other file assigns either field.
+    ///
+    /// Verifies the brief: the user chose 0.2 on 2026-09-23 and may revisit it, so changing it
+    /// has to be a one-line edit in one named place. A second copy, or a literal 0.2 typed
+    /// into one axis, would make that edit silently half-work (an anisotropic surface nobody
+    /// asked for). Change this test in the same commit as the constant.
+    #[test]
+    fn frosted_facet_roughness_is_the_users_0_2_in_one_place() {
+        const DEFINITION: &str = "const float FROSTED_FACET_ROUGHNESS = 0.2;";
+
+        let defining: Vec<&str> = SHADER_SOURCE_FILES
+            .iter()
+            .filter(|(_, source)| source.contains("FROSTED_FACET_ROUGHNESS ="))
+            .map(|(path, _)| *path)
+            .collect();
+        assert_eq!(defining, vec!["src/renderer/shaders/lux/entry.glsl"]);
+
+        let entry = shader_file("src/renderer/shaders/lux/entry.glsl");
+        assert_eq!(entry.matches(DEFINITION).count(), 1);
+        assert!(entry.contains("glass.uRoughness = FROSTED_FACET_ROUGHNESS;"));
+        assert!(entry.contains("glass.vRoughness = FROSTED_FACET_ROUGHNESS;"));
+
+        for (path, source) in SHADER_SOURCE_FILES {
+            let code = super::strip_glsl_comments(source);
+            let assignments = code.matches(".uRoughness =").count() + code.matches(".vRoughness =").count();
+            let expected = if *path == "src/renderer/shaders/lux/entry.glsl" { 2 } else { 0 };
+
+            assert_eq!(assignments, expected, "{} assigns a frosted roughness", path);
+        }
+    }
+
+    /// The rough glass port must keep its two measured departures from upstream.
+    ///
+    /// Setup: the text of `lux/roughglass.glsl`, comments stripped.
+    ///
+    /// Test: the half-vector pdf is `D * cos(theta_h)` in both `SchlickDistribution_SampleH`
+    /// and `SchlickDistribution_Pdf`, and `RoughGlassMaterial_Sample`'s transmitted result
+    /// carries `* eta2`.
+    ///
+    /// Verifies the two lines that keep light sampling and BSDF sampling estimating the SAME
+    /// integral on a frosted facet (T-0183; the argument and the renders that measured both
+    /// are in the file and in kb/luxcore-roughglass-port-and-frosted-facets.md). Each looks like a stray edit
+    /// against upstream's text and would be easy to "restore" in a faithful-port pass; without
+    /// the first, every BSDF-sampled rough bounce loses a factor cos(theta_h) of its energy;
+    /// without the second, light crossing a frosted facet is off by n^2 (about 4.7 for cubic
+    /// zirconia) against light crossing a polished one. Neither error is loud: the stone just
+    /// looks a little too dark, or blotchy where frosted and polished facets meet.
+    #[test]
+    fn rough_glass_keeps_its_two_consistency_fixes() {
+        let rough = super::strip_glsl_comments(shader_file("src/renderer/shaders/lux/roughglass.glsl"));
+
+        assert!(rough.contains("pdf = d * cosTheta;"), "SampleH must report D * cos(theta_h)");
+        assert!(
+            rough.contains("return SchlickDistribution_D(roughness, wh, anisotropy) * fabs(wh.z);"),
+            "SchlickDistribution_Pdf must report D * cos(theta_h)"
+        );
+        assert!(
+            rough.contains("result = (factor / coso) * kt * (1.0 - F) * eta2;"),
+            "a rough transmission must carry the eta^2 radiance factor GlassMaterial carries"
+        );
+    }
+
+    /// After a glossy transmission the path must know which side of the stone it is on from
+    /// the geometry, not from the event name.
+    ///
+    /// Setup: the text of `lux/pathtracer.glsl`.
+    ///
+    /// Test: the loop sets `side` from `dot(sampledDir, bsdf.geometryN)`, and the old
+    /// `side = -side;` flip on TRANSMIT is gone.
+    ///
+    /// Verifies the one restructuring T-0183 made to the integrator's bookkeeping. A microfacet
+    /// "transmission" near grazing can leave on the side it came from; flipping `side` then
+    /// labels an outside ray as inside, and gem.frag's side rule lets such a ray hit only back
+    /// faces -- a dark speckle on frosted facets at grazing angles, with nothing to point at.
+    #[test]
+    fn the_path_reads_its_side_off_the_geometry_after_every_bounce() {
+        let pathtracer = super::strip_glsl_comments(shader_file("src/renderer/shaders/lux/pathtracer.glsl"));
+
+        assert!(pathtracer.contains(
+            "side = (dot(sampledDir, bsdf.geometryN) > 0.0) ? LUX_RAY_FROM_OUTSIDE : LUX_RAY_FROM_INSIDE;"
+        ));
+        assert!(!pathtracer.contains("side = -side;"));
     }
 }

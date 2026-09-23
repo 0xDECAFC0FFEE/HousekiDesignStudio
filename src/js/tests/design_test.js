@@ -1241,8 +1241,9 @@ Deno.test("reExpressOnGear: a reversed new gear still reproduces the original az
  *
  * WHAT IT VERIFIES. Only the hidden tier is left out. A preform tier is cut
  * normally (the user, 2026-09-18: "the teeth need to have the {} and cut it
- * normally"), and a frosted one too (frosted "doesn't update the render for
- * now"). renderedPlanesOf drops exactly the hidden tier's facets and nothing
+ * normally"), and a frosted one too (frosting is a surface finish the
+ * renderer is told about separately, T-0183, not a change to which planes
+ * cut the stone). renderedPlanesOf drops exactly the hidden tier's facets and nothing
  * else, and each surviving plane's `tier` still indexes into the FULL
  * design.tiers (the page turns it back into a tier object with
  * design.tiers[plane.tier]).

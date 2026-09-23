@@ -302,4 +302,32 @@ float luxHorizonDistance(vec3 origin, vec3 direction) {
 #define LUX_VOLUME_EMISSION BLACK
 #define LUX_VOLUME_MULTISCATTERING false
 
+// -----------------------------------------------------------------------------
+// FROSTED FACETS.                                                              T-0183
+//
+// One texel per facet id, red channel 1.0 where the facet is frosted and 0.0 where it is
+// polished: GemApp::set_frosted_facets builds it exactly as set_highlighted_facets builds
+// gem.frag's uHighlightTexture (lib.rs's facet_mask_texels), sized to the loaded stone's own
+// facet count, with no fixed cap. The page sends the facets of every tier whose Frosted flag
+// is on, and re-sends them after every rebuild, because facet ids belong to one mesh.
+//
+// Read only here, and only by the ported path: a frosted facet is LuxCore's RoughGlassMaterial
+// (lux/roughglass.glsl) instead of GlassMaterial, and pathtracer.glsl's BSDF_Init asks through
+// the LUX_FACET_IS_FROSTED integration point below. The deterministic renderer (gem.frag) does
+// not read it and draws every facet polished; that is the user's scope for T-0183.
+//
+// The microfacet roughness itself is not a uniform: it is one constant,
+// FROSTED_FACET_ROUGHNESS, in lux/entry.glsl.
+// -----------------------------------------------------------------------------
+uniform highp sampler2D uFrostedTexture;
+
+// texelFetch, as gem.frag reads uHighlightTexture: the texture is exactly one texel per facet,
+// so the id IS the texel, with no filtering. `facet` arrives as the float gem.frag's Hit
+// carries it in, hence the rounding.
+bool luxFacetIsFrosted(float facet) {
+    return texelFetch(uFrostedTexture, ivec2(int(facet + 0.5), 0), 0).r > 0.5;
+}
+
+#define LUX_FACET_IS_FROSTED(facet) luxFacetIsFrosted(facet)
+
 #endif // LUX_HOST_GLSL

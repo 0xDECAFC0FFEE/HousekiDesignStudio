@@ -14,7 +14,9 @@
   import SettingsPanel from './components/SettingsPanel.svelte';
   import EditPanel from './components/EditPanel.svelte';
   import Tooltip from './components/Tooltip.svelte';
+  import ScaleHeightPanel from './components/ScaleHeightPanel.svelte';
   import { editing, cancelEditMode } from './lib/edit_mode.js';
+  import { scaleHeightOpen, cancelScaleHeightMode } from './lib/scale_height_mode.js';
   import { exitFullscreen } from './lib/fullscreen.js';
   import { eventTargetTakesText } from './lib/keys.js';
 
@@ -33,8 +35,12 @@
       return;
     }
 
+    // Scale height mode (T-0231) the same way: its Cancel's twin. The two modes are never open
+    // together (each refuses while the other is), so the order between them is moot.
     if ($editing) {
       cancelEditMode();
+    } else if ($scaleHeightOpen) {
+      cancelScaleHeightMode();
     } else {
       exitFullscreen();
     }
@@ -66,10 +72,13 @@
          half-finished drag) while the other shows. The column is Workspace's third, resizable
          pane since 2026-09-22 ("can you make both left and right pane widths draggable"), so
          both fill whatever width it is dragged to. -->
+    <!-- Scale height mode's panel (T-0231) is a third layer of the same stack, shown while that
+         mode is open, the way edit mode's is. -->
     {#snippet right()}
       <div id="panel-stack">
-        <div class="panel-layer" class:panel-layer-off={$editing}><SettingsPanel /></div>
+        <div class="panel-layer" class:panel-layer-off={$editing || $scaleHeightOpen}><SettingsPanel /></div>
         <div class="panel-layer" class:panel-layer-off={!$editing}><EditPanel /></div>
+        <div class="panel-layer" class:panel-layer-off={!$scaleHeightOpen}><ScaleHeightPanel /></div>
       </div>
     {/snippet}
   </Workspace>

@@ -21,7 +21,7 @@ import { objTextFromBytes, cutNameFromLoad } from './design_load.js';
 import { showStoneStats } from './stone_stats.js';
 import { buildFacetTierMap, setFacetTierMap } from './facet_map.js';
 import {
-  highlightDesignTier, clearFacetAndTierHighlight, rebuildStoneFromDesign,
+  highlightDesignTier, clearFacetAndTierHighlight, rebuildStoneFromDesign, syncFrostedFacets,
 } from './selection.js';
 import { setGearTeeth, DEFAULT_GEAR_TEETH } from './gear.js';
 import { resetRuler } from './index_ruler.js';
@@ -237,15 +237,47 @@ export function startSession(app) {
         requestRender();
       }
     },
+    // Re-sends the frosted facets (T-0183) after a toolbar edit that may have changed which
+    // tiers are frosted -- the Frosted toggle, its undo and redo -- without rebuilding the stone.
+    frosted() {
+      syncFrostedFacets(app);
+    },
   });
 
   syncEditMenu();
   decodeSkybox(app);
 }
 
+// A mode's own undo stack, while it has one open (T-0231, scale height: "allow undoing in a local
+// undo stack while in scale height mode"), or null. `{ canUndo(), canRedo(), undo(), redo() }`.
+//
+// While one is set, Edit > Undo and Redo, Cmd/Ctrl+Z, Shift+Cmd/Ctrl+Z and Ctrl+Y all step IT
+// instead of the edit history, and the menu's greying follows it -- every one of those reaches
+// `stepHistory`, `undo` or `redo` below, so routing here is the whole of it. Edit mode has no
+// such stack: its drags are real history entries inside a frame (`beginHistoryFrame`), and Undo
+// steps through them there. Scale height's changes are not history entries at all until Done --
+// the whole session is ONE entry -- so it keeps its own.
+let localHistory = null;
+
+/** Hands Undo and Redo to a mode's own stack (`null` gives them back to the edit history). */
+export function setLocalHistory(history) {
+  localHistory = history;
+  syncUndoMenu();
+}
+
+/**
+ * Brings Edit > Undo and Redo up to date with whichever stack they step: a mode's own, while it
+ * has one, else the edit history. Exported for the mode, which calls it as its stack changes.
+ */
+export function syncUndoMenu() {
+  const stack = localHistory ?? editHistory;
+
+  canUndo.set(stack ? stack.canUndo() : false);
+  canRedo.set(stack ? stack.canRedo() : false);
+}
+
 function syncEditMenu() {
-  canUndo.set(editHistory.canUndo());
-  canRedo.set(editHistory.canRedo());
+  syncUndoMenu();
   // T-0198: every one of the moments EditHistory calls onChange for (record, undo, redo,
   // frame begin/commit/cancel, clear) is also a moment the URL hash may need rewriting --
   // "if a thing can be undone it should also be saved", the user's own words. See
@@ -451,6 +483,17 @@ export function neutraliseMaterial() {
 
 /** Steps the history one entry back (undo) or forward, applying what it returns. */
 export function stepHistory(undo) {
+  // A mode with its own stack steps that instead (see `localHistory`).
+  if (localHistory) {
+    if (undo) {
+      localHistory.undo();
+    } else {
+      localHistory.redo();
+    }
+
+    return;
+  }
+
   // Anything still open is recorded first, so it is what gets undone.
   pickers.stoneColor?.close();
 
@@ -500,14 +543,14 @@ export function cancelHistoryFrame() {
 
 /** Edit > Undo, when there is something to undo. */
 export function undo() {
-  if (editHistory?.canUndo()) {
+  if ((localHistory ?? editHistory)?.canUndo()) {
     stepHistory(true);
   }
 }
 
 /** Edit > Redo, when there is something to redo. */
 export function redo() {
-  if (editHistory?.canRedo()) {
+  if ((localHistory ?? editHistory)?.canRedo()) {
     stepHistory(false);
   }
 }
@@ -674,6 +717,10 @@ export function installLoadedDesign(app, { text, design, gear, title, author, da
   // below drops whatever was selected in the pane -- see clearFacetAndTierHighlight's own
   // doc comment -- so nothing extra needs clearing here.
   setFacetTierMap(buildFacetTierMap(app, design));
+  // The frosted facets (T-0183) are mesh facet ids too, so they follow the map: a design's
+  // frosted tiers (a .gcs's frosting, or a restored hash's flags) are frosted from its first
+  // frame, and a plain .obj, whose map is null, clears whatever the previous stone had.
+  syncFrostedFacets(app);
   tiers.render(design, tier => highlightDesignTier(app, tier));
 
   // The recorded tier edits name the previous design's tier objects, so they cannot apply to

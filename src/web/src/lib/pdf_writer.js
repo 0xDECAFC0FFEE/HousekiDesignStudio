@@ -211,6 +211,8 @@ export class PdfPage {
     this.height = height;
     this.ops = [];
     this.lineWidthNow = null;
+    // PDF's initial fill colour is black, which is what text and arrowheads are drawn in.
+    this.fillGrayNow = 0;
   }
 
   /** PDF's y for a top-down `y`. */
@@ -222,6 +224,14 @@ export class PdfPage {
     if (width !== this.lineWidthNow) {
       this.ops.push(`${num(width)} w`);
       this.lineWidthNow = width;
+    }
+  }
+
+  /** The fill colour for what follows, as a gray level: 0 black, 1 white. */
+  setFillGray(gray) {
+    if (gray !== this.fillGrayNow) {
+      this.ops.push(`${num(gray)} g`);
+      this.fillGrayNow = gray;
     }
   }
 
@@ -243,14 +253,19 @@ export class PdfPage {
       .join('\n') + ' S');
   }
 
-  /** A filled polygon through `points` (`[x, y]` pairs), in black. */
-  fillPolygon(points) {
+  /**
+   * A filled polygon through `points` (`[x, y]` pairs), in `gray` (0 black, the default, to 1
+   * white). The fill colour goes back to black afterwards only when something black is drawn
+   * next (`text` and a black `fillPolygon` set it), so a run of gray fills sets it once.
+   */
+  fillPolygon(points, gray = 0) {
     if (points.length < 3) {
       return;
     }
 
     const [first, ...rest] = points;
 
+    this.setFillGray(gray);
     this.ops.push(`${num(first[0])} ${num(this.y(first[1]))} m ` +
       rest.map(([x, y]) => `${num(x)} ${num(this.y(y))} l`).join(' ') + ' h f');
   }
@@ -264,6 +279,7 @@ export class PdfPage {
     const left = align === 'center' ? x - width / 2 : align === 'right' ? x - width : x;
 
     if (String(text).length > 0) {
+      this.setFillGray(0);
       this.ops.push(`BT /${FONTS[font].resource} ${num(size)} Tf ${num(left)} ${num(this.y(y))} Td ` +
         `${pdfString(text)} Tj ET`);
     }

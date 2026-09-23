@@ -74,8 +74,16 @@ export function rebuildStoneFromDesign(app, { quick = false } = {}) {
   // never quick, so they are always brought up to date when it ends.
   if (!quick) {
     setFacetTierMap(buildFacetTierMap(app, design));
+    // The new mesh numbers its facets afresh, so the frosted mask is rebuilt from the new map.
+    syncFrostedFacets(app);
     showStoneStats(app, text);
   } else {
+    // Mid-drag the map is stale, but the frosted facets must follow the new mesh all the same
+    // (a slider can move a frosted tier, or cut into one), so they are found by their normals,
+    // the way the edited tier's highlight is below.
+    app.set_frosted_facets(new Uint32Array(
+      facetsWithNormalsOf(app, design, design.tiers.filter(isFrostedOnStone))
+    ));
     // A quick rebuild only happens mid-drag (the ruler, the angle or the depth being moved), so
     // the stone is drawn in draft while it lasts: half the bounces, a quarter of the samples and
     // a smaller backing store (2026-09-19, the user's request). Full quality returns by itself
@@ -104,8 +112,22 @@ export function rebuildStoneFromDesign(app, { quick = false } = {}) {
 
 /** Lights the mesh facets whose normals are those of `tier`'s facets, without the facet map. */
 function lightEditedFacets(app, design, tier) {
+  app.set_highlighted_facets(new Uint32Array(facetsWithNormalsOf(app, design, [tier])));
+}
+
+/**
+ * The mesh facet ids whose normals are those of the facets of `tierList`, found without the
+ * facet map (which a quick rebuild leaves stale). An empty list costs nothing.
+ */
+function facetsWithNormalsOf(app, design, tierList) {
+  if (tierList.length === 0) {
+    return [];
+  }
+
   const normals = app.facet_normals();
-  const wanted = tier.facets.map(facet => GemCadDesign.normalOf(design, tier.angle, facet.index));
+  const wanted = tierList.flatMap(tier =>
+    tier.facets.map(facet => GemCadDesign.normalOf(design, tier.angle, facet.index))
+  );
   const ids = [];
 
   for (let f = 0; f < normals.length / 3; f++) {
@@ -116,7 +138,56 @@ function lightEditedFacets(app, design, tier) {
     }
   }
 
-  app.set_highlighted_facets(new Uint32Array(ids));
+  return ids;
+}
+
+// ---- frosted facets (T-0183)
+//
+// A frosted tier (the tier toolbar's Frosted toggle, T-0180) is drawn by the Monte Carlo renderer
+// as rough glass on its facets: the page tells Rust WHICH mesh facets those are, as a per-facet
+// mask shaped like the highlight's (`app.set_frosted_facets`, a Uint32Array of facet ids; empty
+// clears it). The mask names mesh facet ids, which every `load_obj` renumbers, and it depends on
+// the tier flags, so it is re-sent after every load and rebuild of the stone (installLoadedDesign,
+// rebuildStoneFromDesign) and after every tier toolbar edit and its undo and redo (the stone
+// hooks' `frosted`, called from tier_controller.js's afterToolbarEdit).
+
+/** Whether `tier` is frosted and on the stone: a hidden tier has no facets to frost. */
+function isFrostedOnStone(tier) {
+  return Boolean(tier.frosted) && !tier.hidden;
+}
+
+/**
+ * The mesh facet ids of every frosted tier on the stone, in increasing order, read off the facet
+ * <-> tier map (`tierToFacets`, keyed by tier object). A hidden tier has no entry in the map, and
+ * is skipped here as well in case the map is older than the flag. `null` (a plain `.obj`, or a
+ * design with no tiers on the stone) gives none.
+ */
+export function frostedFacetIds(facetTierMap) {
+  if (!facetTierMap) {
+    return [];
+  }
+
+  const ids = [];
+
+  for (const [tier, facets] of facetTierMap.tierToFacets) {
+    if (isFrostedOnStone(tier)) {
+      ids.push(...facets);
+    }
+  }
+
+  return ids.sort((a, b) => a - b);
+}
+
+/**
+ * Sends the frosted facets of the current facet <-> tier map to the renderer, and asks for a
+ * frame: rendering is on demand, so a mask change nobody redraws is never seen (the same reason
+ * highlightDesignTier asks for one). Throwing away the Monte Carlo sum when the mask changes is
+ * Rust's side of the contract (its accumulation key), as for every other change to what is
+ * drawn; the page has no reset to make.
+ */
+export function syncFrostedFacets(app) {
+  app.set_frosted_facets(new Uint32Array(frostedFacetIds(getFacetTierMap())));
+  window.gemRequestRender?.();
 }
 
 /**
