@@ -34,7 +34,10 @@
 // Edits also remove facets (2026-09-19, the user: "if you took the faceting plane for each of the
 // facets in the tier that are changing and bisected the space with each of those planes, if any of
 // the facets in the rock are completely enclosed by that space the facet should be removed from the
-// facet tier"; "this should also be undone when i hit escape or cancel"). See `cutAwayBy`.
+// facet tier"; "this should also be undone when i hit escape or cancel"). And bring them back
+// (2026-09-22, the user: "I only want these changes temporary until edit mode commits them so if
+// I move f1 away from f2, f2 should come back, even while in edit mode") -- so a facet's removal
+// lasts only as long as the plane keeps swallowing it, not the whole session. See `cutAwayBy`.
 
 import { writable, get } from 'svelte/store';
 import { gearTeeth } from './gear.js';
@@ -44,7 +47,7 @@ import {
 } from './index_ruler.js';
 import {
   tierView, getDesign, setTierIndices, recordTierFacets, tierFacetState, beginHistoryFrame, commitHistoryFrame, cancelHistoryFrame,
-  setEditFinisher, removeFacets, setTierValue, selectOnStone, setEditedTier, syncToolbar,
+  setEditFinisher, applyFacetTarget, setTierValue, selectOnStone, setEditedTier, syncToolbar,
 } from './tier_controller.js';
 import { startingFacet, rockShape, shownFacets, cutAwayFacets } from './edit_geometry.js';
 import { budgetedTask } from './work_budget.js';
@@ -107,6 +110,12 @@ export function enterEditMode(tier, facet = null) {
     angle: tier.angle,
     distance: tier.distance,
     neverShown: facetsNotShown(design),
+    // The design's own tier order and every tier's facets, both as they stood when the
+    // session opened: `cutAwayBy` recomputes the cut away set against these each time rather
+    // than against whatever a previous settle left the design in, which is what lets a facet
+    // come back once the plane no longer swallows it (see `cutAwayBy`).
+    pristineOrder: design.tiers.slice(),
+    pristineFacets: new Map(design.tiers.map(each => [each, each.facets.slice()])),
   };
   editing.set({ tier, facet: facet && tier.facets.includes(facet) ? facet : startingFacet(tier) });
   // The tier being edited is the selection, and stays so (selection.js).
@@ -210,10 +219,21 @@ function facetsNotShown(design) {
 }
 
 /**
- * Called as an edit of the tier being edited is recorded: removes from the design the facets that
- * edit cut away completely, and returns the ops that did it, so the same history entry undoes
- * them. A facet counts when it showed on the stone when edit mode began and shows no longer (see
- * edit_geometry.js's `cutAwayFacets`); a design that will not build cuts nothing away.
+ * Called as an edit of the tier being edited is recorded: sets the design's other tiers to
+ * exactly the facets a cut this deep and this angled leaves them, and returns the ops that did
+ * it, so the same history entry undoes them. A facet counts as cut away when it showed on the
+ * stone when edit mode began and shows no longer (see edit_geometry.js's `cutAwayFacets`); a
+ * design that will not build changes nothing.
+ *
+ * Recomputed from `entry.pristineFacets` -- the tiers as they stood when edit mode began -- every
+ * time, rather than filtered down from whatever the previous call left behind: a facet only
+ * `cutAwayFacets` can see is a facet still in `tier.facets`, so a plane that swallowed one facet
+ * and has since moved clear of it needs that facet put back before the check can find it showing
+ * again. This is what makes a cut-away facet's removal last no longer than the plane keeps
+ * swallowing it -- gone the instant a settle finds it swallowed, back the instant one does not --
+ * rather than only as long as the whole session (2026-09-22, the user: "I only want these changes
+ * temporary until edit mode commits them so if I move f1 away from f2, f2 should come back, even
+ * while in edit mode").
  */
 function cutAwayBy(tier) {
   const design = getDesign();
@@ -222,17 +242,50 @@ function cutAwayBy(tier) {
     return [];
   }
 
-  let shownNow;
+  const liveOrder = design.tiers.slice();
+  const liveFacets = new Map(liveOrder.map(each => [each, each.facets.slice()]));
+
+  // Every other tier back to its pristine facets, so the rock below is built from the design's
+  // whole original set -- a facet earlier cut away has to be there to be found showing again.
+  design.tiers = entry.pristineOrder.slice();
+
+  for (const each of design.tiers) {
+    if (each !== tier) {
+      each.facets = entry.pristineFacets.get(each).slice();
+    }
+  }
+
+  let gone;
 
   try {
-    shownNow = shownFacets(design, rockShape(design));
+    const shownNow = shownFacets(design, rockShape(design));
+
+    gone = cutAwayFacets(design, tier, shownNow, entry.neverShown);
   } catch (cause) {
+    gone = null;
+  }
+
+  // Back to how the design stood a moment ago; `applyFacetTarget` below is what actually
+  // changes it (and records the change), the same as `removeFacets` used to.
+  design.tiers = liveOrder;
+
+  for (const [each, facets] of liveFacets) {
+    each.facets = facets;
+  }
+
+  if (gone === null) {
     return [];
   }
 
-  const gone = cutAwayFacets(design, tier, shownNow, entry.neverShown);
+  const target = new Map();
 
-  return gone.size > 0 ? removeFacets(gone) : [];
+  for (const each of entry.pristineOrder) {
+    if (each !== tier) {
+      target.set(each, entry.pristineFacets.get(each).filter(facet => !gone.has(facet)));
+    }
+  }
+
+  return applyFacetTarget(target, entry.pristineOrder);
 }
 
 setEditFinisher(cutAwayBy);

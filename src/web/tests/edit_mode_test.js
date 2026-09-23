@@ -26,9 +26,43 @@ import {
 } from "../src/lib/edit_mode.js";
 import {
   render, toolbar, tierBeingEdited, applyReorder, moveTier, editNotes,
-  sectionOrder, highlightTier,
+  sectionOrder, highlightTier, setTierValue, recordTierValue,
 } from "../src/lib/tier_controller.js";
 import { rulerIndex, rulerSymmetry } from "../src/lib/index_ruler.js";
+
+// The GemCad scripts, loaded as the page loads them: classic scripts publishing globals. Only
+// the one test below that needs a real, multi-tier stone (rather than the hand-built
+// twoTierDesign) reads them; `edit_history.js` (EditHistory) is here for the same reason it is
+// in tier_controller.js -- a global, not an import -- and the tier list ops that test's real
+// cut-away/restore exercises actually reach it, unlike every other test in this file.
+const SCRIPTS = new URL("../../js/", import.meta.url);
+const SAMPLES = new URL("../../../reference/gemcad-file-reader/Samples/", import.meta.url);
+
+for (const name of ["edit_history.js", "gemcad.js", "gemcad_obj.js", "design.js", "design_mesh.js"]) {
+  (0, eval)(await Deno.readTextFile(new URL(name, SCRIPTS)));
+}
+
+const { GemCad, GemCadDesign } = globalThis;
+
+/*
+ * reference/ is third-party data, deliberately gitignored (see edit_geometry_test.js's own copy
+ * of this comment): a fresh clone has none of it, so the one test that needs it is marked
+ * `{ ignore: !SAMPLES_PRESENT }` rather than erroring on a missing file.
+ */
+const SAMPLES_PRESENT = (() => {
+  try {
+    Deno.statSync(SAMPLES);
+    return true;
+  } catch {
+    return false;
+  }
+})();
+
+async function srb() {
+  const bytes = await Deno.readFile(new URL("SRB.asc", SAMPLES));
+
+  return GemCadDesign.fromGemCad(GemCad.importBytes(bytes), { name: "SRB.asc" });
+}
 
 function assertEqual(actual, expected, message) {
   const a = JSON.stringify(actual);
@@ -270,3 +304,62 @@ Deno.test("leaving edit mode still works both ways, and lets another tier be edi
 
   clear();
 });
+
+Deno.test(
+  "a facet a plane no longer swallows comes back while still in edit mode",
+  { ignore: !SAMPLES_PRESENT },
+  async () => {
+    // Setup: SRB.asc's real, multi-tier stone (the hand-built twoTierDesign is only two facets
+    // each and never actually swallows one another, so this needs a real one, as
+    // edit_geometry_test.js's own cut-away test does) -- loaded into the tier controller the way
+    // enterEditMode expects a design to arrive. The crown's main tier, cut to 60% of its own
+    // distance, is the exact case edit_geometry_test.js already proves cuts away at least one
+    // facet of another tier.
+    //
+    // Test: enter edit mode on that tier, cut it deep with the depth slider -- `setTierValue` then
+    // `recordTierValue` on release, exactly what EditPanel.svelte calls on a settled drag -- then
+    // put the slider back to the tier's ORIGINAL distance the same way, all inside the one
+    // session (no Done, no Cancel in between).
+    //
+    // Verifies: the deep cut really does remove at least one facet from some other tier (so the
+    // second half of the test is not vacuous); and putting the slider back, still inside the
+    // session, restores every design's tier to its exact original facets -- the very same facet
+    // OBJECTS, in their original order -- rather than leaving the swallowed ones gone until Done
+    // or Cancel. Before this test's fix, `cutAwayBy` filtered `tier.facets` down on every settle
+    // and never grew it back, so a facet once swallowed stayed gone even after the plane moved
+    // clear of it, and only a full session Cancel (not just moving the slider back) ever brought
+    // it back (2026-09-22, the user: "I only want these changes temporary until edit mode commits
+    // them so if I move f1 away from f2, f2 should come back, even while in edit mode").
+    const design = await srb();
+
+    render(design, null);
+
+    const crown = design.tiers.filter(tier => tier.angle > 0 && tier.angle < 90)
+      .sort((a, b) => a.angle - b.angle)[0];
+    const original = crown.distance;
+    const pristine = new Map(design.tiers.map(tier => [tier, tier.facets.slice()]));
+
+    assertEqual(enterEditMode(crown), true, "edit mode opened on the crown's main tier");
+
+    setTierValue(crown, 'distance', original * 0.6);
+    recordTierValue(crown, 'distance', original, original * 0.6, 'Edit depth');
+
+    const shrunkSomewhere = [...pristine]
+      .some(([tier, facets]) => tier.facets.length < facets.length);
+
+    assertEqual(shrunkSomewhere, true, "the deep cut removed at least one facet from some tier");
+
+    setTierValue(crown, 'distance', original);
+    recordTierValue(crown, 'distance', original * 0.6, original, 'Edit depth');
+
+    for (const [tier, facets] of pristine) {
+      assertEqual(tier.facets.length, facets.length,
+        `${tier === crown ? "the edited tier's" : "a tier's"} facet count is back to what it was`);
+      assertEqual(tier.facets.every((facet, at) => facet === facets[at]), true,
+        "the very same facet objects, in their original order -- not fresh copies");
+    }
+
+    cancelEditMode();
+    clear();
+  },
+);

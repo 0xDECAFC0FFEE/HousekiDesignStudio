@@ -255,26 +255,47 @@ export function setEditFinisher(finisher) {
   editFinisher = finisher;
 }
 
+/** Whether two facet-object lists hold exactly the same facets, in the same order. */
+function sameFacetList(a, b) {
+  return a.length === b.length && a.every((facet, at) => facet === b[at]);
+}
+
 /**
- * Removes `doomed` (a Set of facet objects) from the tiers that hold them, and a tier left with
- * no facets from the design; redraws the rows and rebuilds the stone. Returns the ops that did
- * it, in the order they were applied, for the edit history (`applyEdit` replays and inverts
- * them: each is a `tierFacets` update, and a tier that emptied is also a Delete-style op).
+ * Sets each tier of `target` (a `Map<tier, facets>`, in `pristineOrder`'s relative order) to
+ * exactly the facets list it is given there -- dropping a tier left with none from the design,
+ * same as before, but now also bringing one back that regains some, which is what lets a cut-away
+ * facet return once the plane that swallowed it moves clear of it again (2026-09-22, the user:
+ * "I only want these changes temporary until edit mode commits them so if I move f1 away from f2,
+ * f2 should come back, even while in edit mode"). Redraws the rows and rebuilds the stone when
+ * anything changed. Returns the ops that did it, in the order applied, for the edit history
+ * (`applyEdit` replays and inverts them: each is a `tierFacets` update, and a tier whose presence
+ * on the design changed is also a Delete- or New-style op).
+ *
+ * `pristineOrder` is the design's own tier order from before any of this session's edits: since
+ * nothing but this function can add or remove a tier while one is being edited (T-0202 locks the
+ * selection, and so every other tier op, to the tier being edited), every tier this function has
+ * ever seen stays a subsequence of it in the same relative order, which is what lets a returning
+ * tier's place be found by counting how many of its `pristineOrder` predecessors are on the
+ * design right now, rather than by searching for a nearest neighbour.
  */
-export function removeFacets(doomed) {
+export function applyFacetTarget(target, pristineOrder) {
   const ops = [];
 
-  for (const tier of currentDesign ? currentDesign.tiers.slice() : []) {
-    if (!tier.facets.some(facet => doomed.has(facet))) {
+  for (const [tier, facets] of target) {
+    if (sameFacetList(tier.facets, facets)) {
       continue;
     }
 
     const before = tierFacetState(tier);
 
-    tier.facets = tier.facets.filter(facet => !doomed.has(facet));
+    tier.facets = facets.slice();
     ops.push({ kind: 'update', target: 'tierFacets', tier, before, after: tierFacetState(tier) });
+  }
 
-    if (tier.facets.length === 0) {
+  for (const [tier, facets] of target) {
+    const present = currentDesign.tiers.includes(tier);
+
+    if (present && facets.length === 0) {
       const section = sectionOf(tier);
       const op = {
         kind: 'delete',
@@ -282,6 +303,20 @@ export function removeFacets(doomed) {
         section,
         index: sectionOrder(section).indexOf(tier),
         arrayIndex: currentDesign.tiers.indexOf(tier),
+        value: tier,
+      };
+
+      applyTierListOp(op);
+      ops.push(op);
+    } else if (!present && facets.length > 0) {
+      const section = sectionOf(tier);
+      const before = pristineOrder.slice(0, pristineOrder.indexOf(tier));
+      const op = {
+        kind: 'insert',
+        target: 'tiers',
+        section,
+        index: before.filter(other => sectionOf(other) === section && currentDesign.tiers.includes(other)).length,
+        arrayIndex: before.filter(other => currentDesign.tiers.includes(other)).length,
         value: tier,
       };
 
