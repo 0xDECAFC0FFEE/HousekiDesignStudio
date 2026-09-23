@@ -93,4 +93,9 @@
       {/each}
     </dl>
   {/if}
+  <!-- The copyright line every page carries (2026-09-23, the user: "add a '© 2026 Houseki Design
+       Studio. All rights reserved.' to all pages, in the design editor, leave it at the bottom of
+       the renderer"). Kept in fullscreen too, as the user asked for it to stay; it takes no
+       clicks, so orbiting the stone through it still works. -->
+  <div id="viewport-copyright">© 2026 Houseki Design Studio. All rights reserved.</div>
 </div>

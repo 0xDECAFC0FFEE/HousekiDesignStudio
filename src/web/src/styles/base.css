@@ -35,6 +35,22 @@
      themes, since light mode's --panel is near-white and would vanish on it. The light theme
      redefines the rest of these in site/theme.css. */
   --on-accent: #2e3440;
+  /* Nord6 in both themes, not just dark mode's --text: for marks drawn OVER THE RENDER (the
+     index dial, IndexDial.svelte), which is not themed (see site/theme.css's comment) and stays
+     dark whichever theme the page is in. Before this the dial used --text directly, which
+     light mode flips to a dark blue-grey (nord3) that all but vanishes against the still-dark
+     render behind it -- the bug report was "in light mode the ring of ticks around the gem
+     doesn't show up". */
+  --overlay-text: #eceff4;
+  /* The fade a slider's hover/drag highlight takes along its length (2026-09-23, the user: "less
+     intense at the edges and more intense in the center roughly on a sin wave"): the stops of
+     sin(pi * t), t running 0 -> 1 end to end, as mask alpha. A list of gradient stops, not a
+     whole gradient, so each ruler supplies its own direction:
+     `mask-image: linear-gradient(to right, var(--sine-fade))`. Used by IndexRuler.svelte and
+     ValueRuler.svelte's highlight layers. */
+  --sine-fade: rgb(0 0 0 / 0) 0%, rgb(0 0 0 / 0.309) 10%, rgb(0 0 0 / 0.588) 20%,
+    rgb(0 0 0 / 0.809) 30%, rgb(0 0 0 / 0.951) 40%, rgb(0 0 0 / 1) 50%, rgb(0 0 0 / 0.951) 60%,
+    rgb(0 0 0 / 0.809) 70%, rgb(0 0 0 / 0.588) 80%, rgb(0 0 0 / 0.309) 90%, rgb(0 0 0 / 0) 100%;
 
   /* ---- The design language (T-0226, 2026-09-22, the user: "the website ui lacks a cohesive
      design language") ----

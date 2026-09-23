@@ -132,7 +132,7 @@ export function facetsOf({ vertices, faces }) {
 }
 
 /** The convex hull of 2D points, counter-clockwise (Andrew's monotone chain). */
-function hull2d(points) {
+export function hull2d(points) {
   const sorted = [...points].sort((a, b) => a[0] - b[0] || a[1] - b[1]);
   const turn = (o, a, b) => (a[0] - o[0]) * (b[1] - o[1]) - (a[1] - o[1]) * (b[0] - o[0]);
   const half = list => {

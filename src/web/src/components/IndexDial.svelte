@@ -154,17 +154,20 @@
   }
 
   /* The circle the ticks stand on: drawn through the tick bases, so it is a polygon of as many
-     sides as the gear has teeth -- at 96 that is indistinguishable from a circle. */
+     sides as the gear has teeth -- at 96 that is indistinguishable from a circle. `--overlay-text`
+     (base.css), not `--text`: this ring sits on the render, which is not themed, so its colour
+     must not flip with the page's light/dark theme either -- light mode's --text is a dark
+     blue-grey that used to vanish against the still-dark render behind it. */
   .dial-ring {
     fill: none;
-    stroke: var(--text);
+    stroke: var(--overlay-text);
     stroke-opacity: 0.25;
     stroke-width: 1;
   }
 
   .dial-tick {
     fill: none;
-    stroke: var(--text);
+    stroke: var(--overlay-text);
     stroke-opacity: 0.35;
     stroke-width: 1;
   }
@@ -175,7 +178,7 @@
   }
 
   .dial-label {
-    fill: var(--text);
+    fill: var(--overlay-text);
     fill-opacity: 0.7;
     font-size: 10px;
     text-anchor: middle;

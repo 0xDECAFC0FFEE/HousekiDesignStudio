@@ -9,8 +9,7 @@ facets on the stone.
 
 It runs entirely in your web browser, with nothing to install.
 
-Houseki is named after the manga *Houseki no Kuni* (Land of the Lustrous), whose title means
-"land of gems". Houseki Design Studio is written by Lucas Tong, based in Seattle.
+Houseki is named after the manga *Houseki no Kuni* (land of the lustrous). Houseki Design Studio is written by Lucas Tong, based in Seattle.
 
 ## Screenshots
 

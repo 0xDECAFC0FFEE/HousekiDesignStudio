@@ -75,9 +75,18 @@
   // always did rather than momentarily collapsed to 0.
   let tapeWidth = $state(60);
 
+  // The ticks grow with the tape (2026-09-23, the user: "make the tick marks on the angle and
+  // depth gauges longer if the screen is wider"), superseding "ticks keep their size" above.
+  // A major tick is half the tape's width ("make the wide ticks like half the width of the
+  // gauge... also scale the thin ticks by the same amount"), and a minor one keeps its old
+  // proportion to it (SMALL_TICK_LEN : MAJOR_TICK_LEN). Neither shrinks below those old
+  // lengths on a narrow tape. Both tapes share one row at `flex: 1 1 0`, so they are always
+  // the same width and their ticks stay the same length, as the user asked earlier.
+  const tickScale = $derived(Math.max(1, tapeWidth / 2 / MAJOR_TICK_LEN));
+
   const tickRight = $derived(tapeWidth - RIGHT_MARGIN);
-  const smallTickLeft = $derived(tickRight - SMALL_TICK_LEN);
-  const majorTickLeft = $derived(tickRight - MAJOR_TICK_LEN);
+  const smallTickLeft = $derived(tickRight - Math.round(SMALL_TICK_LEN * tickScale));
+  const majorTickLeft = $derived(tickRight - Math.round(MAJOR_TICK_LEN * tickScale));
   const labelRight = $derived(majorTickLeft - LABEL_GAP);
 
   // The drag session, and whether one is in progress -- `$state` (not a plain `let`) so the
@@ -282,7 +291,7 @@
     onlostpointercapture={endDrag} {onwheel} {onkeydown}>
     <svg width={tapeWidth} height={HEIGHT} aria-hidden="true">
       {#each ticks as mark (mark.value)}
-        {@const y = Math.round(centre - direction * mark.offset * pxPerUnit) + 0.5}
+        {@const y = Math.round(centre - direction * mark.offset * pxPerUnit) + (mark.major ? 0 : 0.5)}
         <line class={mark.major ? 'tick major' : 'tick'} x1={mark.major ? majorTickLeft : smallTickLeft}
           x2={tickRight} y1={y} y2={y} />
         {#if mark.major && tickLabels}
@@ -399,16 +408,30 @@
      `:focus-visible`, just thicker while dragging, so hover/focus/drag read as one family of
      highlight. `.dragging` (two classes) naturally outranks the one-class `:hover`/
      `:focus-visible` rules by specificity, so it wins whichever pseudo-class is also true. */
-  .value-ruler-tape:hover { box-shadow: inset 0 0 0 1px var(--accent); }
+  /* Drawn on a `::before` layer faded top to bottom on a sine curve, not on the tape itself --
+     see IndexRuler.svelte's `#index-ruler::before` for why, and for the `z-index: -1`. */
+  .value-ruler-tape::before {
+    content: '';
+    position: absolute;
+    inset: 0;
+    z-index: -1;
+    pointer-events: none;
+    mask-image: linear-gradient(to bottom, var(--sine-fade));
+  }
 
-  .value-ruler-tape:focus-visible { box-shadow: inset 0 0 0 1px var(--accent); }
+  .value-ruler-tape:hover::before { box-shadow: inset 0 0 0 1px var(--accent); }
 
-  .value-ruler-tape.dragging { box-shadow: inset 0 0 0 2px var(--accent); background: var(--hover); }
+  .value-ruler-tape:focus-visible::before { box-shadow: inset 0 0 0 1px var(--accent); }
+
+  .value-ruler-tape.dragging::before { box-shadow: inset 0 0 0 2px var(--accent); background: var(--hover); }
 
   svg { display: block; }
 
   .tick { stroke: var(--panel-edge); stroke-width: 1; }
-  .tick.major { stroke: var(--muted); }
+  /* Thicker than the minor ticks (2026-09-23, the user: "make the wide ticks ... thicker").
+     The template puts a major tick's y on a whole pixel, and a 1px minor one's on a half
+     pixel, so each covers whole device pixels and draws crisp. */
+  .tick.major { stroke: var(--muted); stroke-width: 2; }
 
   .centre { stroke: var(--accent); stroke-width: 2; }
 

@@ -266,11 +266,26 @@
      dragging, so hover/focus/drag read as one family of highlight rather than three different
      looks. `.dragging` (two classes) naturally outranks the one-class `:hover`/`:focus-visible`
      rules by specificity, so it wins whichever pseudo-class is also true underneath a drag. */
-  #index-ruler:hover { box-shadow: inset 0 0 0 1px var(--accent); }
+  /* The highlight is drawn on this `::before` layer rather than on the ruler itself, so that it
+     alone can fade along the tape on a sine curve (`--sine-fade`, base.css; 2026-09-23, the
+     user: "less intense at the edges and more intense in the center roughly on a sin wave")
+     while the ticks keep the ruler's own gentler end fade above. The ruler's mask still applies
+     on top, so the two multiply. `z-index: -1` puts the layer under the SVG: the ruler's
+     `mask-image` makes it a stacking context, so -1 still lands above the ruler's own box. */
+  #index-ruler::before {
+    content: '';
+    position: absolute;
+    inset: 0;
+    z-index: -1;
+    pointer-events: none;
+    mask-image: linear-gradient(to right, var(--sine-fade));
+  }
 
-  #index-ruler:focus-visible { box-shadow: inset 0 0 0 1px var(--accent); }
+  #index-ruler:hover::before { box-shadow: inset 0 0 0 1px var(--accent); }
 
-  #index-ruler.dragging { box-shadow: inset 0 0 0 2px var(--accent); background: var(--hover); }
+  #index-ruler:focus-visible::before { box-shadow: inset 0 0 0 1px var(--accent); }
+
+  #index-ruler.dragging::before { box-shadow: inset 0 0 0 2px var(--accent); background: var(--hover); }
 
   svg { display: block; }
 

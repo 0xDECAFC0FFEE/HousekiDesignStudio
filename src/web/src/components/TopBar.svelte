@@ -46,6 +46,7 @@
   import { exportObj } from '../lib/export_obj.js';
   import { exportGcs } from '../lib/export_gcs.js';
   import { exportCurrentStoneAsStl } from '../lib/export_stl.js';
+  import { exportPdf } from '../lib/export_pdf.js';
   import * as Menubar from '$lib/components/ui/menubar/index.js';
   import SettingsDialog from './SettingsDialog.svelte';
   // The logo, directly left of the title (2026-09-19): the same file the landing and docs pages
@@ -247,6 +248,10 @@
               onSelect={exportObj}>Wavefront (.obj)</Menubar.Item>
             <Menubar.Item id="menu-item-export-stl" class={ITEM}
               onSelect={exportCurrentStoneAsStl}>STL (.stl)</Menubar.Item>
+            <!-- The printed cutting sheet (export_pdf.js): drawings, proportions and the
+                 instructions, laid out after GemCad's own print. -->
+            <Menubar.Item id="menu-item-export-pdf" class={ITEM}
+              onSelect={exportPdf}>PDF cutting sheet (.pdf)</Menubar.Item>
           </Menubar.SubContent>
         </Menubar.Sub>
         <!-- Live since T-0145: the cut name field IS the rename, so this opens it in place of
