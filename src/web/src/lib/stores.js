@@ -115,9 +115,18 @@ export const luxProgress = writable('');
 /** Samples per pixel to accumulate before the page stops asking for frames. */
 export const accumulationTarget = writable(512);
 
-/** Resolution scale when the view is still, and while dragging (0.15 to 1). */
+/** Resolution scale when the view is still (0.15 to 1). */
 export const resolutionScale = writable(1);
-export const draftResolutionScale = writable(0.4);
+
+/**
+ * "Drag quality" (0.15 to 1): the fraction of full quality kept while the user is
+ * turning or zooming the stone. A single knob for two things that used to be set
+ * independently -- the canvas resolution (multiplied by this, here in the page) and the max
+ * bounce count (multiplied by this in Rust, via `app.set_drag_quality`, and applied by
+ * `RenderParams::draft`) -- so the two always move together and 100% is indistinguishable
+ * from a still frame.
+ */
+export const dragQuality = writable(0.4);
 
 /** Whether Edit > Undo and Redo have anything to step through. */
 export const canUndo = writable(false);

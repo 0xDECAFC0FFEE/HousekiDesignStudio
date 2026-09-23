@@ -31,7 +31,9 @@
   // selector) -- checked with `CSS.getMatchedStylesForNode` over CDP, hovering an inert "New"
   // still read back the CLI's 30%-panel-edge tint, not transparent, and `!important` was the fix
   // that was actually confirmed to work, not merely reasoned about.
-  const TOOL = 'tier-tool h-6 flex-1 basis-auto px-1.5 text-[11px] aria-disabled:cursor-default aria-disabled:opacity-45 aria-disabled:hover:bg-transparent!';
+  // One flex basis for every button, not each its own text's width (T-0226), so the buttons on
+  // each line of the wrapping bar come out equally wide; see #tier-toolbar in instructions.css.
+  const TOOL = 'tier-tool h-7 min-w-0 flex-[1_1_58px] px-1.5 text-[12px] font-normal aria-disabled:cursor-default aria-disabled:opacity-45 aria-disabled:hover:bg-transparent!';
 
   // The Toggles' off state, matching the Buttons' outline variant (the Toggle's own outline is
   // transparent, which in dark mode left Preform and Frosted darker than New/Delete/Hide).

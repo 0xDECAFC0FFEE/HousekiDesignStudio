@@ -114,20 +114,22 @@
   --color-ring: var(--accent);
 }
 
-/* The page is a dense tool panel, so the radii are the page's own (4 to 6px), not shadcn's
-   rounder ones. */
+/* The page's own radii, the same two steps its hand-written CSS uses (base.css's design language,
+   T-0226): 6px for a control -- `rounded-md` and `rounded-lg`, which between them cover every
+   shadcn-svelte button, input, select and menu -- and 8px for a card or a popover. They were 2 to
+   6px, a different radius on nearly every kind of control. */
 @theme {
-  --radius-sm: 2px;
-  --radius-md: 3px;
-  --radius-lg: 4px;
-  --radius-xl: 6px;
+  --radius-sm: 4px;
+  --radius-md: 6px;
+  --radius-lg: 6px;
+  --radius-xl: 8px;
   --font-sans: ui-sans-serif, system-ui, -apple-system, "Segoe UI", sans-serif;
 }
 
 @layer base {
   :root {
     --hover: rgba(143, 188, 187, 0.16);
-    --radius: 4px;
+    --radius: 6px;
   }
 
   * { border-color: var(--panel-edge); }

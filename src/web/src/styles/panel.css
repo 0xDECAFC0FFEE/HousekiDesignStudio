@@ -24,14 +24,16 @@
 }
 
 /* The right-hand column (2026-09-19): the render settings and edit mode's bar stacked in one
-   grid cell, so the column is as wide as the WIDER of the two, whichever is showing -- the
-   user's own rule, "the width of the bar should be max(the width of the rendering settings bar,
-   the width of the edit mode bar)". An auto grid column is sized to the widest item, and
-   `visibility: hidden` (rather than `display: none`) keeps the hidden layer in that measurement
-   while taking it off the screen and out of the tab order. */
+   grid cell, the one not in use `visibility: hidden` (off the screen and out of the tab order,
+   but still mounted with its state). Since 2026-09-22 the column is Workspace's third,
+   resizable pane ("can you make both left and right pane widths draggable"), so it fills that
+   pane and both layers fill it: the old rule, the column as wide as the wider of the two, is
+   moot now that both are the width the pane is dragged to. */
 #panel-stack {
   display: grid;
-  flex: 0 0 auto;
+  grid-template-columns: minmax(0, 1fr);
+  width: 100%;
+  height: 100%;
   min-height: 0;
 }
 
@@ -45,39 +47,32 @@
 
 #panel, #edit-panel {
   background: var(--panel);
-  /* Double, in --panel-edge, matching #instructions-pane's own border where it meets the
-     renderer (the user's request, 2026-09-18: "the cutting instructions and render
-     settings should both have double [borders]"). 3px is the minimum that actually
-     renders as two lines -- border-style: double draws a single solid line below 3px,
-     which is how this ships looking unchanged; confirmed by measuring the built page's
-     computed style and pixel colors at three x-offsets across the border, not by reading
-     this rule back. */
-  border-left: 3px double var(--panel-edge);
-  padding: 14px;
+  /* One hairline, matching #instructions-pane's own border where it meets the renderer. Both
+     were 3px double borders (2026-09-18) until T-0226's design language (base.css) made every
+     seam a single hairline. */
+  border-left: 1px solid var(--panel-edge);
+  padding: var(--pane-pad);
   overflow-y: auto;
   display: flex;
   flex-direction: column;
 }
 
-#panel { width: 300px; }
-
-/* Edit mode's bar used to be only as wide as its two scales needed (220px), leaving the grid
-   above to size the column from #panel alone (the 300px render settings) and the rulers below to
-   huddle in the leftover width. 2026-09-22, the user: "the edit-mode side bar should be
-   stretched to fill the bar" -- so this is now #panel's own 300px, by hand (nothing here reads
-   #panel's width back; Workspace.svelte's SETTINGS_PANEL_PX duplicates the same number for the
-   same reason). Still a literal width, not max-content: the tier's list of teeth is one long
-   line, and max-content would stretch the whole column to it (through the grid's own
-   auto-sizing above) instead of wrapping. */
-#edit-panel { width: 300px; }
+/* Both fill the column, whatever width it is dragged to (Workspace.svelte). Edit mode's bar was
+   once only as wide as its two scales needed (220px); the user asked for it "stretched to fill
+   the bar" (2026-09-22), and its rulers measure their own width (ValueRuler's bind:clientWidth),
+   so they follow a drag too. Not max-content: the tier's list of teeth is one long line and
+   must wrap, not widen the pane. */
+#panel, #edit-panel { width: 100%; min-width: 0; }
 
 /* A titled group of settings (PanelSection: a shadcn-svelte Collapsible; it was a fieldset and
-   its legend). The title is the trigger that folds the group. */
+   its legend). The title is the trigger that folds the group. The design language's CARD and
+   TITLE (base.css); the cutting instructions' Pavilion and Crown tables (instructions.css) are
+   drawn with the same metrics, so the two side panes match. */
 .panel-section {
   border: 1px solid var(--panel-edge);
-  border-radius: 6px;
-  margin: 0 0 12px;
-  padding: 4px 12px 12px;
+  border-radius: var(--radius-card);
+  margin: 0 0 var(--pane-pad);
+  padding: 0 12px 12px;
 }
 
 .panel-section-title {
@@ -85,28 +80,44 @@
   align-items: center;
   justify-content: space-between;
   width: 100%;
-  padding: 2px 0 6px;
+  padding: 9px 0 8px;
   color: var(--muted);
   font-size: 11px;
+  font-weight: 600;
+  line-height: 16px;
   text-transform: uppercase;
-  letter-spacing: 0.06em;
+  letter-spacing: 0.07em;
   cursor: pointer;
 }
 
+/* The flush form (PanelSection's `flush`, the tier tables): no padding of its own, so the body's
+   rows run edge to edge and bring their own; the title keeps the same 12px inset as every other
+   group's. `overflow: hidden` rounds the last row's tint into the corners. Folded, it keeps the
+   bottom padding an ordinary group has, so the two fold to the same height. */
+.panel-section-flush { padding: 0; overflow: hidden; }
+.panel-section-flush > .panel-section-title { padding-left: 12px; padding-right: 12px; }
+.panel-section-flush[data-state="closed"] { padding-bottom: 12px; }
+/* Inside the title, where the group's `overflow: hidden` cannot clip the focus ring. */
+.panel-section-flush > .panel-section-title:focus-visible { outline-offset: -2px; }
+
 .panel-section-title:hover { color: var(--accent); }
-.panel-section-title:focus-visible { outline: 2px solid var(--accent); outline-offset: 2px; border-radius: 3px; }
+.panel-section-title:focus-visible { outline: 2px solid var(--accent); outline-offset: 2px; border-radius: 4px; }
 
 /* One setting: a name and its readout over the control (Slider.svelte; it was a <label>). */
-.setting { display: block; margin-bottom: 9px; }
-.setting > .row { display: flex; justify-content: space-between; align-items: baseline; margin-bottom: 3px; }
+.setting { display: block; margin-bottom: 10px; }
+.setting > .row { display: flex; justify-content: space-between; align-items: baseline; margin-bottom: 4px; }
 .setting .name { font-size: 12px; }
-.setting .value { color: var(--accent); font-family: ui-monospace, Menlo, monospace; font-size: 11px; }
+.setting .value { color: var(--accent); font-family: var(--font-mono); font-size: 11px; }
 
 /* A readout that can be clicked to type a value; see EditableReadout. */
 .setting .value.editable { cursor: text; border-bottom: 1px dotted var(--panel-edge); }
 .setting .value.editable:hover { border-bottom-color: var(--accent); }
 
 .hint { color: var(--muted); font-size: 11px; margin-top: 8px; }
+
+/* Pinned to #panel's bottom (margin-top: auto, #panel is a flex column): which mode this panel
+   belongs to, overview's own. See SettingsPanel.svelte's comment above #panel-mode. */
+#panel-mode { margin-top: auto; padding-top: 10px; border-top: 1px solid var(--panel-edge); }
 
 /* ---- Color settings: a row with the setting's name (and checkbox, if it has one) and a
    swatch; clicking the swatch opens the setting's hue, saturation and value sliders below
@@ -126,7 +137,7 @@ button.swatch {
   padding: 0;
   cursor: pointer;
   border: 1px solid var(--panel-edge);
-  border-radius: 4px;
+  border-radius: var(--radius-control);
 }
 
 button.swatch:hover { border-color: var(--accent); }
@@ -152,10 +163,10 @@ button.eyedropper svg { flex: 0 0 auto; width: 14px; height: 14px; }
   margin: 12px 0 0;
   padding: 10px;
   border: 1px solid var(--error);
-  border-radius: 6px;
+  border-radius: var(--radius-card);
   background: rgba(255, 107, 107, 0.08);
   color: var(--error);
-  font-family: ui-monospace, Menlo, monospace;
+  font-family: var(--font-mono);
   font-size: 11px;
   white-space: pre-wrap;
 }
@@ -254,36 +265,40 @@ button.eyedropper svg { flex: 0 0 auto; width: 14px; height: 14px; }
 /* The stone's stats, bottom right of the renderer (2026-09-19, the user's request): the facet
    count, T/W, C/W and P/W (lib/stone_stats.js). A small card over the canvas in the page's own
    colours, one row per stat, the label left and the value right. */
-#stone-stats {
+/* Both cards over the canvas are the design language's CARD (base.css), floating: the pane's
+   colour a little see-through, the stone blurred behind it, and a soft shadow to lift it off the
+   render. The blur is over two small boxes, so it costs the compositor little per frame. */
+#stone-stats, #view-controls {
   position: absolute;
-  right: 12px;
   bottom: 12px;
-  margin: 0;
-  padding: 6px 10px;
   border: 1px solid var(--panel-edge);
-  border-radius: 6px;
-  background: color-mix(in srgb, var(--panel) 88%, transparent);
+  border-radius: var(--radius-card);
+  background: var(--floating);
+  -webkit-backdrop-filter: blur(10px);
+  backdrop-filter: blur(10px);
+  box-shadow: var(--floating-shadow);
+}
+
+#stone-stats {
+  right: 12px;
+  margin: 0;
+  padding: 8px 12px;
   font-size: 12px;
   line-height: 1.6;
 }
 
 .stone-stat { display: flex; justify-content: space-between; gap: 16px; cursor: default; }
 .stone-stat dt { color: var(--muted); }
-.stone-stat dd { margin: 0; color: var(--text); font-family: ui-monospace, Menlo, monospace; }
+.stone-stat dd { margin: 0; color: var(--text); font-family: var(--font-mono); }
 
 /* The View sliders and the Top/Side buttons, bottom left of the renderer (2026-09-19). Their rows
    are the panel's own .setting rows, styled above. */
 #view-controls {
-  position: absolute;
   left: 12px;
-  bottom: 12px;
-  width: 190px;
-  padding: 8px 10px 6px;
-  border: 1px solid var(--panel-edge);
-  border-radius: 6px;
-  background: color-mix(in srgb, var(--panel) 88%, transparent);
+  width: 200px;
+  padding: 10px 12px;
 }
 
 #view-controls .setting:first-child { margin-bottom: 6px; }
 
-.view-buttons { display: flex; gap: 6px; margin-top: 4px; }
+.view-buttons { display: flex; gap: 6px; margin-top: 6px; }

@@ -179,10 +179,10 @@
 
 <style>
   .edit-panel-title {
-    margin: 0 0 4px;
+    margin: 2px 0 4px;
     color: var(--text);
-    font-size: 13px;
-    font-weight: 700;
+    font-size: 14px;
+    font-weight: 600;
   }
 
   .edit-panel-hint, .edit-panel-teeth {
@@ -198,11 +198,16 @@
      fill the bar"). #edit-panel is now the same width as #panel (panel.css), so a plain flex
      row with each ValueRuler at `flex: 1 1 0` (see .value-ruler in ValueRuler.svelte) already
      splits that width between the two -- no `justify-content` needed once the children fill the
-     row themselves. */
+     row themselves.
+     The pair is a CARD of the design language (T-0226, base.css), like the render settings'
+     groups this panel stands in for, so edit mode's bar reads as the same kind of pane. */
   .edit-panel-rulers {
     display: flex;
     gap: 18px;
     margin-bottom: 12px;
+    padding: 10px 12px;
+    border: 1px solid var(--panel-edge);
+    border-radius: var(--radius-card);
   }
 
   .edit-panel-teeth {

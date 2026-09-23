@@ -73,6 +73,11 @@
     const projected = engine.app.project_file_points(flat);
     const width = canvas.clientWidth;
     const height = canvas.clientHeight;
+    // Where the canvas sits in #viewport, which this SVG covers: 0 normally, offset while a side
+    // pane's handle is dragged and the canvas is centred in the changing region (the "scoot",
+    // viewport.js). Without it the plane stayed put while the stone moved; IndexDial does the same.
+    const left = canvas.offsetLeft;
+    const top = canvas.offsetTop;
     const screen = [];
 
     for (let i = 0; i < points.length; i++) {
@@ -83,8 +88,8 @@
       }
 
       screen.push({
-        x: ((projected[i * 3] + 1) / 2) * width,
-        y: ((1 - projected[i * 3 + 1]) / 2) * height,
+        x: left + ((projected[i * 3] + 1) / 2) * width,
+        y: top + ((1 - projected[i * 3 + 1]) / 2) * height,
       });
     }
 

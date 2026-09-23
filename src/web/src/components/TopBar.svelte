@@ -176,19 +176,14 @@
   const PLACEHOLDER_TIP = 'Not built yet.';
   const ITEM = 'px-2.5 py-1.5 text-xs';
   const MENU = 'min-w-[200px] p-1';
-  // The buttons are 1.5 times their old size, with the bar (2026-09-19, the user's request): 18px
-  // text, was text-xs (12px), and padding 15px x 6px, was px-2.5 py-1 (10px x 4px). The dropdowns
-  // keep their size.
-  //
-  // That full size is the `md:` step (2026-09-20, the user: "can you make the menu bar resize
-  // correctly on small devices"). File, Edit, Tools and Help at 18px with 15px of padding either
-  // side need about 280px between them, which with the logo and the bar's own padding left a
-  // phone nothing at all for the title and ran Help off the edge of a 360px screen -- and
-  // `body { overflow: hidden }` (base.css) clips that with no scrollbar to reach it by. So the
-  // buttons step down twice on the way there, and #topbar's own padding, gap, title and logo
-  // step with them at the SAME two widths (topbar.css). Written as Tailwind variants rather
-  // than as media queries beside those rules because these utilities sit in a cascade layer
-  // ABOVE the page's own stylesheets: no selector in topbar.css can outrank them.
+  // Two sizes (2026-09-22). T-0226 made the bar compact ("top bar is definitely too large,
+  // especially on mobile devices when landscape"): 13px text in a 26px-tall button. The user
+  // then asked the same day to "make the top bar 50% taller", so on a screen at least 40rem wide
+  // AND more than 500px tall the buttons are 15px text in a 32px button, scaled with the bar
+  // (topbar.css). A phone, in either orientation, keeps the compact 13px, the size the complaint
+  // was about. The media condition is an arbitrary Tailwind variant, and it must match
+  // topbar.css's own small-screen query exactly: these utilities sit in a cascade layer above
+  // topbar.css, so they cannot be written as a rule in that file.
   // hover:bg-[var(--hover)] / aria-expanded:bg-[var(--hover)] override the Menubar CLI file's own
   // `hover:bg-muted aria-expanded:bg-muted` (2026-09-22, found while checking "every button
   // highlights on hover" with a screenshot): `--topbar` is `--raised` in dark mode
@@ -197,8 +192,9 @@
   // over itself -- a highlight that was there in the DOM and invisible on screen. The menu
   // ITEMS never had this problem (their hover is `accent`, the translucent teal `--hover`, not
   // `muted`); this makes the trigger match them instead of shadcn's plain default.
-  const TRIGGER = 'rounded-sm border border-transparent font-normal hover:bg-[var(--hover)] aria-expanded:bg-[var(--hover)] ' +
-    'px-2 py-1 text-[14px] sm:px-3 sm:py-1.5 sm:text-[16px] md:px-[15px] md:text-[18px]';
+  const TRIGGER = 'rounded-md border border-transparent font-normal hover:bg-[var(--hover)] aria-expanded:bg-[var(--hover)] ' +
+    'h-[26px] px-2.5 py-0 text-[13px] ' +
+    '[@media(min-width:40rem)_and_(min-height:500.02px)]:h-8 [@media(min-width:40rem)_and_(min-height:500.02px)]:px-3 [@media(min-width:40rem)_and_(min-height:500.02px)]:text-[15px]';
   const SHORTCUT = 'font-mono text-[11px] tracking-normal';
 </script>
 
@@ -239,9 +235,7 @@
              deliberately left as four independent one-line edits here so the four writers can
              be built without touching each other's line. -->
         <Menubar.Sub>
-          <Menubar.SubTrigger id="menu-item-export" class={ITEM}>Export
-            <Menubar.Shortcut class={SHORTCUT}>{isMac ? '⇧⌘E' : 'Ctrl+Shift+E'}</Menubar.Shortcut>
-          </Menubar.SubTrigger>
+          <Menubar.SubTrigger id="menu-item-export" class={ITEM}>Export</Menubar.SubTrigger>
           <Menubar.SubContent class={MENU}>
             <Menubar.Item id="menu-item-export-gem" class={ITEM}
               onSelect={exportGem}>GemCad (.gem)</Menubar.Item>
@@ -321,11 +315,13 @@
       <Menubar.Trigger id="menu-button-tools" data-menu="tools" class={TRIGGER}>Tools</Menubar.Trigger>
       <Menubar.Content id="menu-dropdown-tools" aria-label="Tools" class={MENU} align="start"
         sideOffset={4} alignOffset={0}>
-        <!-- T-0208, the user's list. Tools is no longer the empty menu it was: these four are
-             inert for now, but the menu reads as "four things are coming" rather than "nothing
-             here yet" (that empty state is still Help's, and .menu-empty is still used, so the
-             rule stays). Each is a WINDOW onto the design rather than a change to it, which is
-             why none of them is in Edit above. -->
+        <!-- T-0208, the user's list, plus Record rendering added later. These five are inert
+             for now, but the menu reads as "things are coming" rather than "nothing here yet"
+             (that empty state is still Help's, and .menu-empty is still used, so the rule
+             stays). Each is a WINDOW onto the design rather than a change to it, which is why
+             none of them is in Edit above. Each of these, like Edit's six transforms, is
+             planned to become its own mode once it is built (see
+             kb/application-modes-current-and-planned.md). -->
         <Menubar.Item id="menu-item-tilt-performance" {@attach ariaDisabled(() => true)}
           class="{ITEM} {INERT}"
           data-tip="How much light the stone returns as it is tilted away from face-up, so a cut can be judged the way it is actually looked at rather than only straight on. {PLACEHOLDER_TIP}"
@@ -342,6 +338,10 @@
           class="{ITEM} {INERT}"
           data-tip="Walks through the cutting instructions one step at a time at the machine, keeping your place. {PLACEHOLDER_TIP}"
           >Cutting assistant</Menubar.Item>
+        <Menubar.Item id="menu-item-record-rendering" {@attach ariaDisabled(() => true)}
+          class="{ITEM} {INERT}"
+          data-tip="Records the render as a video while you orbit, tilt or step through the design, for sharing outside the page. {PLACEHOLDER_TIP}"
+          >Record rendering</Menubar.Item>
       </Menubar.Content>
     </Menubar.Menu>
 

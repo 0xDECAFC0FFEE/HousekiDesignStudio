@@ -58,18 +58,21 @@
 <LoadAlertDialog />
 
 <div id="layout">
-  <Workspace onopengear={() => gearDialog.open()} />
-  <!-- The right-hand column: the render settings, or edit mode's own bar in their place
-       (2026-09-19, the user: "instead of hiding the rendering settings bar, can you change it
-       into an edit mode bar? the width of the bar should be max(the width of the rendering
-       settings bar, the width of the edit mode bar)"). Both are always mounted, stacked in one
-       grid cell, and the one not in use is `visibility: hidden` -- which still takes part in
-       layout, so the column is exactly as wide as the wider of the two, and each keeps its own
-       state (an open section, a half-finished drag) while the other shows. -->
-  <div id="panel-stack">
-    <div class="panel-layer" class:panel-layer-off={$editing}><SettingsPanel /></div>
-    <div class="panel-layer" class:panel-layer-off={!$editing}><EditPanel /></div>
-  </div>
+  <Workspace onopengear={() => gearDialog.open()}>
+    <!-- The right-hand column: the render settings, or edit mode's own bar in their place
+         (2026-09-19, the user: "instead of hiding the rendering settings bar, can you change it
+         into an edit mode bar?"). Both are always mounted, stacked in one grid cell, and the one
+         not in use is `visibility: hidden`, so each keeps its own state (an open section, a
+         half-finished drag) while the other shows. The column is Workspace's third, resizable
+         pane since 2026-09-22 ("can you make both left and right pane widths draggable"), so
+         both fill whatever width it is dragged to. -->
+    {#snippet right()}
+      <div id="panel-stack">
+        <div class="panel-layer" class:panel-layer-off={$editing}><SettingsPanel /></div>
+        <div class="panel-layer" class:panel-layer-off={!$editing}><EditPanel /></div>
+      </div>
+    {/snippet}
+  </Workspace>
 </div>
 
 <Tooltip />

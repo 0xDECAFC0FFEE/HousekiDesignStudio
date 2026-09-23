@@ -19,12 +19,12 @@
   width: 100%;
   height: 100%;
   background: var(--panel);
-  /* Double, matching #panel's own border on the other side of the renderer (T-0151). See
-     the comment on #panel's border-left for the 3px-minimum trap. */
-  border-right: 3px double var(--panel-edge);
+  /* One hairline, matching #panel's own border on the other side of the renderer (a 3px double
+     border from T-0151 until T-0226). The resize handle lies over it (Workspace.svelte). */
+  border-right: 1px solid var(--panel-edge);
   /* No bottom padding: #tier-toolbar (T-0176) sits flush on the pane's bottom edge and
      brings its own padding. */
-  padding: 14px 14px 0;
+  padding: var(--pane-pad) var(--pane-pad) 0;
   overflow-y: auto;
   /* A column flex, so #tier-toolbar's `margin-top: auto` can push it to the bottom of the
      pane when the tier tables are short (T-0176). The header and tables are unchanged by
@@ -43,23 +43,25 @@
    instructions". Pinned to the pane's bottom edge: `margin-top: auto` puts it there when
    the tables are short, and `position: sticky; bottom: 0` keeps it there while a long
    design scrolls underneath it. Negative side margins run its top border and background
-   the full width of the pane, like the section dividers above it, since the pane's own
-   14px side padding would otherwise inset them. Every button acts on the selected tier
-   row and is inactive (aria-disabled, so its tooltip still shows) while none is selected
-   (wireUpTierTables' syncToolbar). Each BUTTON carries its own data-tip (the user asked for
-   "tooltips for each button"); the bar and the pane carry none, for the reason in the
-   comment above #instructions-pane. The buttons wrap onto a second line rather than
-   overflowing when the pane is dragged narrow. */
+   the full width of the pane, since the pane's own side padding would otherwise inset them.
+   Every button acts on the selected tier row and is inactive (aria-disabled, so its tooltip
+   still shows) while none is selected (wireUpTierTables' syncToolbar). Each BUTTON carries
+   its own data-tip (the user asked for "tooltips for each button"); the bar and the pane
+   carry none, for the reason in the comment above #instructions-pane.
+   Seven buttons do not fit one line at the pane's default 280px, so they wrap; since T-0226
+   every button has the SAME flex basis (58px, TierToolbar.svelte's TOOL), so each line's
+   buttons share it equally -- two tidy rows at 280px, 4 + 3, each running the full width,
+   and one row of seven once the pane is dragged to about 460px. They used to grow from their
+   own text widths, which left a ragged second line of two buttons of different widths. */
 #tier-toolbar {
   position: sticky;
   bottom: 0;
   flex: 0 0 auto;
   display: flex;
   flex-wrap: wrap;
-  /* Tight enough that all five buttons fit one line at the pane's default 280px. */
-  gap: 3px;
-  margin: auto -14px 0;
-  padding: 8px 10px;
+  gap: 4px;
+  margin: auto calc(-1 * var(--pane-pad)) 0;
+  padding: 10px var(--pane-pad);
   background: var(--panel);
   border-top: 1px solid var(--panel-edge);
 }
@@ -70,15 +72,6 @@
 
 /* The handle that drags the pane's width is a shadcn-svelte Resizable handle (Workspace.svelte),
    styled by its own classes: the old #instructions-resize and .resize-dots rules are gone. */
-
-#instructions-pane h2 {
-  margin: 0 0 8px;
-  font-size: 12px;
-  font-weight: 600;
-  color: var(--muted);
-  text-transform: uppercase;
-  letter-spacing: 0.06em;
-}
 
 #instructions-pane p {
   margin: 0;
@@ -101,7 +94,7 @@
    request on the same ticket ("Show the author on the same row as the date") put author
    and date on one shared line, `#cut-byline`, rather than the two-line stack T-0151
    shipped first. */
-#cut-header { margin-bottom: 14px; }
+#cut-header { margin: 2px 0 var(--pane-pad); }
 
 .cut-name {
   display: block;
@@ -182,21 +175,29 @@
    after it, so `renderTierSection` always emits all four cells, the notes one empty rather
    than missing. Indices and notes wrap within their own column instead of forcing the row
    wider than the pane -- "one row" means one grid row per tier, not one line of unbroken
-   text. `#instructions-pane h2`/`p` above already style section headings and empty-state
-   text uniformly, so neither gets its own rule here. T-0152 dropped the depth column and
-   the girdle badge (the generated `G`-prefixed id already says a row is the girdle) --
-   their rules are gone too, not just unused. */
-/* padding-bottom: the gap above #tier-toolbar, which follows directly once the tables are
-   long enough to scroll (its `margin-top: auto` is then 0). */
-#tier-tables { display: flex; flex-direction: column; gap: 14px; padding-bottom: 14px; }
+   text. `#instructions-pane p` above styles the empty-state text. T-0152 dropped the depth
+   column and the girdle badge (the generated `G`-prefixed id already says a row is the
+   girdle) -- their rules are gone too, not just unused. */
+/* No gap: each table is a PanelSection, whose own bottom margin spaces them and leaves the gap
+   above #tier-toolbar, which follows directly once the tables are long enough to scroll (its
+   `margin-top: auto` is then 0). */
+#tier-tables { display: flex; flex-direction: column; }
 
-.tier-section:first-child { margin-top: 4px; }
+/* Each table is the render settings' own foldable group, a PanelSection (TierTables.svelte;
+   2026-09-22, the user: "can you use the same ui element for the pavilion/crown and the
+   material/tracing/lighting sections"), in its `flush` form (panel.css): the rows inside run
+   edge to edge of the group, divided by hairlines, rather than each being a raised box of its
+   own. Those filled boxes made this pane read as a different, lighter surface from the
+   settings pane beside it (T-0226, "the left and right bar backgrounds in overview mode not
+   looking the same is also not good"). */
+.tier-rows { display: flex; flex-direction: column; }
 
-.tier-rows { display: flex; flex-direction: column; gap: 4px; }
+/* The empty state sits in the card like a row would. */
+.tier-rows > p { padding: 0 12px 12px; }
 
 .tier-row {
   display: grid;
-  grid-template-columns: 2em 3.4em minmax(0, 1.2fr) minmax(0, 1fr);
+  grid-template-columns: 2em 3.6em minmax(0, 1.2fr) minmax(0, 1fr);
   grid-template-areas: "label angle indices notes";
   column-gap: 6px;
   /* Only ever seen when a row has a second line: the two stacked layouts below (which set the
@@ -204,11 +205,9 @@
      bottom of this file. A one-line row has no row gap to show. */
   row-gap: 2px;
   align-items: baseline;
-  padding: 4px 8px;
-  background: var(--raised);
-  border: 1px solid var(--panel-edge);
-  border-radius: 4px;
-  font-size: 11px;
+  padding: 7px 12px;
+  border-top: 1px solid var(--panel-edge);
+  font-size: 12px;
   /* T-0165: a row is dragged as well as clicked, so it should not also behave like
      selectable text -- and without this, the small pre-slop wobble at the start of a
      real drag (see wireUpTierRowDragging's CLICK_SLOP_PX check) can leave a stray text
@@ -225,10 +224,13 @@
    inserted between rows -- "a clear insertion indicator" without animating anything. */
 .tier-row.tier-row-dragging { opacity: 0.45; cursor: grabbing; }
 
+/* Laid over the hairline between two rows (a negative margin, so showing it moves no row). */
 .tier-row-drop-indicator {
+  position: relative;
+  z-index: 1;
   flex: 0 0 auto;
   height: 2px;
-  margin: 0 8px;
+  margin: 0 8px -2px;
   border-radius: 1px;
   background: var(--accent);
 }
@@ -246,27 +248,22 @@
 .tier-row[role="button"]:hover { background: rgba(143, 188, 187, 0.12); }
 .tier-row[role="button"]:focus-visible { outline: 2px solid var(--accent); outline-offset: -2px; }
 
-/* The selected tier's row (T-0160): a clearly stronger, distinct tint plus an accent
-   border, so it reads apart from the merely-hovered state above even while the pointer is
-   still over it. */
+/* The selected tier's row (T-0160): a clearly stronger, distinct tint plus an accent mark,
+   so it reads apart from the merely-hovered state above even while the pointer is still over
+   it. The mark is a 2px bar down the row's left edge (T-0226) -- the rows have no border of
+   their own to colour any more, only the hairline above them. */
 .tier-row.tier-row-selected {
   background: rgba(143, 188, 187, 0.22);
-  border-color: var(--accent);
+  box-shadow: inset 2px 0 0 var(--accent);
 }
 
 /* A hidden tier (T-0178): the WHOLE row greyed out -- every cell (id, angle, teeth,
    description) faded and desaturated, and the row's own background and border faded with
    them -- rather than one cell dimmed (the user: "grey out the entire tier when its
    hidden"). Done on the cells, not with opacity/filter on the row itself, so a selected
-   hidden row keeps its accent border and the selection stays easy to see. Still clickable,
-   focusable and draggable: hiding a tier only takes it off the stone. The background and
-   border are --raised and --panel-edge at 45%, mixed from the tokens (they were rgba copies of
-   nord1 and nord3) so the light theme greys the row in its own colours. */
-.tier-row.tier-row-hidden {
-  background: color-mix(in srgb, var(--raised) 45%, transparent);
-  border-color: color-mix(in srgb, var(--panel-edge) 45%, transparent);
-}
-
+   hidden row keeps its accent mark and the selection stays easy to see. Still clickable,
+   focusable and draggable: hiding a tier only takes it off the stone. (The row's own raised
+   background and border, which faded with the cells, went with T-0226's flat rows.) */
 .tier-row.tier-row-hidden > * { opacity: 0.45; filter: grayscale(1); }
 
 /* A frosted tier (T-0180): its angle and cutting teeth on a darker background, the text
@@ -276,15 +273,12 @@
 .tier-row.tier-row-frosted .tier-angle,
 .tier-row.tier-row-frosted .tier-indices {
   background: rgba(0, 0, 0, 0.35);
-  border-radius: 3px;
+  border-radius: 4px;
 }
 
 .tier-row.tier-row-frosted .tier-angle { padding: 0 3px; }
 
-.tier-row.tier-row-hidden.tier-row-selected {
-  background: rgba(143, 188, 187, 0.08);
-  border-color: var(--accent);
-}
+.tier-row.tier-row-hidden.tier-row-selected { background: rgba(143, 188, 187, 0.08); }
 
 /* Extra room either side of the cutting indices (the user's request, 2026-09-18: more
    space between the angle and the teeth, and between the teeth and the description) --
@@ -302,7 +296,7 @@
    :where() keeps this at the specificity of a bare .tier-row, so the narrow-pane
    container query below, which comes later, still wins over it. */
 :where(#tier-tables.tier-notes-below) .tier-row {
-  grid-template-columns: 2em 3.4em minmax(0, 1fr);
+  grid-template-columns: 2em 3.6em minmax(0, 1fr);
   grid-template-areas:
     "label angle indices"
     "notes notes notes";
@@ -342,17 +336,17 @@
 
 .tier-angle {
   grid-area: angle;
-  font-family: ui-monospace, Menlo, monospace;
-  font-size: 10px;
+  font-family: var(--font-mono);
+  font-size: 11px;
   color: var(--muted);
 }
 
 .tier-indices {
   grid-area: indices;
   color: var(--muted);
-  font-family: ui-monospace, Menlo, monospace;
-  font-size: 10px;
-  line-height: 1.4;
+  font-family: var(--font-mono);
+  font-size: 11px;
+  line-height: 1.45;
   overflow-wrap: break-word;
 }
 
@@ -363,9 +357,9 @@
 .tier-notes {
   grid-area: notes;
   color: var(--muted);
-  font-size: 10px;
+  font-size: 11px;
   font-style: italic;
-  line-height: 1.4;
+  line-height: 1.45;
   overflow-wrap: break-word;
 }
 
@@ -383,7 +377,7 @@
    into text selection (T-0165): `.tier-row` above turns it off so a drag's pre-slop
    wobble cannot leave stray selected text on the page, but typing and selecting inside
    the open notes editor itself must work exactly as any other text input does. */
-#instructions-pane .tier-row input.value-entry { font-size: 10px; min-width: 0; user-select: text; }
+#instructions-pane .tier-row input.value-entry { font-size: 11px; min-width: 0; user-select: text; }
 
 /* The description's editor takes a LINE OF ITS OWN, the full width of the row, rather than
    whichever cell it happened to be auto-placed into (2026-09-20, the user: "when i make the

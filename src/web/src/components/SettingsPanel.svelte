@@ -15,7 +15,7 @@
   import { get } from 'svelte/store';
   import {
     engine, ready, error, renderer, lightingModel, materialPreset, luxProgress, accumulationTarget,
-    resolutionScale, draftResolutionScale,
+    resolutionScale, dragQuality,
   } from '../lib/stores.js';
   import {
     RENDERER_HINTS, SLIDER_SPECS, HIDDEN_LIGHTING_MODELS, ANALYTICAL_LIGHTING_MODELS, snapToSpec,
@@ -24,7 +24,7 @@
   import {
     changeMaterial, neutraliseMaterial, selectRenderer, selectLightingModel, syncHiddenControls,
     stoneColorOpened, stoneColorClosed, loadModelFile, LUX_TARGET_SETTING, RESOLUTION_SETTING,
-    DRAFT_RESOLUTION_SETTING, USE_BACKGROUND_SETTING, BACKGROUND_COLOR_SETTING,
+    DRAG_QUALITY_SETTING, USE_BACKGROUND_SETTING, BACKGROUND_COLOR_SETTING,
     USE_WINDOW_COLOR_SETTING, WINDOW_COLOR_SETTING, HEAD_SHADOW_COLOR_SETTING, WIREFRAME_SETTING,
   } from '../lib/session.js';
   import { writeSettingColor } from '../lib/settings.js';
@@ -91,6 +91,17 @@
   {#if $ready}
     {@render controls()}
   {/if}
+
+  <!-- This panel IS overview mode's own bar, the way EditPanel is edit mode's (App.svelte stacks
+       the two in one grid cell and swaps which is visible). Pinned to the bottom
+       (`margin-top: auto`, #panel is already a flex column) rather than placed after the last
+       section, so it reads as the panel's own footer and stays put as sections are collapsed or
+       expanded above it. 2026-09-22, the user: "at the bottom of the render settings section can
+       you add a bit about the mode" -- more modes are planned, one per currently-greyed
+       Edit/Tools menu item (kb/application-modes-current-and-planned.md); this is where each
+       would name itself if it gets its own settings-style panel the way edit mode did. -->
+  <div id="panel-mode" class="hint">Mode: Overview</div>
+
   <!-- Persistent or minor conditions only (see the `error` store's comment). A one-off failure of
        something the user just asked for -- a file or a link that could not be read -- goes to
        LoadAlertDialog instead, not here. `role="alert"` so a screen reader announces a message
@@ -192,12 +203,13 @@
     </div>
 
     <ParamSlider name="maxBounces" rowId="maxBounces-row" label="Max internal bounces"
-      tip="How many times light may reflect inside the stone before the renderer stops following it. More is more accurate for deep stones, but slower. Light still inside when it runs out is shown as a darker tint of the stone color." />
+      tip="How many times light may reflect inside the stone before the renderer stops following it. More is more accurate for deep stones, but slower. Light still inside when it runs out is shown as a darker tint of the stone color. The minimum is 3; any lower and there is barely any glass left to see, so you might as well use the Flat renderer." />
 
-    <!-- Resolution scale, full quality and while dragging. Only in the page: there is no Rust
-         field behind either slider at all, so the slider is the store. Typed as a percentage, like
-         the readout; a typed value is put where the slider can sit (snapToSpec: within its 15-100%
-         range, and on its step). -->
+    <!-- Resolution scale: only in the page, no Rust field behind it, so the slider is the
+         store. "Drag quality" below DOES have a Rust field (drag_quality), since it also
+         scales the max bounce count, so its handlers push every change into `app` as well as
+         the store. Both are typed as a percentage, like the readout; a typed value is put
+         where the slider can sit (snapToSpec: within its 15-100% range, and on its step). -->
     <Slider id="resolution" label="Resolution scale"
       tip="Renders at a fraction of the screen resolution when the view is still. Lower is faster but blurrier."
       spec={SLIDER_SPECS.resolution} value={$resolutionScale} text={`${Math.round($resolutionScale * 100)}%`}
@@ -213,19 +225,23 @@
         requestRender();
       }} />
 
-    <Slider id="draft-resolution" label="Resolution while dragging"
-      tip="The resolution used while you turn or zoom the stone, so it keeps up with the mouse. Full quality returns as soon as you stop. Lower it if dragging is choppy."
-      spec={SLIDER_SPECS['draft-resolution']} value={$draftResolutionScale}
-      text={`${Math.round($draftResolutionScale * 100)}%`}
+    <Slider id="drag-quality" label="Drag quality"
+      tip="How close to full quality the picture stays while you turn or zoom the stone, as a percentage of the resolution scale and the max internal bounces above -- both are multiplied by this amount together, so the stone keeps up with the mouse. 100% renders exactly like a still frame even while dragging; lower it if dragging feels choppy. Full quality always returns the moment you stop."
+      spec={SLIDER_SPECS['drag-quality']} value={$dragQuality}
+      text={`${Math.round($dragQuality * 100)}%`}
       oninput={v => {
-        draftResolutionScale.set(v);
-        writeSetting(DRAFT_RESOLUTION_SETTING, String(v));
+        dragQuality.set(v);
+        app.set_drag_quality(v);
+        writeSetting(DRAG_QUALITY_SETTING, String(v));
         requestRender();
       }}
-      readoutRead={() => get(draftResolutionScale)} toDisplay={v => v * 100} fromDisplay={v => v / 100}
+      readoutRead={() => get(dragQuality)} toDisplay={v => v * 100} fromDisplay={v => v / 100}
       readoutWrite={value => {
-        draftResolutionScale.set(snapToSpec(value, SLIDER_SPECS['draft-resolution']));
-        writeSetting(DRAFT_RESOLUTION_SETTING, String(get(draftResolutionScale)));
+        const snapped = snapToSpec(value, SLIDER_SPECS['drag-quality']);
+
+        dragQuality.set(snapped);
+        app.set_drag_quality(snapped);
+        writeSetting(DRAG_QUALITY_SETTING, String(snapped));
         requestRender();
       }} />
 

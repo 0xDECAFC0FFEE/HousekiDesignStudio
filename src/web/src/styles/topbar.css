@@ -1,43 +1,35 @@
-/* ---- Top bar: the product's name with the File/Edit/Tools/Help menu beside it, one row
-   (T-0140, relaid out T-0143 at the user's request: "put the drop downs right of the
-   title" and "make the title larger", then corrected on the same ticket -- "i want the
-   file/edit etc buttons left bottom justified instead of all the way to the right
-   side"; the title itself stopped tracking the open design and became the fixed product
-   name in T-0144). #topbar is the flex row: the title and the menu bar pack to the left as
-   one group with a fixed 16px gap between them (see #app-title's flex-grow note below for
-   why they do not drift apart), and align-items: flex-end puts the menu buttons on the
-   title's bottom edge rather than at its cap height or centred against it -- flex-end
-   over baseline because, once the boxes' bottoms are flush, the 33px title's and the
-   18px buttons' own text baselines (22px and 12px until 2026-09-19) already land within about a pixel of each other, so
-   flex-end reads as "sitting on the same line" as well as literally meaning "bottom
-   justified". */
+/* ---- Top bar: the logo and the product's name with the File/Edit/Tools/Help menu beside it,
+   one row (T-0140, relaid out T-0143: "put the drop downs right of the title", and the menu
+   packed left beside the title rather than "all the way to the right side"; the title became
+   the fixed product name in T-0144).
+
+   COMPACT since T-0226 (2026-09-22, the user: "top bar is definitely too large, especially on
+   mobile devices when landscape"). It was made 50% taller on 2026-09-19 -- a 33px title, 18px
+   menu buttons and 15px of padding, about 81px in all -- which on a landscape phone (390px
+   tall) spent a fifth of the screen on the bar, since the old size steps were by WIDTH only and
+   a landscape phone is wider than both of them. It was then a desktop tool bar of 43px, and the
+   user asked the same day to "make the top bar 50% taller": on a desktop it is 64px, with a 36px
+   logo, a 20px title and 15px menu buttons (TopBar.svelte's TRIGGER), all centred on one line.
+   Small screens (below) keep the compact 35px bar, by width AND by height, so a landscape phone
+   does not get the tall one.
+
+   #topbar is the flex row: the logo, title and menu bar pack to the left as one group, and the
+   spare width falls after them (see #app-title's flex-grow note). */
 #topbar {
   flex: 0 0 auto;
   display: flex;
-  align-items: flex-end;
-  gap: 16px;
+  align-items: center;
+  gap: 12px;
   background: var(--topbar, var(--panel));
-  /* T-0164: the divider used to be a full-width border-bottom. It is now inset by the
-     bar's own horizontal padding (16px), so it lines up with the title and menu bar
-     above it rather than running edge to edge. Drawn as a ::after below instead of a
-     second border, and the border itself kept at 1px solid TRANSPARENT (rather than
-     removed) purely to hold the 1px of height it used to contribute -- #topbar has no
-     explicit height, so dropping the border outright would shrink the bar by 1px and
-     move the canvas below it. The ::after's `bottom: -1px` (measured from the padding
-     edge, which is where an absolutely positioned child's 0 sits) lands it exactly in
-     that transparent border's 1px strip, so the visible line sits where the old border
-     did. Confirmed by measuring the built page over CDP: topbar height and the canvas
-     size are unchanged (both 54px tall / 434x844 canvas at the default 1024x937
-     window, before and after), and the line's leftmost/rightmost colored pixels moved
-     from x=0..1023 to x=16..1007 (measured, not read back from this rule). */
+  /* T-0164: the divider is inset by the bar's own horizontal padding, so it lines up with the
+     logo and the menu above it rather than running edge to edge. Drawn as a ::after below; the
+     border is kept at 1px solid TRANSPARENT purely to hold the 1px of height the line sits in. */
   border-bottom: 1px solid transparent;
-  /* 2026-09-19, at the user's request: "increase the menu bar height by 50%", then "increase
-     the text size on the menu bar accordingly". The bar was 54px tall (10px padding above and
-     below a 33px title line, plus the 1px border). Everything in it is now 1.5 times its old
-     size -- the title 22 -> 33px (#app-title), the File/Edit/Tools/Help buttons 12 -> 18px
-     (TopBar.svelte's TRIGGER), and this vertical padding 10 -> 15px -- so the bar comes out
-     about 81px tall. */
-  padding: 15px 16px;
+  /* 64px including that border: 1.5 times the compact bar's 43px. A fixed height rather than
+     padding, so the bar's height does not depend on the logo's or the buttons' own. */
+  height: 64px;
+  padding: 0 16px;
+  gap: 14px;
   position: relative;
 }
 
@@ -51,16 +43,14 @@
   background: var(--panel-edge);
 }
 
-/* The logo, directly left of the title (2026-09-19): about as tall as the title's line and
-   centred on it, rather than bottom-aligned like the menu buttons, and 10px from it rather than
-   the bar's 16px gap, so the two read as one mark. */
+/* The logo, directly left of the title (2026-09-19): the title's own height, and a little
+   closer to it than the bar's gap, so the two read as one mark. */
 #app-logo {
   flex: none;
   display: flex;
-  align-self: center;
-  width: 40px;
-  height: 40px;
-  margin-right: -6px;
+  width: 36px;
+  height: 36px;
+  margin-right: -4px;
 }
 
 #app-logo svg { width: 100%; height: 100%; }
@@ -77,53 +67,32 @@
   /* flex: 0 1 auto -- shrink, but never GROW. flex-grow: 1 here would make the title
      absorb all the spare width and shove the menu bar against the right edge of the
      window, which is the layout the user rejected ("instead of all the way to the right
-     side"). With no grow, the title and the menu bar pack to the left as one group and
-     the spare width falls after them. */
+     side"). The title is also what gives way on a narrow screen: `min-width: 0` and an
+     ellipsis, so the menu buttons always stay on screen (`html, body { overflow: hidden }`
+     in base.css would clip a button pushed off the edge with no way to scroll to it). */
   flex: 0 1 auto;
   min-width: 0;
   overflow: hidden;
-  font-size: 33px;
+  font-size: 20px;
   font-weight: 600;
+  letter-spacing: -0.01em;
   color: var(--text);
   white-space: nowrap;
   text-overflow: ellipsis;
 }
 
-/* ---- Small devices (2026-09-20, the user: "can you make the menu bar resize correctly on
-   small devices") ----
-   Every size above is a desktop size, and none of them moved with the window: the 40px logo,
-   the 33px title, the bar's 15px x 16px padding and its 16px gaps, plus the 272px the four
-   18px menu buttons measure (TopBar.svelte's TRIGGER), come to about 370px before the title
-   has a single character to show. Measured on the built page at those sizes: the title's box
-   is 130px at a 500px viewport, 20px (an ellipsis, no title) at 390px and 0px at 360px, and at
-   320px the bar overflows by 34px with the Help button's right edge at x=354 -- off the screen,
-   where nothing can reach it, since `html, body { overflow: hidden }` (base.css) clips the page
-   rather than scrolling it. The menu is the one part of the shell a small screen still has to
-   be able to use. With the two steps below, 320px keeps every button on screen (Help ends at
-   x=310) and still shows 72px of title.
-   The bar steps down in two, at 48rem and 40rem -- Tailwind's own `md` and `sm`, in the rem
-   units it defines them in, because the BUTTONS step at those same two widths and have to be
-   written as Tailwind variants (they are utilities, in a cascade layer above this file, so no
-   selector here can outrank them; see TRIGGER's comment). Max-width queries, so the desktop
-   rules above stay the base case and read unchanged.
-   The title is what absorbs whatever is left over at any width: `flex: 0 1 auto` with
-   `min-width: 0` and an ellipsis (see #app-title), so below the last step it keeps shortening
-   -- "Houseki Design Studio", "Houseki Desi...", "Hou..." -- and the bar stays one row, with
-   every menu button on screen, down to about 280px. The logo is never dropped: it is the
-   link home, and at 26px it costs less than the two characters of title it buys back. */
-@media (max-width: 47.99rem) {
-  #topbar { gap: 10px; padding: 10px 12px; }
+/* ---- Small screens ----
+   Narrow (below Tailwind's `sm`, 40rem): tighter padding and gaps. The title then shortens with
+   an ellipsis while every menu button stays on screen, down to about 280px.
+   Short (a landscape phone, 500px tall or less): the same. Either way the bar is the compact
+   35px -- the 26px menu buttons plus 4px either side and the divider -- with a smaller logo and
+   title. TopBar.svelte's TRIGGER switches its buttons at exactly this condition. */
+@media (max-width: 39.99rem), (max-height: 500px) {
+  #topbar { height: auto; gap: 8px; padding: 4px 10px; }
   /* The divider is inset by the bar's own padding (see #topbar::after), so it follows it down. */
-  #topbar::after { left: 12px; right: 12px; }
-  #app-title { font-size: 22px; }
-  #app-logo { width: 30px; height: 30px; margin-right: -4px; }
-}
-
-@media (max-width: 39.99rem) {
-  #topbar { gap: 8px; padding: 8px 10px; }
   #topbar::after { left: 10px; right: 10px; }
-  #app-title { font-size: 18px; }
-  #app-logo { width: 26px; height: 26px; margin-right: -3px; }
+  #app-title { font-size: 14px; }
+  #app-logo { width: 22px; height: 22px; margin-right: -2px; }
 }
 
 /* The menu itself is a shadcn-svelte Menubar (TopBar.svelte), styled by its own classes; the

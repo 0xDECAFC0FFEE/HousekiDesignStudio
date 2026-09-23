@@ -1021,7 +1021,7 @@ vec3 heatmap(float amount) {
 // ---------------------------------------------------------------- facet wireframe
 
 // Half the width of a facet outline, in CSS pixels: on-screen size, not backing-store pixels.
-// The backing store shrinks while dragging (the page's "Resolution while dragging", 40% by
+// The backing store shrinks while dragging (the page's "Drag quality", 40% by
 // default) and grows with devicePixelRatio, and a width in its pixels made the lines 2.5x
 // thicker mid-drag than at rest. uWireframePixelScale converts. An edge between two visible
 // facets is drawn from both sides, so it is twice this wide; a silhouette edge only from the one

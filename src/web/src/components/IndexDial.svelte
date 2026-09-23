@@ -76,6 +76,13 @@
     const projected = engine.app.project_file_points(flat);
     const width = canvas.clientWidth;
     const height = canvas.clientHeight;
+    // Where the canvas sits in #viewport, which this SVG covers. 0 normally; while a side pane's
+    // handle is dragged the canvas keeps its size and is centred in the changing region (the
+    // "scoot", viewport.js), so the stone moves with it, and the dial has to follow (2026-09-22,
+    // the user: "can you make the circular tick marks around the gem also move left and right
+    // automatically when the sidebars resize"). #viewport is the canvas's offsetParent.
+    const left = canvas.offsetLeft;
+    const top = canvas.offsetTop;
     const screen = [];
 
     for (let i = 0; i < points.length; i++) {
@@ -87,8 +94,8 @@
       }
 
       screen.push({
-        x: ((projected[i * 3] + 1) / 2) * width,
-        y: ((1 - projected[i * 3 + 1]) / 2) * height,
+        x: left + ((projected[i * 3] + 1) / 2) * width,
+        y: top + ((1 - projected[i * 3 + 1]) / 2) * height,
       });
     }
 

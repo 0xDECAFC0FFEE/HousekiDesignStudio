@@ -6,9 +6,10 @@
 // stores.js; this module never touches the panel's elements, except the two by-id lookups the
 // page always made (`#obj-file` to clear it, and the ids the renderer hides).
 
+import { get } from 'svelte/store';
 import {
   engine, showError, showLoadAlert, hideError, clearErrorIf, bumpParams, materialPreset, renderer, lightingModel,
-  accumulationTarget, resolutionScale, draftResolutionScale, canUndo, canRedo, applyDesignMetadata,
+  accumulationTarget, resolutionScale, dragQuality, canUndo, canRedo, applyDesignMetadata,
   historyChanged,
 } from './stores.js';
 import { PERSISTED_PARAM_SETTINGS, VIEW_SLIDERS, SLIDER_SPECS } from './panel_config.js';
@@ -46,7 +47,7 @@ export const WINDOW_COLOR_SETTING = 'gems.windowColor';
 export const HEAD_SHADOW_COLOR_SETTING = 'gems.headShadowColor';
 export const WIREFRAME_SETTING = 'gems.wireframe';
 export const RESOLUTION_SETTING = 'gems.resolutionScale';
-export const DRAFT_RESOLUTION_SETTING = 'gems.draftResolutionScale';
+export const DRAG_QUALITY_SETTING = 'gems.dragQuality';
 
 // LightingModel::as_u32 (src/params.rs): 0 Studio, 1 AngleRings, 2 Isometric, 3 Cosine, 4
 // Image -- the one value set_environment_image below always switches to, see its own use.
@@ -169,20 +170,24 @@ export function restorePersistedSettings(app) {
     app.set_wireframe(savedWireframe);
   }
 
-  // Resolution scale, full quality and while dragging. Shared between the different tracers
-  // -- there is no Rust field behind either slider at all (`app.render(width, height)` just
-  // draws at whatever resolution the page asks for, whichever renderer is selected; see
-  // src/params.rs's own comment on why resolution is handled here, not in Rust), so one saved
-  // value each is all that is needed.
+  // Resolution scale, full quality and while dragging. There is no Rust field behind the
+  // still-frame resolution slider at all (`app.render(width, height)` just draws at whatever
+  // resolution the page asks for, whichever renderer is selected; see src/params.rs's own
+  // comment on why resolution is handled here, not in Rust), so a store is all that setting
+  // needs. "Drag quality" DOES have a Rust counterpart (`set_drag_quality`), because
+  // it also scales the max bounce count, not just the canvas resolution -- so its restored
+  // value is pushed into Rust right after the store is set, below.
   for (const [store, key, name] of [
     [resolutionScale, RESOLUTION_SETTING, 'resolution'],
-    [draftResolutionScale, DRAFT_RESOLUTION_SETTING, 'draft-resolution'],
+    [dragQuality, DRAG_QUALITY_SETTING, 'drag-quality'],
   ]) {
     const spec = SLIDER_SPECS[name];
     const saved = readSettingNumber(key, spec.min, spec.max, null);
 
     store.set(saved !== null ? saved : spec.value);
   }
+
+  app.set_drag_quality(get(dragQuality));
 
   // What the panel shows first.
   renderer.set(app.renderer());

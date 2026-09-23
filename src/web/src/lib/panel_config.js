@@ -132,7 +132,9 @@ export const HIDDEN_LIGHTING_MODELS = ['0'];
 export const SLIDER_SPECS = {
   refractiveIndex: { min: 1, max: 3, step: 0.001 },
   dispersion: { min: 0, max: 0.3, step: 0.001 },
-  maxBounces: { min: 1, max: 32, step: 1 },
+  // Floor 3, not 1: matches Rust's own MIN_BOUNCES (2026-09-22, the user: "make the minimum
+  // max internal bounces 3" -- below 3 a stone barely reads as glass).
+  maxBounces: { min: 3, max: 32, step: 1 },
   headShadowHalfAngle: { min: 0, max: 90, step: 1 },
   spin: { min: -180, max: 180, step: 1 },
   tilt: { min: -180, max: 180, step: 1 },
@@ -140,5 +142,5 @@ export const SLIDER_SPECS = {
   // Page-only settings, with no Rust parameter behind them.
   'lux-target': { min: 1, max: 4096, step: 1, value: 512 },
   resolution: { min: 0.15, max: 1, step: 0.05, value: 1 },
-  'draft-resolution': { min: 0.15, max: 1, step: 0.05, value: 0.4 },
+  'drag-quality': { min: 0.15, max: 1, step: 0.05, value: 0.4 },
 };

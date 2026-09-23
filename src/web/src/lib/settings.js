@@ -97,3 +97,10 @@ export function writeSettingColor(name, rgb) {
 export const INSTRUCTIONS_WIDTH_SETTING = 'gems.instructionsWidth';
 export const INSTRUCTIONS_WIDTH_MIN = 200;
 export const INSTRUCTIONS_WIDTH_MAX = 480;
+
+// The right-hand pane, the render settings and edit mode's bar (2026-09-22, the user: "can you
+// make both left and right pane widths draggable"). 300px was its fixed width; 240px still fits
+// a slider with its name and readout on one row.
+export const SETTINGS_WIDTH_SETTING = 'gems.settingsWidth';
+export const SETTINGS_WIDTH_MIN = 240;
+export const SETTINGS_WIDTH_MAX = 480;

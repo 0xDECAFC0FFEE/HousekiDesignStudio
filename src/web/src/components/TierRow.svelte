@@ -105,7 +105,7 @@
        Editable like the author field (the user's request, 2026-09-18), but only once its row
        is selected: the first click on a row selects its tier, and a click on the description
        of the selected row then opens the editor. -->
-  <EditableText cls="tier-notes" inputClass="tier-notes-entry text-[10px] md:text-[10px]" value={notes} emptyText="description"
+  <EditableText cls="tier-notes" inputClass="tier-notes-entry text-[11px] md:text-[11px]" value={notes} emptyText="description"
     canEdit={() => get(selectedTier) === tier}
     onwrite={value => { editNotes(tier, value); notes = value; }} />
 </div>

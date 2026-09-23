@@ -5,7 +5,7 @@
 
 import { get } from 'svelte/store';
 import {
-  engine, luxProgress, accumulationTarget, resolutionScale, draftResolutionScale, bumpParams,
+  engine, luxProgress, accumulationTarget, resolutionScale, dragQuality, bumpParams,
 } from './stores.js';
 import {
   clearFacetAndTierHighlight, highlightFacetAndItsTier,
@@ -77,8 +77,12 @@ function renderNow() {
 
   // Drop resolution while the user is moving. This is the single largest lever
   // available: cost is proportional to pixel count, so rendering at half scale
-  // is a 4x saving, on top of the parameter reduction from draft mode.
-  const scale = interacting ? get(draftResolutionScale) : get(resolutionScale);
+  // is a 4x saving, on top of the bounce-count reduction draft mode applies in Rust
+  // (`RenderParams::draft`, driven by this same `dragQuality` fraction -- see
+  // `beginInteraction`). Multiplying the configured resolution rather than replacing it
+  // outright is what makes 100% "drag quality" indistinguishable from a still frame,
+  // matching what 100% does to the bounce count on the Rust side.
+  const scale = interacting ? get(resolutionScale) * get(dragQuality) : get(resolutionScale);
   const dpr = Math.min(window.devicePixelRatio || 1, 2);
   const width = Math.max(1, Math.round(canvas.clientWidth * dpr * scale));
   const height = Math.max(1, Math.round(canvas.clientHeight * dpr * scale));
@@ -209,9 +213,11 @@ if (typeof document !== 'undefined') {
  * Drops quality while the user is actively moving anything, restoring it shortly after they
  * stop (2026-09-19, the user: "when the ruler is moved or the angles of the cut are changed or
  * the depth of the cut is changed or the stone is moved or anything can you make sure the
- * resolution is dropped and the internal bounces are dropped"). Draft mode halves the bounce
- * count and quarters the samples (`RenderParams::draft`); the page also renders at
- * `draftResolutionScale` while `interacting`.
+ * resolution is dropped and the internal bounces are dropped"). Draft mode scales the bounce
+ * count by `dragQuality` and quarters the samples (`RenderParams::draft`, driven by whatever
+ * `app.set_drag_quality` last set); the page also renders at `resolutionScale * dragQuality`
+ * while `interacting`, above -- the same fraction multiplying both, linearly, so "quality
+ * while dragging" is one setting rather than two that could disagree.
  */
 export function beginInteraction() {
   const app = engine.app;

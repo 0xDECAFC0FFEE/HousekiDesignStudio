@@ -24,7 +24,7 @@
   --panel: #2e3440;
   --panel-edge: #4c566a;
   --raised: #3b4252;
-  /* The menu bar: in dark mode the same colour as the tier rows (--raised); light mode sets its own. */
+  /* The menu bar: --raised in dark mode; light mode sets its own. */
   --topbar: var(--raised);
   --text: #eceff4;
   --muted: #d8dee9;
@@ -35,6 +35,28 @@
      themes, since light mode's --panel is near-white and would vanish on it. The light theme
      redefines the rest of these in site/theme.css. */
   --on-accent: #2e3440;
+
+  /* ---- The design language (T-0226, 2026-09-22, the user: "the website ui lacks a cohesive
+     design language") ----
+     Every part of the page is built from the same few pieces, so the two side panes, the cards
+     over the renderer and the dialogs read as one app:
+       - a SIDE PANE is --panel, 12px of padding, divided from the renderer by one hairline;
+       - a CARD (a group of settings, a tier table, a card over the canvas) is a 1px --panel-edge
+         border with an 8px radius, headed by a TITLE: 11px capitals in --muted, 12px in;
+       - a ROW inside a card (a tier) is flat, divided from the next by a hairline, tinted
+         --hover on hover and marked by a 2px accent bar when selected;
+       - a CONTROL (button, input, swatch) has a 6px radius; tailwind.css's radii match;
+       - numbers are --font-mono.
+     Before this each area had its own: raised boxes for the tier rows but bordered groups for
+     the settings (so the two panes did not look alike), 3px double borders at the seams, and
+     radii from 2 to 6px. */
+  --radius-control: 6px;
+  --radius-card: 8px;
+  --pane-pad: 12px;
+  --font-mono: ui-monospace, "SF Mono", Menlo, Consolas, monospace;
+  /* A card laid over the renderer: the pane's colour, a little see-through, blurred behind. */
+  --floating: color-mix(in srgb, var(--panel) 82%, transparent);
+  --floating-shadow: 0 6px 20px rgb(0 0 0 / 0.25);
 }
 
 * { box-sizing: border-box; }
@@ -58,10 +80,9 @@ body { font: 13px/1.5 ui-sans-serif, system-ui, -apple-system, "Segoe UI", sans-
    takes whatever height is left, instead of assuming it owns the whole viewport. */
 body { display: flex; flex-direction: column; }
 
-/* #layout is the workspace below the sub bar, now three flex children in one row
-   (T-0142, splitting the window into a cutting-instructions pane and the renderer, at
-   the user's direction to turn the page into a design planner): #instructions-pane
-   (fixed width, left), #viewport (flexes to fill what is left, middle) and #panel
-   (fixed width, right) -- unchanged from each other, so the renderer keeps the exact
-   pane it always had. */
+/* #layout is the workspace below the top bar (T-0142, splitting the window into a
+   cutting-instructions pane, the renderer and the settings, at the user's direction to turn
+   the page into a design planner). It holds Workspace.svelte's one PaneForge group, whose three
+   panes are #instructions-pane (left), #viewport (middle, takes what is left) and #panel-stack
+   (right); both side panes are dragged to their widths (2026-09-18 and 2026-09-22). */
 #layout { display: flex; flex: 1; min-height: 0; }

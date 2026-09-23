@@ -590,6 +590,11 @@ pub struct GemApp {
     camera: OrbitCamera,
     render_params: RenderParams,
     draft_mode: bool,
+    /// The "drag quality" fraction (0 to 1) the page's slider is set to, applied by
+    /// `RenderParams::draft` whenever `draft_mode` is on. Kept here rather than folded into
+    /// `set_draft_mode`'s argument because it is a standing setting the panel can change at any
+    /// time (like `render_params`'s own fields), not a per-interaction flag.
+    drag_quality: f32,
     /// The facets currently tinted by the deterministic renderer (T-0160): every facet of one
     /// design tier the user clicked or picked a row for, or -- for a plain .obj, which has no
     /// design to look a tier up in -- just the one facet clicked. Cleared whenever the stone
@@ -756,6 +761,10 @@ impl GemApp {
             camera: OrbitCamera::default(),
             render_params: RenderParams::default(),
             draft_mode: false,
+            // Overwritten by the page's own restored setting before anything renders in draft
+            // mode (`restorePersistedSettings` calls `set_drag_quality` right after boot); this
+            // is only what a caller sees before that, such as a Rust test.
+            drag_quality: 1.0,
             highlighted_facets: std::collections::BTreeSet::new(),
             highlight_texture,
             accumulation,
@@ -1163,11 +1172,13 @@ impl GemApp {
         self.camera.zoom(factor);
     }
 
-    /// Enables reduced quality for interaction: halves the internal bounce count.
+    /// Enables reduced quality for interaction: scales the internal bounce count by
+    /// `drag_quality`.
     ///
     /// Dispersion is deliberately kept, because fire is what rotating a stone is for;
-    /// see `RenderParams::draft`. The page is expected to drop canvas resolution at
-    /// the same time, which saves more and is much less noticeable on a moving image.
+    /// see `RenderParams::draft`. The page is expected to drop canvas resolution by the
+    /// same `drag_quality` fraction at the same time, which saves more (resolution is a
+    /// 4x-per-halving saving) and is much less noticeable on a moving image.
     ///
     /// Applied on top of the user's settings rather than overwriting them, so leaving
     /// draft mode restores exactly what was configured.
@@ -1175,11 +1186,30 @@ impl GemApp {
         self.draft_mode = enabled;
     }
 
-    /// Whether draft mode is on: half the bounces and a quarter of the samples
-    /// (`RenderParams::draft`), which the page turns on while anything is being moved and off
-    /// again shortly after. Readable so a test can prove a drag really is drafting.
+    /// Whether draft mode is on: the bounce count scaled by `drag_quality` and a quarter of
+    /// the samples (`RenderParams::draft`), which the page turns on while anything is being
+    /// moved and off again shortly after. Readable so a test can prove a drag really is
+    /// drafting.
     pub fn draft_mode(&self) -> bool {
         self.draft_mode
+    }
+
+    /// Sets "drag quality": the fraction (0 to 1) of full quality kept while draft
+    /// mode is on. `RenderParams::draft` multiplies the configured bounce count by this same
+    /// fraction, and the page multiplies the canvas resolution by it too (`viewport.js`), so
+    /// the two move together linearly and 100% is indistinguishable from a still frame.
+    ///
+    /// A standing setting, not a per-interaction flag: it takes effect the next time draft
+    /// mode is entered, and changing it while already dragging (moving the settings panel's
+    /// own slider) applies to the very next frame.
+    pub fn set_drag_quality(&mut self, quality: f32) {
+        self.drag_quality = quality.clamp(0.0, 1.0);
+    }
+
+    /// The fraction `set_drag_quality` last stored. Readable so a test can prove the page's
+    /// slider actually reached Rust.
+    pub fn drag_quality(&self) -> f32 {
+        self.drag_quality
     }
 
     /// Applies a named material preset, for example "diamond" or "sapphire".
@@ -1651,7 +1681,7 @@ impl GemApp {
     /// on the host; nothing about it needs a GL context.
     fn effective_params(&self) -> RenderParams {
         if self.draft_mode {
-            self.render_params.draft()
+            self.render_params.draft(self.drag_quality)
         } else {
             self.render_params.clone()
         }

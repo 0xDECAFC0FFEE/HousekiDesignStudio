@@ -5,11 +5,19 @@
   // reads top to bottom as the work is done. Both sections are filled from the same code path
   // whether or not a design is loaded, so the honest empty state and a real design's rows cannot
   // drift apart.
-  import { onMount } from 'svelte';
-  import { tierView } from '../lib/tier_controller.js';
+  //
+  // Each section is a PanelSection (2026-09-22, the user: "can you use the same ui element for
+  // the pavilion/crown and the material/tracing/lighting sections", then "i want to be able to
+  // fold the pavilion and crown"): the render settings' own foldable group, `flush` so the rows
+  // run edge to edge of it.
+  import { onMount, tick, untrack } from 'svelte';
+  import { tierView, selectedTier } from '../lib/tier_controller.js';
   import TierSection from './TierSection.svelte';
+  import PanelSection from './PanelSection.svelte';
 
   let tables;
+  let pavilionOpen = $state(true);
+  let crownOpen = $state(true);
 
   /** Lines of text in an element, from its height and its own line height. */
   function lineCount(element) {
@@ -32,10 +40,47 @@
     tables.classList.toggle('tier-notes-below', tooLong);
   }
 
-  // After every render (the rows were just rebuilt).
+  // After every render (the rows were just rebuilt), and when a section is unfolded: a folded
+  // section's rows measure as no lines at all, so the layout is measured again once they show.
   $effect(() => {
     void $tierView.key;
-    fitRowLayout();
+    void pavilionOpen;
+    void crownOpen;
+    tick().then(fitRowLayout);
+  });
+
+  // A tier picked while its section is folded -- a click on the stone, or an undo -- unfolds that
+  // section and scrolls to the row, which highlightTier (tier_controller.js) could not do while
+  // the row was hidden. Only on a CHANGE of selection: folding the section the selected tier is
+  // in must stay folded, and so must a re-render of the rows under it.
+  let lastSelected = null;
+
+  $effect(() => {
+    const tier = $selectedTier;
+
+    if (tier === lastSelected) {
+      return;
+    }
+
+    lastSelected = tier;
+
+    if (tier === null) {
+      return;
+    }
+
+    untrack(() => {
+      const inPavilion = $tierView.pavilion.some(row => row.tier === tier);
+      const inCrown = $tierView.crown.some(row => row.tier === tier);
+
+      if ((inPavilion && !pavilionOpen) || (inCrown && !crownOpen)) {
+        pavilionOpen ||= inPavilion;
+        crownOpen ||= inCrown;
+        tick().then(() => {
+          [...tables.querySelectorAll('.tier-row')].find(row => row.__gemTier === tier)
+            ?.scrollIntoView({ block: 'nearest' });
+        });
+      }
+    });
   });
 
   onMount(() => {
@@ -57,12 +102,10 @@
 </script>
 
 <div id="tier-tables" bind:this={tables}>
-  <section class="tier-section">
-    <h2>Pavilion</h2>
+  <PanelSection title="Pavilion" flush bind:open={pavilionOpen}>
     <TierSection id="pavilion-rows" section="pavilion" />
-  </section>
-  <section class="tier-section">
-    <h2>Crown</h2>
+  </PanelSection>
+  <PanelSection title="Crown" flush bind:open={crownOpen}>
     <TierSection id="crown-rows" section="crown" />
-  </section>
+  </PanelSection>
 </div>
