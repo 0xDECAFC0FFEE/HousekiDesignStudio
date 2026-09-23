@@ -14,9 +14,30 @@
 export const ANGLE_STEP = 0.01;
 /** Ticks on the angle slider stand every this many degrees, and are labelled every 10. */
 export const ANGLE_TICK = 1;
-/** The depth slider's step and tick spacing, in the design's own units. */
+/** The depth slider's step, in the design's own units. */
 export const DEPTH_STEP = 0.001;
-export const DEPTH_TICK = 0.01;
+// The depth tape's tick spacing (2026-09-22, the user: "can you make the density of the tick
+// marks in the depth gauge match the density of tick marks in the angle gauge so it looks
+// pretty?"). Ticks land `tick * pxPerUnit` screen pixels apart (ValueRuler.svelte), so matching
+// the angle ruler's 10px (ANGLE_TICK 1 x its pxPerUnit 10) exactly would need 10 / 2600 =
+// 0.003846..., which is not a whole multiple of DEPTH_STEP -- ticks would sit off the value grid
+// the tape snaps to, and so would PageUp/PageDown (ValueRuler's onkeydown moves `tick *
+// majorEvery`). 0.004 is the nearest whole multiple of DEPTH_STEP (4x), giving 0.004 x 2600 =
+// 10.4px -- within 4% of the angle ruler's 10px, visually identical, and a clean 0.04 per
+// page-step. THIS NUMBER IS ONLY UNROUND BECAUSE THE DEPTH TAPE LOST ITS TICK LABELS THE SAME
+// DAY (T-0223, `tickLabels={false}` in EditPanel.svelte): an unlabelled major tick just needs to
+// look evenly spaced, but a LABELLED one has to show a value a human can read at a glance --
+// 0.04, 0.08, 0.12... would have been exactly the kind of number the user asked removed
+// ("it's not useful to know what the arbitrary number is in particular"). Do not round this back
+// to 0.01, and do not re-enable `tickLabels` on the depth ruler, without first re-deriving this
+// constant (or making it round again) -- the two are coupled. It is also tied to the depth
+// ruler's `pxPerUnit={2600}` in EditPanel.svelte: that prop is BOTH the drawing scale and (via
+// ValueRuler's onpointermove/onwheel) the drag rate the user said they like ("I like the rate
+// the depth changes given how fast I'm moving my mouse") -- so if pxPerUnit ever changes, this
+// constant must be re-derived to keep the two tapes' tick spacing matched; do not change
+// pxPerUnit to chase tick density instead, and do not change this constant's own value to chase
+// drag rate.
+export const DEPTH_TICK = 0.004;
 
 /** True for a tier cut on the pavilion side, including a girdle at -90 and a flat culet. */
 export function isPavilionSide(tier) {

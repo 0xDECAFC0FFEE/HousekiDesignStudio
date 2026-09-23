@@ -61,11 +61,15 @@
 
 #panel { width: 300px; }
 
-/* Edit mode's bar is only as wide as its two scales need; the grid above gives the column
-   whichever of the two panels is wider, which on this page is the 300px render settings. A
-   width, not max-content: the tier's list of teeth is one long line, and max-content would
-   stretch the whole column to it instead of wrapping. */
-#edit-panel { width: 220px; }
+/* Edit mode's bar used to be only as wide as its two scales needed (220px), leaving the grid
+   above to size the column from #panel alone (the 300px render settings) and the rulers below to
+   huddle in the leftover width. 2026-09-22, the user: "the edit-mode side bar should be
+   stretched to fill the bar" -- so this is now #panel's own 300px, by hand (nothing here reads
+   #panel's width back; Workspace.svelte's SETTINGS_PANEL_PX duplicates the same number for the
+   same reason). Still a literal width, not max-content: the tier's list of teeth is one long
+   line, and max-content would stretch the whole column to it (through the grid's own
+   auto-sizing above) instead of wrapping. */
+#edit-panel { width: 300px; }
 
 /* A titled group of settings (PanelSection: a shadcn-svelte Collapsible; it was a fieldset and
    its legend). The title is the trigger that folds the group. */
@@ -175,6 +179,77 @@ button.eyedropper svg { flex: 0 0 auto; width: 14px; height: 14px; }
 }
 
 #viewport.drag-over #drop-hint { display: flex; }
+
+/* The "compiling the gem shader" indicator (2026-09-22), over the renderer's pane while the
+   shader link blocks the page thread. Only Windows ever sees it; lib/shader_wait.js decides,
+   and its header explains why the wait exists.
+
+   IT HAS TO ANIMATE ON `opacity`, AND ONLY ON `opacity`. The page thread is frozen inside one
+   WebGL call for the whole time this is up, so the animation has to run on the compositor or
+   it shows a still picture of a loading bar, which is worse than none. Measured in Firefox 156
+   on Windows, four indicators put up, painted, and then watched from outside the browser while
+   the main thread spun for 12 s (screen grabs, since nothing inside the page can observe its
+   own freeze):
+
+     transform, percent values     frozen -- pixel-identical in all 10 grabs
+     transform, pixel values       frozen
+     transform, px, no will-change frozen
+     opacity                       kept animating throughout
+
+   So the travelling wave here is five segments sharing one opacity pulse, each delayed a
+   little more than the last -- no transform anywhere. Verified the same way: seven grabs
+   during a blocked thread gave seven different brightness patterns, with the peak marching
+   along the row. */
+#shader-wait {
+  position: absolute;
+  inset: 0;
+  z-index: 5;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  background: var(--panel);
+}
+
+.shader-wait-card { width: min(320px, 70%); text-align: center; }
+
+.shader-wait-title { margin: 0 0 10px; color: var(--text); font-size: 14px; }
+
+.shader-wait-track { display: flex; gap: 3px; }
+
+.shader-wait-segment {
+  flex: 1;
+  height: 4px;
+  border-radius: 2px;
+  background: var(--accent);
+  animation: shader-wait-pulse 1.2s ease-in-out infinite;
+}
+
+/* The stagger is what turns five pulsing segments into one travelling wave. */
+.shader-wait-segment:nth-child(2) { animation-delay: 0.15s; }
+.shader-wait-segment:nth-child(3) { animation-delay: 0.3s; }
+.shader-wait-segment:nth-child(4) { animation-delay: 0.45s; }
+.shader-wait-segment:nth-child(5) { animation-delay: 0.6s; }
+
+@keyframes shader-wait-pulse {
+  0%, 100% { opacity: 0.18; }
+  50% { opacity: 1; }
+}
+
+.shader-wait-note { margin: 10px 0 0; color: var(--muted); font-size: 12px; line-height: 1.45; }
+
+/* Chrome and Edge get no animation at all, because there it could not run: the D3D compile
+   occupies the GPU process, which is also Chromium's compositor, so whatever frame the wave was
+   in when the compile started is the frame that stays on screen until it finishes. Measured the
+   same way as the table above -- seven grabs across a real compile, pixel-identical in both,
+   stopped on the same uneven frame, which is exactly what a hung page looks like. An evenly dim
+   row cannot be mistaken for motion that has stalled. (lib/shader_wait.js sets the class.) */
+.shader-wait-still .shader-wait-segment { animation: none; opacity: 0.35; }
+
+/* A pulsing row is exactly the kind of motion this asks to be spared. The row still shows that
+   something is in progress, and the wording above it already says what and for how long. */
+@media (prefers-reduced-motion: reduce) {
+  .shader-wait-segment { animation: none; opacity: 0.5; }
+}
 
 /* The stone's stats, bottom right of the renderer (2026-09-19, the user's request): the facet
    count, T/W, C/W and P/W (lib/stone_stats.js). A small card over the canvas in the page's own

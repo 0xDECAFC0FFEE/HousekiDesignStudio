@@ -189,7 +189,15 @@
   // step with them at the SAME two widths (topbar.css). Written as Tailwind variants rather
   // than as media queries beside those rules because these utilities sit in a cascade layer
   // ABOVE the page's own stylesheets: no selector in topbar.css can outrank them.
-  const TRIGGER = 'rounded-sm border border-transparent font-normal ' +
+  // hover:bg-[var(--hover)] / aria-expanded:bg-[var(--hover)] override the Menubar CLI file's own
+  // `hover:bg-muted aria-expanded:bg-muted` (2026-09-22, found while checking "every button
+  // highlights on hover" with a screenshot): `--topbar` is `--raised` in dark mode
+  // (base.css), and shadcn's `muted` is ALSO mapped straight onto `--raised` (tailwind.css's
+  // `@theme inline`), so a trigger hovered or a menu left open painted its own background back
+  // over itself -- a highlight that was there in the DOM and invisible on screen. The menu
+  // ITEMS never had this problem (their hover is `accent`, the translucent teal `--hover`, not
+  // `muted`); this makes the trigger match them instead of shadcn's plain default.
+  const TRIGGER = 'rounded-sm border border-transparent font-normal hover:bg-[var(--hover)] aria-expanded:bg-[var(--hover)] ' +
     'px-2 py-1 text-[14px] sm:px-3 sm:py-1.5 sm:text-[16px] md:px-[15px] md:text-[18px]';
   const SHORTCUT = 'font-mono text-[11px] tracking-normal';
 </script>

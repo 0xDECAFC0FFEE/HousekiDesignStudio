@@ -30,6 +30,7 @@ import { getDesign } from './tier_controller.js';
 import { rebuildStoneFromDesign } from './selection.js';
 import { engine, ready, showError } from './stores.js';
 import { restorePersistedSettings, startSession, installLoadedDesign } from './session.js';
+import { shaderCompileIsSlow, showShaderCompileNotice } from './shader_wait.js';
 import {
   attachCanvasControls, requestRender, lastRenderCost, beginInteraction,
 } from './viewport.js';
@@ -77,13 +78,32 @@ export async function boot() {
     return;
   }
 
+  // The constructor below links the shader, and on Windows -- where WebGL goes through ANGLE
+  // and Direct3D's shader compiler -- that one call blocks the page thread for the better part
+  // of ten seconds. Put an indeterminate bar up first, and only where it is needed: on macOS
+  // and Android the same link is over in a fraction of a second and there would be nothing to
+  // look at. `shader_wait.js` explains both the measurement and why the bar has to be on
+  // screen, and awaited, before the call rather than after it.
+  const canvas = document.getElementById('canvas');
+  const notice = shaderCompileIsSlow(canvas)
+    ? showShaderCompileNotice(document.getElementById('viewport'))
+    : null;
+
+  if (notice) {
+    await notice.painted;
+  }
+
   let app;
 
+  // `finally`, so a constructor that throws takes the bar down too and leaves the error box
+  // showing on its own rather than behind it.
   try {
     app = new GemApp('canvas', startupModel.text);
   } catch (cause) {
     showError(String(cause));
     return;
+  } finally {
+    notice?.remove();
   }
 
   // Fills the sub bar's gear reading and ruler, the cutting-instructions pane's header and

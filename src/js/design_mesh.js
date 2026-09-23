@@ -177,7 +177,13 @@
         };
     }
     function dot(a, b) { return a.x * b.x + a.y * b.y + a.z * b.z; }
-    function length(a) { return Math.hypot(a.x, a.y, a.z); }
+    /* Math.hypot is overflow/underflow-safe at a cost of several times the
+     * work of a plain sqrt; this file's own coordinate-scale comments (see
+     * SQUARE_SCALE above) already establish that every point here is within
+     * a few thousand model units of the origin, nowhere near where that
+     * safety would matter, and this is on the hottest path in the file
+     * (called once per kept point in every polygon clip -- see T-0194). */
+    function length(a) { return Math.sqrt(a.x * a.x + a.y * a.y + a.z * a.z); }
     function normalize(a) {
         var len = length(a);
         return { x: a.x / len, y: a.y / len, z: a.z / len };
@@ -253,6 +259,26 @@
         return output;
     }
 
+    /** True when every point of `polygon` already satisfies the half-space
+     * `dot(normal, p) <= offset + eps`, i.e. clipping by it would leave the
+     * polygon unchanged. Checking this first is one allocation-free pass
+     * over the (small, already-shrunk) polygon, against `clipPolygonByPlane`
+     * + `dedupeConsecutive`'s two fresh arrays -- and it is true for MOST
+     * planes once a design has more than a handful of facets, since a
+     * facet's final face only ever borders a few neighbours, not every
+     * other plane in the design. That turns `polygonForPlane`'s O(planes)
+     * clips, each allocating, into O(planes) cheap scans plus only the few
+     * clips that actually shrink the polygon -- see T-0194. */
+    function allInsideHalfSpace(polygon, normal, offset, eps) {
+        for (var i = 0; i < polygon.length; i++) {
+            if (dot(normal, polygon[i]) - offset > eps) {
+                return false;
+            }
+        }
+
+        return true;
+    }
+
     /** Collapses consecutive points (including the wrap-around edge) closer
      * than `tol`, so a near-zero-length edge from one clip does not survive
      * into the next. */
@@ -275,6 +301,85 @@
         // The wrap-around edge, last point back to first, needs the same check.
         while (output.length > 1 &&
             length(sub(output[output.length - 1], output[0])) <= tol) {
+            output.pop();
+        }
+
+        return output;
+    }
+
+    /** Squared distance between two points -- `length(sub(a, b))` without
+     * `sub`'s intermediate object allocation or the sqrt, for callers that
+     * only ever compare it to another squared distance. */
+    function squaredDistance(a, b) {
+        var dx = a.x - b.x;
+        var dy = a.y - b.y;
+        var dz = a.z - b.z;
+
+        return dx * dx + dy * dy + dz * dz;
+    }
+
+    /**
+     * `clipPolygonByPlane` followed by `dedupeConsecutive`, fused into one
+     * pass so a clip that survives (most of them, in a densely-faceted
+     * design -- see `allInsideHalfSpace`'s comment) allocates one output
+     * array instead of two, walks the points once instead of twice, and
+     * dedupes by squared distance so neither path allocates a `sub()`
+     * intermediate or calls `sqrt` (`tol` is always >= 0, being one of the
+     * *_TOLERANCE_SCALE constants above, so `dist > tol` iff `distSq >
+     * tol*tol`). Deduplicates against the last KEPT point exactly as the
+     * two-step `dedupeConsecutive(clipPolygonByPlane(...))` pipeline does
+     * (including the wrap-around check), so this is not an approximation --
+     * same points, same order, far less allocation. The push-if-far-enough
+     * check is duplicated at its two call sites rather than factored into a
+     * closure, because this runs hundreds of thousands of times per rebuild
+     * on a design like Darts.gem or The_Arkenstone_of_Thrain.gem (T-0194),
+     * and a closure defined inside this function would itself be a fresh
+     * allocation on every call. `polygonForPlane`'s hot loop uses this;
+     * `clipPolygonByPlane` and `dedupeConsecutive` stay separate and
+     * exported since design_mesh_test.js exercises each primitive in
+     * isolation.
+     */
+    function clipAndDedupe(polygon, normal, offset, eps, tol) {
+        if (polygon.length === 0) {
+            return polygon;
+        }
+
+        var output = [];
+        var n = polygon.length;
+        var tolSq = tol * tol;
+
+        for (var i = 0; i < n; i++) {
+            var current = polygon[i];
+            var next = polygon[(i + 1) % n];
+            var da = dot(normal, current) - offset;
+            var db = dot(normal, next) - offset;
+            var currentIn = da <= eps;
+            var nextIn = db <= eps;
+
+            if (currentIn) {
+                var lastKept = output.length > 0 ? output[output.length - 1] : null;
+
+                if (!lastKept || squaredDistance(current, lastKept) > tolSq) {
+                    output.push(current);
+                }
+            }
+
+            if (currentIn !== nextIn) {
+                var t = da / (da - db);
+                var meet = {
+                    x: current.x + (next.x - current.x) * t,
+                    y: current.y + (next.y - current.y) * t,
+                    z: current.z + (next.z - current.z) * t
+                };
+                var lastKept2 = output.length > 0 ? output[output.length - 1] : null;
+
+                if (!lastKept2 || squaredDistance(meet, lastKept2) > tolSq) {
+                    output.push(meet);
+                }
+            }
+        }
+
+        while (output.length > 1 && squaredDistance(output[output.length - 1], output[0]) <= tolSq) {
             output.pop();
         }
 
@@ -321,8 +426,11 @@
                 continue;
             }
 
-            polygon = clipPolygonByPlane(polygon, planes[j].normal, planes[j].offset, planeEps);
-            polygon = dedupeConsecutive(polygon, dedupeTol);
+            if (allInsideHalfSpace(polygon, planes[j].normal, planes[j].offset, planeEps)) {
+                continue;
+            }
+
+            polygon = clipAndDedupe(polygon, planes[j].normal, planes[j].offset, planeEps, dedupeTol);
         }
 
         return polygon;
@@ -658,6 +766,8 @@
         meshPlanes: meshPlanes,
         dropCoincidentPlanes: dropCoincidentPlanes,
         clipPolygonByPlane: clipPolygonByPlane,
+        allInsideHalfSpace: allInsideHalfSpace,
+        clipAndDedupe: clipAndDedupe,
         dedupeConsecutive: dedupeConsecutive,
         polygonForPlane: polygonForPlane,
         orthonormalTangents: orthonormalTangents,

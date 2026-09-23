@@ -57,8 +57,12 @@
     }
   });
 
-  // A select's closed face, which carries the setting's look for the two Bits UI selects.
-  const SELECT_TRIGGER = 'h-7 w-full rounded-md px-2 py-0 text-xs';
+  // A select's closed face, which carries the setting's look for the two Bits UI selects. The
+  // CLI's own hover is only `dark:hover:bg-input/50`, easy to miss on a dark page; this adds the
+  // accent-border convention the gear button, the tier toolbar and the edit panel's buttons all
+  // use, so a dropdown reads the same way as every other control on hover (2026-09-22, "every
+  // button highlights on hover").
+  const SELECT_TRIGGER = 'h-7 w-full rounded-md px-2 py-0 text-xs hover:border-[var(--accent)] dark:hover:border-[var(--accent)]';
 </script>
 
 <div id="panel">
@@ -246,7 +250,9 @@
          environment texture, which is far too expensive to run on every step of a drag. The
          studio rig is not offered, so while it is the model in use the dropdown shows no
          selection. A NativeSelect (a real <select>), for the reason at the top of this file. -->
-    <NativeSelect.Root id="lightingModel" class="w-full" selectClass="h-7 py-0 text-xs" value={String($lightingModel)}
+    <NativeSelect.Root id="lightingModel" class="w-full"
+      selectClass="h-7 py-0 text-xs hover:border-[var(--accent)] dark:hover:border-[var(--accent)]"
+      value={String($lightingModel)}
       data-tip="What lights the stone. Skybox image: a photographed room. Angle rings: colors light by how steeply it arrives (red from overhead, then cyan, yellow and magenta towards the horizon), to show which angles a cut uses. Isometric: even white light from everywhere above. Cosine: brightest overhead, fading towards the horizon."
       {@attach listeners({ change: event => selectLightingModel(event.currentTarget) })}>
       {#each lightingNames as name, index}

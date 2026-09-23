@@ -18,8 +18,10 @@
     highlightedIndices, labelledIndices, visibleTicks,
   } from '../lib/index_ruler.js';
 
-  // How far apart two teeth are on screen.
-  const TOOTH_PX = 10;
+  // How far apart two teeth are on screen. Twice its old spacing (2026-09-22, the user: "ticks
+  // twice as far apart" on the top ruler) -- the wheel handler and `visibleTicks` both divide by
+  // this same constant, so widening it alone thins out the ticks without moving anything else.
+  const TOOTH_PX = 20;
   // While the Fine toggle is on or Shift is held a drag moves the tape a fifth as far as the pointer, for fine placing.
   const FINE_RATIO = 0.2;
   const fineRatio = event => ($rulerFine || event.shiftKey ? FINE_RATIO : 1);
@@ -137,6 +139,18 @@
       return;
     }
 
+    // THE BACKSTOP (2026-09-22, the stuck-drag bug: "if I'm dragging on a slider then move
+    // my mouse off the slider, next time my mouse moves to the slider it'll continue
+    // dragging even though I let go already"). If the primary button is not down, a release
+    // already happened that this ruler never got a `pointerup` or `pointercancel` for --
+    // see `endDrag`'s comment below for what that release most likely was. Ending the drag
+    // here, on the very next move, is what makes a stuck drag impossible even when the real
+    // release is one we could never have seen.
+    if ((event.buttons & 1) === 0) {
+      endDrag(event);
+      return;
+    }
+
     // Dragging the tape left brings higher teeth under the centre, like pulling a tape measure.
     const ratio = fineRatio(event);
 
@@ -149,9 +163,21 @@
     noteTooth();
   }
 
-  function onpointerup(event) {
+  // Ends a drag exactly as a real release should: capture is let go explicitly, the drag
+  // highlight (`$rulerDragging`) turns off, and the tape snaps to the nearest tooth -- the
+  // same three callers as ValueRuler's own `endDrag` (see its longer comment for what these
+  // are and why `setPointerCapture` cannot be trusted to make a real `pointerup` arrive):
+  // a real `pointerup` or `pointercancel`, `lostpointercapture` (belt and braces), and
+  // `onpointermove`'s own button check above, which is the actual fix for the reported bug.
+  function endDrag(event) {
     if (!dragging || event.pointerId !== dragging.pointerId) {
       return;
+    }
+
+    // Mirrors viewport.js's canvas drag: release what we asked for, if we still hold it,
+    // rather than leaving it to the browser to notice on its own.
+    if (event.currentTarget.hasPointerCapture?.(event.pointerId)) {
+      event.currentTarget.releasePointerCapture(event.pointerId);
     }
 
     dragging = null;
@@ -190,9 +216,10 @@
   }
 </script>
 
-<div id="index-ruler" role="slider" tabindex="0" aria-label="Index" aria-valuemin="0"
-  aria-valuemax={teeth - 1} aria-valuenow={current} bind:clientWidth={width}
-  {onpointerdown} {onpointermove} {onpointerup} onpointercancel={onpointerup} {onwheel} {onkeydown}>
+<div id="index-ruler" class:dragging={$rulerDragging} role="slider" tabindex="0" aria-label="Index"
+  aria-valuemin="0" aria-valuemax={teeth - 1} aria-valuenow={current} bind:clientWidth={width}
+  {onpointerdown} {onpointermove} onpointerup={endDrag} onpointercancel={endDrag}
+  onlostpointercapture={endDrag} {onwheel} {onkeydown}>
   <svg width={width} height="57" aria-hidden="true">
     {#each ticks as tick (tick.offset + position)}
       {@const x = Math.round(width / 2 + tick.offset * TOOTH_PX) + 0.5}
@@ -227,7 +254,23 @@
 
   #index-ruler:active { cursor: grabbing; }
 
+  /* A hover highlight, and a stronger one while it is actually being dragged (2026-09-22, the
+     user: "sliders highlight on hover, and highlight more while being clicked/dragged" --
+     extended to this hand-drawn ruler along with the value rulers below, since the user counts
+     it as a slider too). Driven off `$rulerDragging`, not `:active`: this ruler moves the
+     pointer with `setPointerCapture`, but Bits UI's own drags do not, and a drag that leaves the
+     element while the button is held can drop `:active` in some browsers -- `$rulerDragging` is
+     the store the wheel handler and a keyboard step already treat as "a change is in flight", so
+     it stays true for exactly as long as the drag or the wheel's settle timer does. Same
+     `inset` box-shadow language as the existing `:focus-visible` rule below, just thicker while
+     dragging, so hover/focus/drag read as one family of highlight rather than three different
+     looks. `.dragging` (two classes) naturally outranks the one-class `:hover`/`:focus-visible`
+     rules by specificity, so it wins whichever pseudo-class is also true underneath a drag. */
+  #index-ruler:hover { box-shadow: inset 0 0 0 1px var(--accent); }
+
   #index-ruler:focus-visible { box-shadow: inset 0 0 0 1px var(--accent); }
+
+  #index-ruler.dragging { box-shadow: inset 0 0 0 2px var(--accent); background: var(--hover); }
 
   svg { display: block; }
 

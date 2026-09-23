@@ -21,7 +21,12 @@
   import { budgetedTask } from '../lib/work_budget.js';
   import ValueRuler from './ValueRuler.svelte';
 
-  const ACTION = 'h-8 flex-1 border-[var(--panel-edge)] bg-[var(--raised)] px-3 text-[13px] text-[var(--text)] shadow-none hover:bg-[var(--raised)] hover:text-[var(--text)] dark:border-[var(--panel-edge)] dark:bg-[var(--raised)] dark:hover:bg-[var(--raised)]';
+  // Both actions share one look: bordered like the panel's own buttons. Their hover classes used
+  // to repeat the resting background and border verbatim, which read as no hover at all
+  // (2026-09-22, the user: "every button highlights on hover" -- this one silently didn't). Now
+  // an accent border plus the page's translucent-teal --hover tint, the same convention the gear
+  // button and the tier toolbar already use.
+  const ACTION = 'h-8 flex-1 border-[var(--panel-edge)] bg-[var(--raised)] px-3 text-[13px] text-[var(--text)] shadow-none hover:border-[var(--accent)] hover:bg-[var(--hover)] hover:text-[var(--text)] dark:border-[var(--panel-edge)] dark:bg-[var(--raised)] dark:hover:border-[var(--accent)] dark:hover:bg-[var(--hover)]';
 
   const tier = $derived($editing?.tier ?? null);
 
@@ -111,14 +116,46 @@
   {#if tier}
     <div class="edit-panel-rulers">
       <!-- The crown's scale runs 0 at the top to 90 at the bottom, the pavilion's the other way. The angle the cutting instructions show: always positive, the tier's own side of the
-           girdle kept (facet_edit.js). -->
+           girdle kept (facet_edit.js). `pxPerUnit` is literally how many screen pixels one
+           degree spans, so it has moved twice in one day and is now NET LOOSER than where it
+           started, not tighter (2026-09-22): 6 originally, then 30 when the user asked for "the
+           facet angle and depth rulers, ticks 5x further apart", then 10 (30 / 3) when the same
+           day they asked to "make the edit panel angle ticks 3x closer" -- a net 1.67x looser
+           than the original 6, despite the most recent change being a request to bring it IN.
+           ValueRuler derives its visible span from HEIGHT / pxPerUnit (see visibleValueTicks in
+           facet_edit.js), so a bigger pxPerUnit spreads the same ticks further apart AND draws
+           fewer of them, and a smaller one packs more, closer together -- nothing else changed by
+           either request. The depth ruler below was NOT asked to move the second time and is
+           still at its own 5x point. -->
       <ValueRuler label="Angle" value={angle} min={0} max={90} step={ANGLE_STEP} tick={ANGLE_TICK}
-        majorEvery={10} pxPerUnit={6} decimals={$angleDecimals} unit="&deg;" flip={!isPavilionSide(tier)}
+        majorEvery={10} pxPerUnit={10} decimals={$angleDecimals} unit="&deg;" flip={!isPavilionSide(tier)}
         onchange={(value, done) => change('angle', angleFor(tier, value), done, 'Edit angle')} />
-      <!-- The facet's distance from the centre of the stone: smaller cuts deeper. -->
+      <!-- The facet's distance from the centre of the stone: smaller cuts deeper. `pxPerUnit` is
+           5x its original 520, for the same reason the angle ruler's comment above used to give
+           (the angle ruler has since moved a second time; depth has not). It shows NO NUMBER AT
+           ALL now, not even a readout (2026-09-22, the user: "take away the numbers on the depth
+           gage? it's not useful to know what the arbitrary number is in particular", then, once
+           told that also removing the readout above the tape would cost the only way to type an
+           exact depth, "get rid of the readout above the depth one too" -- so that tradeoff is
+           settled, not a compromise still open). `tickLabels` and `readout` are both false: see
+           ValueRuler's own comment on the two props for why they are kept separate rather than
+           folded into one, and its template comment on the `readout` spacer for how the tape
+           below still lines up with the angle ruler's despite losing that whole row. Screen
+           readers still get the depth from the tape's own `aria-valuenow`/`aria-valuetext`,
+           which are unconditional.
+
+           `pxPerUnit` HERE IS ALSO THE DRAG RATE the user explicitly said they like ("I like the
+           rate the depth changes given how fast I'm moving my mouse" -- 2026-09-22, the same
+           day as the request below to match this tape's tick density to the angle tape's), since
+           ValueRuler's onpointermove/onwheel divide by this same prop. `DEPTH_TICK`
+           (facet_edit.js) was chosen, at this exact 2600, to make the tick spacing match the
+           angle ruler's ("so it looks pretty") WITHOUT touching this number -- see that
+           constant's own comment for the arithmetic and its coupling to `tickLabels` above. If
+           this 2600 ever changes for the drag rate's sake, `DEPTH_TICK` must be re-derived to
+           keep the two tapes' ticks matched; it will not track this value on its own. -->
       <ValueRuler label="Depth" value={depth} min={depths.min} max={depths.max} step={DEPTH_STEP}
-        tick={DEPTH_TICK} majorEvery={10} pxPerUnit={520} decimals={3}
-        onchange={(value, done) => change('distance', value, done, 'Edit depth')} />
+        tick={DEPTH_TICK} majorEvery={10} pxPerUnit={2600} decimals={3} tickLabels={false}
+        readout={false} onchange={(value, done) => change('distance', value, done, 'Edit depth')} />
     </div>
 
     <p class="edit-panel-teeth">{tier.facets.length} facet{tier.facets.length === 1 ? '' : 's'}
@@ -155,9 +192,15 @@
     line-height: 1.4;
   }
 
+  /* The two rulers used to huddle in the middle of the column (`justify-content: center` over a
+     fixed 18px gap), with each ValueRuler's own tape a fixed 60px SVG regardless of how much
+     wider the column was (2026-09-22, the user: "the edit-mode side bar should be stretched to
+     fill the bar"). #edit-panel is now the same width as #panel (panel.css), so a plain flex
+     row with each ValueRuler at `flex: 1 1 0` (see .value-ruler in ValueRuler.svelte) already
+     splits that width between the two -- no `justify-content` needed once the children fill the
+     row themselves. */
   .edit-panel-rulers {
     display: flex;
-    justify-content: center;
     gap: 18px;
     margin-bottom: 12px;
   }

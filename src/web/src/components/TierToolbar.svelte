@@ -19,7 +19,19 @@
   import { Toggle } from '$lib/components/ui/toggle/index.js';
 
   // The look every button in the bar shares: small, one line, filling its share of the row.
-  const TOOL = 'tier-tool h-6 flex-1 basis-auto px-1.5 text-[11px] aria-disabled:cursor-default aria-disabled:opacity-45';
+  // `aria-disabled:hover:bg-transparent!` (2026-09-22) stops an inactive button's hover from
+  // showing at all: the Button and Toggle components' own hover (`dark:hover:bg-input/50`, since
+  // this page is always in the `dark:` variant) knows nothing about `aria-disabled` (only a real
+  // `disabled` attribute silences a hover, which these buttons deliberately do not use, so their
+  // tooltips keep showing -- see the file header), and a control that visibly highlights on
+  // hover but does nothing when clicked is exactly the kind of thing "disabled things must stay
+  // looking disabled" rules out. The trailing `!` (Tailwind v4's `important` modifier) is load-
+  // bearing, not decoration: `aria-disabled:hover:bg-transparent` alone LOSES the cascade to
+  // `dark:hover:bg-input/50` even though it looks more specific on paper (an extra attribute
+  // selector) -- checked with `CSS.getMatchedStylesForNode` over CDP, hovering an inert "New"
+  // still read back the CLI's 30%-panel-edge tint, not transparent, and `!important` was the fix
+  // that was actually confirmed to work, not merely reasoned about.
+  const TOOL = 'tier-tool h-6 flex-1 basis-auto px-1.5 text-[11px] aria-disabled:cursor-default aria-disabled:opacity-45 aria-disabled:hover:bg-transparent!';
 
   // The Toggles' off state, matching the Buttons' outline variant (the Toggle's own outline is
   // transparent, which in dark mode left Preform and Frosted darker than New/Delete/Hide).
