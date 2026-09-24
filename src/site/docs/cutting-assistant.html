@@ -1,0 +1,170 @@
+<h1>Cutting assistant</h1>
+
+<p>The cutting assistant walks you through a design tier by tier, the way you'd cut it at the
+machine: starting from a rough on the dop and adding one facet at a time, in the same order the
+cutting instructions list them. It never changes your design — it only shows what the stone looks
+like at each step, so you can check the sequence, the angles and the index settings before you
+touch the lap.</p>
+
+<figure><img src="images/cutting-assistant/assistant-open.webp" alt="The cutting assistant open on the first pavilion facet, showing a rough cube on a bronze dop and the cutting assistant bar on the right." loading="lazy">
+<figcaption>The cutting assistant open at the very first cut: an uncut rough on the dop, and the assistant's own bar in place of the render settings.</figcaption></figure>
+
+<h2>Opening it</h2>
+
+<p>Choose <span class="ui">Tools</span> &gt; <span class="ui">Cutting assistant</span> from the menu
+bar.</p>
+
+<figure><img src="images/cutting-assistant/menu-tools.webp" alt="The Tools menu open, showing the Cutting assistant item." loading="lazy">
+<figcaption>Tools &gt; Cutting assistant.</figcaption></figure>
+
+<p>The menu item is greyed out (with a tooltip explaining why) while another mode — editing a
+tier, scaling height, or resizing the girdle — is already open. Finish or leave that mode first
+(its own <span class="ui">Done</span>, <span class="ui">Cancel</span>, or <kbd>Escape</kbd>), then
+open the cutting assistant.</p>
+
+<div class="note"><p>The cutting assistant is a window onto your design, not an edit: nothing you
+do inside it is saved, and there is no <span class="ui">Cancel</span> button because there is
+nothing to undo.</p></div>
+
+<h2>What the screen shows</h2>
+
+<p>Once it opens, the top bar's mode readout, at the right-hand end, reads <span
+class="ui">Mode: Cutting assistant</span> — a reminder, from anywhere on the page, that you're in
+the walkthrough rather than looking at your finished design.</p>
+
+<figure><img src="images/cutting-assistant/topbar-mode.webp" alt="The top bar's mode readout reading &quot;Mode: Cutting assistant&quot;." loading="lazy">
+<figcaption>The mode readout at the right of the top bar.</figcaption></figure>
+
+<p>The render itself is replaced by a rough — a plain block, larger than the finished stone —
+sitting on a bronze rod, the dop. As you step through the cuts, facets appear on the rough one at a
+time, in the same order your cutting instructions list them, so the stone on screen always matches
+what you've cut so far and nothing more. The stone's own selection and corner statistics are
+switched off while this is open, since the shape on screen isn't the design's own stone; a click on
+it selects nothing.</p>
+
+<p>On the left, the cutting instructions stay exactly as usual, except that:</p>
+<ul>
+  <li>tiers not reached yet are faded out;</li>
+  <li>the tier currently being cut is highlighted, the same way a selected tier is;</li>
+  <li>clicking a tier's row jumps the walkthrough straight to that tier's first facet (its
+  description editor does not open — the row's job here is navigation, not editing).</li>
+</ul>
+
+<p>On the right, in place of the render settings, is the cutting assistant's own bar:</p>
+
+<figure class="side"><img src="images/cutting-assistant/panel-start.webp" alt="The cutting assistant bar at the first cut, showing the four step buttons, the slider, the Angle and Index readouts and the tier's teeth." loading="lazy">
+<figcaption>The cutting assistant bar: the four step buttons, the slider, the current cut's angle
+and index in large text, and the tier's teeth.</figcaption></figure>
+
+<ul>
+  <li>Four step buttons, left to right: <span class="ui">Previous tier</span>, <span
+  class="ui">Previous cut</span>, <span class="ui">Next cut</span>, <span class="ui">Next
+  tier</span> (their icons are two chevrons left, one chevron left, one chevron right, and two
+  chevrons right). Hover any of them for a tooltip explaining what it does.</li>
+  <li>A slider under the buttons, with a tick for the start of every tier and a taller mark where
+  the dop moves from the table to the culet.</li>
+  <li>Beneath the slider, how many cuts are made out of the total, and whether you're in the
+  <span class="ui">Pavilion</span> or the <span class="ui">Crown — transferred</span> half of the
+  design.</li>
+  <li>In very large text, the <span class="ui">Angle</span> and <span class="ui">Index</span> of
+  the next facet to cut — the two numbers you'd set on the machine.</li>
+  <li>Below that, which tier you're in and how far through it ("Tier P2, cut 3 of 8", for
+  example), then the tier's teeth: each one shown crossed out once it's cut, highlighted while
+  it's the one being cut, and plain before its turn.</li>
+</ul>
+
+<p>When every facet is cut, the big text reads <span class="ui">Finished</span> instead of an angle
+and index, and the stone on screen is the whole design, still shown on the dop at the culet.</p>
+
+<figure><img src="images/cutting-assistant/finished.webp" alt="The cutting assistant after the last facet is cut, showing the finished stone on the dop and the panel reading Finished." loading="lazy">
+<figcaption>All cuts made: the finished stone, still on the dop at the culet.</figcaption></figure>
+
+<h2>Stepping through the cuts</h2>
+
+<p>Every way of moving through the sequence keeps the bar, the tier list and the stone in step with
+each other.</p>
+
+<table>
+  <tr><th>Control</th><th>What it does</th></tr>
+  <tr><td><span class="ui">Previous tier</span></td><td>Back to the first facet of the tier you're
+  in, once some of it is cut; press it again to go back a whole tier further, the way a media
+  player's "previous" button restarts the track before it skips back.</td></tr>
+  <tr><td><span class="ui">Previous cut</span></td><td>Undoes the last facet cut into the rough,
+  one at a time.</td></tr>
+  <tr><td><span class="ui">Next cut</span></td><td>Cuts the facet the bar is currently showing.
+  After a tier's last facet, it moves straight on to the next tier's first.</td></tr>
+  <tr><td><span class="ui">Next tier</span></td><td>Cuts the rest of the current tier at once, so
+  the next tier's first facet becomes current.</td></tr>
+</table>
+
+<p>The first two buttons fade out at the very start of the sequence, and the last two fade out once
+the stone is finished — clicking a faded button does nothing, but its tooltip still explains
+itself.</p>
+
+<p>You can also:</p>
+<ul>
+  <li><strong>Drag the slider</strong> to scrub through the whole sequence in one motion. The
+  rough is redrawn at low quality while you drag, and sharpens once you stop, so a long design
+  doesn't stall the page while you're scrubbing.</li>
+  <li><strong>Click a tier's row</strong> in the cutting instructions on the left to jump straight
+  to that tier's first facet.</li>
+</ul>
+
+<figure><img src="images/cutting-assistant/row-click-scrub.webp" alt="After clicking the P2 tier's row in the cutting instructions: the view has jumped to P2's first facet, and the row is highlighted the way a selected tier is." loading="lazy">
+<figcaption>Clicking tier P2's row jumped straight to its first facet — the girdle (G1) is already
+cut, and P2's row is now highlighted.</figcaption></figure>
+
+<figure class="side"><img src="images/cutting-assistant/panel-crown-phase.webp" alt="The cutting assistant partway through the crown, with the slider near its transfer mark and the panel showing Crown — transferred." loading="lazy">
+<figcaption>Scrubbing the slider into the crown: the dop has moved to the culet, and the panel
+reads "Crown — transferred".</figcaption></figure>
+
+<h3>Keyboard shortcuts</h3>
+
+<table>
+  <tr><th>Key</th><th>Does the same as</th></tr>
+  <tr><td><kbd>&rarr;</kbd></td><td><span class="ui">Next cut</span></td></tr>
+  <tr><td><kbd>&larr;</kbd></td><td><span class="ui">Previous cut</span></td></tr>
+  <tr><td><kbd>Shift</kbd>+<kbd>&rarr;</kbd></td><td><span class="ui">Next tier</span></td></tr>
+  <tr><td><kbd>Shift</kbd>+<kbd>&larr;</kbd></td><td><span class="ui">Previous tier</span></td></tr>
+  <tr><td><kbd>Escape</kbd></td><td><span class="ui">Done</span> (see below)</td></tr>
+</table>
+
+<p>The arrow keys only step the cuts when the slider itself doesn't have the keyboard's focus —
+if you've just clicked the slider, its own left/right arrow keys move it by one cut instead, which
+comes to the same thing.</p>
+
+<h2>The renderer while it's open</h2>
+
+<p>The dop only shows up in the <span class="ui">Deterministic</span> and <span
+class="ui">Flat</span> renderers, not in <span class="ui">Monte Carlo</span>. So if the picker at
+the top of the <span class="ui">Tracing</span> section is set to <span class="ui">Monte
+Carlo</span> when you open the cutting assistant, it switches you to <span
+class="ui">Deterministic</span> for as long as the assistant is open; if you're already on <span
+class="ui">Deterministic</span> or <span class="ui">Flat</span>, it leaves your renderer alone.
+Either way, closing the assistant puts your own renderer choice back. This temporary switch is
+never saved as your default, so reloading the page in the middle of a walkthrough starts you back
+in <span class="ui">Monte Carlo</span> if that's your usual setting. See <a
+href="deterministic-renderer.html">Deterministic renderer</a> and <a
+href="monte-carlo-renderer.html">Monte Carlo renderer</a>.</p>
+
+<h2>Leaving</h2>
+
+<p>Click <span class="ui">Done</span> at the bottom of the bar, or press <kbd>Escape</kbd> — both
+do the same thing. Your design comes back exactly as it was; nothing the cutting assistant did is
+ever kept.</p>
+
+<figure><img src="images/cutting-assistant/after-done.webp" alt="After clicking Done, the studio back in Mode: Overview with the finished stone and the usual render settings." loading="lazy">
+<figcaption>After Done: the mode readout reads "Mode: Overview" again and the render settings have
+returned.</figcaption></figure>
+
+<div class="note"><p>Undo and Redo are switched off while the cutting assistant is open, since
+there's nothing to step back through — none of the stepping above changes your design.</p></div>
+
+<h2>See also</h2>
+
+<ul>
+  <li><a href="editing-tiers.html">Editing facets by tier</a>, for changing a tier's angle, index
+  or depth — the cutting assistant only shows the sequence you've already set up there.</li>
+  <li><a href="save-export.html#the-pdf-cutting-sheet">Saving and exporting</a>, for printing the same cutting
+  instructions as a cutting sheet you can take to the machine instead of the screen.</li>
+</ul>

@@ -37,3 +37,19 @@ export function eventTargetTakesText(event) {
   return target instanceof HTMLInputElement &&
     !['range', 'checkbox', 'radio', 'button', 'color', 'file'].includes(target.type);
 }
+
+/**
+ * True while the event's target is a control that already treats Enter as "activate me" -- a
+ * button, a link, a menu item -- so a global Enter shortcut (T-0257's tier-edit one, App.svelte)
+ * must leave it alone. This is NOT the same question `event.defaultPrevented` answers: a plain
+ * `<button>`'s own Enter-activates-it behaviour is the BROWSER's native default action, which is
+ * only decided (and so only reflected in `defaultPrevented`) once the whole dispatch -- capture,
+ * target, bubble, every listener including a document-level one -- has finished, so a bubble-
+ * phase listener can never see it coming by checking that flag first. The tier toolbar's own
+ * Delete, Preform, Comments and so on are exactly such buttons: focus one of them and Enter must
+ * keep meaning "activate this button", not "edit the selected tier", the same as anywhere else on
+ * the page a real `<button>` or link has the keyboard's attention.
+ */
+export function eventTargetActivatesOnEnter(event) {
+  return !!event.target.closest?.('button, a[href], summary, [role="menuitem"], [type="submit"]');
+}

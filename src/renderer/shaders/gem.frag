@@ -1,6 +1,12 @@
 #version 300 es
 
-// Gemstone path tracer.
+// Gemstone ray tracer: the deterministic renderer.
+//
+// A Whitted-style, specular-only ray tracer, not a path tracer. It makes no random choices:
+// at every surface it keeps both Fresnel branches (the transmitted part is weighted and
+// gathered straight away, the reflected part carries on) instead of sampling one, so the
+// image is finished in a single draw with no noise. The Monte Carlo path tracer is the
+// LuxCore port in lux/.
 //
 // One ray per pixel per frame enters the stone, then bounces inside it until it refracts out
 // or runs out of energy. Everything that makes a gem look like a gem comes from that

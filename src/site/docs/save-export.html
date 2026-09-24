@@ -1,0 +1,212 @@
+<h1>Saving and exporting</h1>
+
+<p>The studio reads and writes several gem-design file formats, plus two output-only formats:
+a triangle mesh (<code>.stl</code>) and a printable cutting sheet (<code>.pdf</code>). You can also
+share a design as a link, with no file at all. This page covers opening a design, what each format
+does and doesn't keep, the cutting sheet, and <a href="#share-your-designs">sharing your designs</a>.</p>
+
+<h2>Opening a design</h2>
+
+<p>Choose <span class="ui">File</span> &gt; <span class="ui">Open</span>
+(<kbd>Cmd</kbd>+<kbd>O</kbd> on a Mac, <kbd>Ctrl</kbd>+<kbd>O</kbd> elsewhere) and pick a file, or
+drag a file straight onto the render pane and drop it there &ndash; both go through the same
+loader, so they behave identically. While a file is dragged over the pane it shows a dashed
+outline and a hint saying which formats it accepts.</p>
+
+<figure><img src="images/save-export/file-menu.webp" alt="The File menu open, showing New, Open, Save, Export, Rename and Settings" loading="lazy">
+<figcaption>The File menu. Open is the only one of the top three that does anything today &ndash;
+New and Save are not built yet, which is why they're greyed out; Export (below) is currently how
+you keep a copy of your work outside the browser.</figcaption></figure>
+
+<figure><img src="images/save-export/drop-hint.webp" alt="The render pane showing a dashed blue outline and the text 'drop an .obj, .asc, .gem or .gcs file to load it' while a file is dragged over it" loading="lazy">
+<figcaption>Dragging a file over the render pane. Dropping it loads it, the same as choosing it
+from File &gt; Open.</figcaption></figure>
+
+<p>Opening a file replaces the stone on screen. The four formats you can open are:</p>
+
+<table>
+<tr><th>Format</th><th>Brings with it</th></tr>
+<tr><td><code>.obj</code> (Wavefront)</td><td>Only the stone's shape. No cutting instructions,
+title, author or date &ndash; the instructions pane stays empty, the way it does before any
+design is loaded.</td></tr>
+<tr><td><code>.asc</code> / <code>.gem</code> (GemCad)</td><td>The full cutting instructions
+(every tier's angle, depth and index teeth, each with its typed note), the index gear and
+symmetry, and a title. No author or date &ndash; those fields are cleared, since the format has
+nowhere to keep them.</td></tr>
+<tr><td><code>.gcs</code> (Gem Cut Studio)</td><td>Everything a GemCad file brings, plus the
+title, author and date, and which tiers are marked Hidden or Frosted.</td></tr>
+</table>
+
+<div class="note"><p>Opening a design with no cutting instructions of its own &ndash; a plain
+<code>.obj</code>, or a GemCad/Gem Cut Studio file whose instructions couldn't be read &ndash;
+still shows the stone; the instructions pane is simply empty, the same as it is before you open
+anything.</p></div>
+
+<h2>If a file can't be read</h2>
+
+<p>A file that can't be opened at all &ndash; or one that opens but whose cutting instructions
+can't be understood &ndash; shows a red dialog over the whole page, naming the file and the
+error. The previous stone stays loaded behind it: opening a bad file never clears what you had
+on screen. Dismiss it with its <span class="ui">Close</span> button or <kbd>Esc</kbd>.</p>
+
+<figure><img src="images/save-export/load-error.webp" alt="A red dialog reading 'Could not load broken.asc' with the parse error printed below it, over the previously loaded stone" loading="lazy">
+<figcaption>Trying to open a file the studio can't make sense of. The stone from before the
+attempt is still there, dimmed behind the dialog.</figcaption></figure>
+
+<p>The same dialog appears if the file opens as a stone but its cutting instructions specifically
+can't be derived from it &ndash; the title then says the instructions couldn't be read rather
+than that the file couldn't be opened, since the stone itself did load.</p>
+
+<h2>The cut name, author and date</h2>
+
+<p>Above the cutting instructions, the design's name, author and date are each a text field you
+click to edit &ndash; type, then click elsewhere or press <kbd>Enter</kbd> to save. Opening a
+file sets the name to its own title if it has one, or to the file's name otherwise. File &gt;
+<span class="ui">Rename</span> (<kbd>F2</kbd>) opens the same name field, wherever it is.</p>
+
+<figure><img src="images/save-export/cut-header.webp" alt="The cut header: the design's name, and below it the author and the date" loading="lazy">
+<figcaption>The name, author and date above the cutting instructions, as the studio's own
+starting design shows them.</figcaption></figure>
+
+<figure><img src="images/save-export/cut-header-editing.webp" alt="The author field open for editing, showing a text box in place of the plain text" loading="lazy">
+<figcaption>Clicking any of the three fields turns it into a text box. An empty field shows a
+light placeholder word ("title", "author") until you type something.</figcaption></figure>
+
+<p>The date field shows a month and year, such as "September 2026", not a full date. Clearing it
+snaps it back to today automatically.</p>
+
+<div class="note"><p>A GemCad <code>.asc</code> or <code>.gem</code> file has no author or date
+fields of its own. If you've set them before exporting to one of those formats, the studio adds
+a line noting them among the design's own header comments (the <span class="ui">Comments</span>
+button at the bottom of the cutting instructions) so the information isn't thrown away &ndash;
+but re-opening the file always clears the Author field and resets Date to today, since the
+format itself has nowhere to read them back from.</p></div>
+
+<h2 id="exporting-a-design">Exporting a design</h2>
+
+<p>Choose <span class="ui">File</span> &gt; <span class="ui">Export</span> and pick a format.
+Each one downloads a file named after the design's current name. In a browser that offers its
+own Save dialog, that opens instead, letting you choose the folder and file name and confirm or
+change the file type; otherwise the file lands straight in your downloads folder.</p>
+
+<figure><img src="images/save-export/export-submenu.webp" alt="The Export submenu open, listing GemCad (.gem), GemCad (.asc), Gem Cut Studio (.gcs), Wavefront (.obj), STL (.stl) and PDF cutting sheet (.pdf)" loading="lazy">
+<figcaption>File &gt; Export's six formats.</figcaption></figure>
+
+<table>
+<tr><th>Format</th><th>Open</th><th>Export</th><th>Keeps</th></tr>
+<tr><td>GemCad (<code>.gem</code>)</td><td>Yes</td><td>Yes</td>
+<td>Angles, depths, index teeth, symmetry, gear, title. Not: a tier's typed note, author, date,
+or its Hidden/Frosted/Preform marks.</td></tr>
+<tr><td>GemCad (<code>.asc</code>)</td><td>Yes</td><td>Yes</td>
+<td>Everything the binary GemCad format keeps, plus each tier's typed note. Not: author, date,
+or Hidden/Frosted/Preform marks.</td></tr>
+<tr><td>Gem Cut Studio (<code>.gcs</code>)</td><td>Yes</td><td>Yes</td>
+<td>Everything above, plus author, date, and which tiers are Hidden or Frosted. Not: the
+Preform mark.</td></tr>
+<tr><td>Wavefront (<code>.obj</code>)</td><td>Yes</td><td>Yes</td>
+<td>The stone's shape only &ndash; no tiers, notes, title, author or date.</td></tr>
+<tr><td>STL (<code>.stl</code>)</td><td>No (export only)</td><td>Yes</td>
+<td>The stone's shape only, as loose triangles.</td></tr>
+<tr><td>PDF cutting sheet (<code>.pdf</code>)</td><td>No (export only)</td><td>Yes</td>
+<td>A printed sheet, not a design file &ndash; it can't be opened back into the studio.</td></tr>
+</table>
+
+<div class="note"><p>Every export needs a loaded design behind the stone &ndash; a plain
+<code>.obj</code> you opened directly has none, and nothing to write. GemCad (.gem) and
+Wavefront (.obj) say so in a dialog; the others simply do nothing.</p></div>
+
+<h2 id="the-pdf-cutting-sheet">The PDF cutting sheet</h2>
+
+<p>File &gt; Export &gt; <span class="ui">PDF cutting sheet (.pdf)</span> prints the loaded
+design as a single sheet (more pages follow if the instructions don't fit on the first): the
+name, author and date at the top left over three small tables of facet counts, proportions and
+design data; four line drawings of the stone at the top right (from above, from the side, from
+the front, and from below); and the full cutting instructions below, pavilion tiers then crown
+tiers, each with its angle, its index teeth and its note.</p>
+
+<p>A tier marked Frosted has its facets filled grey in every drawing that shows them, and its
+teeth sit on a grey band in the instructions below. A tier marked Preform has its teeth wrapped
+in curly braces, in both the drawings' facet labels and the instructions, the same as it does in
+the on-screen cutting instructions.</p>
+
+<figure class="side"><img src="images/save-export/frosted-preform-tier.webp" alt="A tier row reading 'P1  36.58°' with its angle and its braced, greyed index list '{4-12-20-28-36-44-52-60-68-76-84-92}' on a darker background" loading="lazy">
+<figcaption>A tier marked both Frosted and Preform in the on-screen cutting instructions &ndash;
+the darker band and the curly braces both carry over to the printed sheet.</figcaption></figure>
+
+<figure><img src="images/save-export/pdf-cutting-sheet.webp" alt="A generated PDF cutting sheet: the design's name and byline, three data tables, four line drawings of the stone with one pavilion tier shown frosted and in braces, and the pavilion and crown cutting instructions below" loading="lazy">
+<figcaption>A full cutting sheet, with the same tier still marked Frosted and Preform: its facets
+are grey in the two views that show them, and its row in the instructions carries the grey band
+and the braces.</figcaption></figure>
+
+<h2 id="share-your-designs">Share your designs</h2>
+
+<p>The link in your browser's address bar <strong>is</strong> the share link. Copy it and send it
+to anyone &ndash; there is no separate "Share" button to look for. The studio rewrites the address bar
+itself moments after every edit you can undo, so whatever is sitting in the address bar always
+matches the design on screen. Select it (<kbd>Ctrl</kbd>+<kbd>L</kbd>, or <kbd>Cmd</kbd>+<kbd>L</kbd>
+on a Mac, puts the cursor there) and copy it (<kbd>Ctrl</kbd>+<kbd>C</kbd> / <kbd>Cmd</kbd>+<kbd>C</kbd>)
+the way you would any other address.</p>
+
+<figure><img src="images/save-export/share-overview.webp" alt="The studio open on the stone it starts with, with the cutting instructions on the left and the render settings on the right." loading="lazy"><figcaption>The studio the moment it opens. Its address bar already holds a link to exactly this.</figcaption></figure>
+
+<h3>What travels with the link</h3>
+
+<p>The whole cutting design goes into the link: every tier's angle, depth and facets, whether
+each tier is currently hidden, a preform or frosted, and its cutting instructions. The design's
+title, author and date, at the top of the cutting instructions, travel with it too.</p>
+
+<figure><img src="images/save-export/share-cut-header.webp" alt="The cutting instructions' title, author and date fields." loading="lazy"><figcaption>The title, author and date travel with the link along with the design.</figcaption></figure>
+
+<p>So does the <span class="ui">Material</span> section of the render settings: the material
+choice, <span class="ui">Refractive index</span>, <span class="ui">Dispersion (fire)</span> and
+<span class="ui">Stone color</span> all go with the design, so the stone looks the same to whoever
+opens the link.</p>
+
+<figure class="side"><img src="images/save-export/share-material-section.webp" alt="The Material section of the render settings: the material dropdown, Refractive index, Dispersion (fire) and Stone color." loading="lazy"><figcaption>The Material section travels with the link; this is what it looks like.</figcaption></figure>
+
+<h3>What stays on this device</h3>
+
+<p>The rest of the render settings &ndash; the <span class="ui">Tracing</span> section (which renderer,
+<span class="ui">Max internal bounces</span>, <span class="ui">Resolution scale</span>,
+<span class="ui">Drag quality</span>, <span class="ui">Facet wireframe</span>) and the
+<span class="ui">Lighting</span> section (the lighting model, the background and window colors,
+the head shadow) &ndash; are remembered only in this browser, on this device, for the next time you
+open the studio here. None of it is part of the link, so a design you send opens for the other
+person with their own settings, or the studio's defaults if they have never changed them, not
+yours. The stone's current turn, tilt and zoom are not saved anywhere either; a shared link always
+opens to the same starting view.</p>
+
+<figure class="side"><img src="images/save-export/share-tracing-section.webp" alt="The Tracing section of the render settings: renderer, Max internal bounces, Resolution scale, Drag quality and Facet wireframe." loading="lazy"><figcaption>The Tracing section (and Lighting, below it) stays on this device &ndash; it never travels with a shared link.</figcaption></figure>
+
+<h3>Opening a shared link</h3>
+
+<p>Open a link someone sent you the way you would open any page, and the studio loads straight
+into that design. Pasting a link over an already-open studio works the same way, without
+reloading the page. Your browser's Back and Forward buttons step between the designs you've had
+open in this tab, the same way they do on any page.</p>
+
+<figure><img src="images/save-export/share-opened-from-link.webp" alt="The studio after opening a shared link, showing the same design with one tier hidden and greyed out in the cutting instructions." loading="lazy"><figcaption>A link opened in a fresh browser: the same stone, with one tier hidden (greyed out at the top of the crown) exactly as it was when the link was made.</figcaption></figure>
+
+<h3>If a link can't be read</h3>
+
+<p>If a link was cut short or altered along the way &ndash; some chat and mail programs do this to long
+links &ndash; the studio shows a warning naming what went wrong, and leaves whatever stone was already
+on screen exactly as it was. Nothing is lost or overwritten by a link that fails to open.</p>
+
+<figure><img src="images/save-export/share-damaged-link.webp" alt="A warning dialog: Could not open this link. This link is damaged or incomplete: its checksum does not match the rest of it. It was probably cut short or altered on the way here &ndash; try copying the whole link again." loading="lazy"><figcaption>A damaged link is reported as damaged, rather than loading a wrong or broken stone.</figcaption></figure>
+
+<h3>How long is a link?</h3>
+
+<p>About 1,400 characters for a typical design &ndash; well within what browsers, messengers and mail
+programs accept, though a very long link can occasionally be cut short by one of those in
+transit, which is exactly what the warning above catches.</p>
+
+<p>Prefer a file you can attach or keep on your own computer instead of a link? See
+<a href="#exporting-a-design">Exporting a design</a> above.</p>
+
+<h3>Privacy</h3>
+
+<div class="note"><p>Houseki Design Studio has no server. It runs entirely in your browser, and a
+design you share exists only inside the link itself &ndash; nothing about it is uploaded, stored or
+sent anywhere. Sending someone a link is the only way a design leaves your device, and it goes
+straight to them, not through us.</p></div>

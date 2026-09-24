@@ -38,32 +38,87 @@
   container-name: instructions;
 }
 
-/* ---- The tier toolbar (T-0175..T-0180): New, Delete, Show/Hide, Preform, Frosted ----
-   The user's request (2026-09-18): "a small menu at the bottom of the faceting
-   instructions". Pinned to the pane's bottom edge: `margin-top: auto` puts it there when
-   the tables are short, and `position: sticky; bottom: 0` keeps it there while a long
-   design scrolls underneath it. Negative side margins run its top border and background
-   the full width of the pane, since the pane's own side padding would otherwise inset them.
-   Every button acts on the selected tier row and is inactive (aria-disabled, so its tooltip
-   still shows) while none is selected (wireUpTierTables' syncToolbar). Each BUTTON carries
-   its own data-tip (the user asked for "tooltips for each button"); the bar and the pane
-   carry none, for the reason in the comment above #instructions-pane.
-   Seven buttons do not fit one line at the pane's default 280px, so they wrap; since T-0226
-   every button has the SAME flex basis (58px, TierToolbar.svelte's TOOL), so each line's
-   buttons share it equally -- two tidy rows at 280px, 4 + 3, each running the full width,
-   and one row of seven once the pane is dragged to about 460px. They used to grow from their
-   own text widths, which left a ragged second line of two buttons of different widths. */
+/* ---- The tier toolbar (T-0175..T-0180, reordered and given keyboard shortcuts by T-0257) ----
+   New, Delete, Edit, Hide, Preform, Frosted, Comments. The user's request (2026-09-18): "a
+   small menu at the bottom of the faceting instructions". Pinned to the pane's bottom edge:
+   `margin-top: auto` puts it there when the tables are short, and `position: sticky; bottom: 0`
+   keeps it there while a long design scrolls underneath it. Negative side margins run its top
+   border and background the full width of the pane, since the pane's own side padding would
+   otherwise inset them. Every button acts on the selected tier row and is inactive
+   (aria-disabled, so its tooltip still shows) while none is selected (tier_controller.js's
+   syncToolbar). Each BUTTON carries its own data-tip (the user asked for "tooltips for each
+   button"); the bar and the pane carry none, for the reason in the comment above
+   #instructions-pane.
+
+   T-0257 replaced organic `flex-wrap` (which could wrap wherever a button first ran out of
+   room -- at SOME widths that means 5 + 2, not the 4 + 3 the user asked for) with an exact
+   rule: below the breakpoint, ALWAYS 4 + 3, never any other split; at or above it, one row of
+   seven. TierToolbar.svelte writes the seven buttons as two DOM groups already,
+   `.tier-toolbar-row` (New/Delete/Edit/Hide, then Preform/Frosted/Comments): below the
+   breakpoint each group is its own flex row, and #tier-toolbar stacks the two in a column; at
+   or above it, `display: contents` on both groups dissolves them, so their buttons become
+   direct flex children of #tier-toolbar itself, in the same left-to-right DOM order -- one row
+   of seven, sharing the width equally (every button keeps the same flex-basis,
+   TierToolbar.svelte's TOOL) -- with no per-button wrap decision left for the browser to make,
+   so the split can never land anywhere but exactly 4 + 3 or 7 + 0.
+
+   The number below wants the PANE's own rendered width (what `gems.instructionsWidth` sets and
+   what a person watches while dragging the handle) to cross into one row at about 540px -- the
+   seven buttons, each at its real rendered MINIMUM width (flex-grow and flex-shrink forced to 0
+   to read it, undoing TOOL's usual stretch), plus six 4px gaps and the bar's own 12px of side
+   padding on each side, first fit without any of them shrinking below that minimum at 537.1px
+   (measured over CDP on the built page, not guessed: New 58.3, Delete 69.8, Edit 55.1, Hide
+   59.3 -- "Hide", not "Show", a hidden tier's own label, which measures narrower at 50.8px, so
+   "Hide" is the wider, safer figure -- Preform 77.6, Frosted 75.5, Comments 93.4, summing to
+   489.1px of buttons + 24px of gaps + 24px of the bar's own padding). 540px leaves a small
+   margin rather than sitting exactly on that float.
+
+   BUT a `@container` condition is measured against the container's own CONTENT box, not the
+   border box `getBoundingClientRect` (and `gems.instructionsWidth`) report -- #instructions-pane's
+   24px of side padding (`--pane-pad`, 12px each) plus its 1px right border are OUTSIDE that
+   content box, so the number here has to be the PANE'S OWN target minus that 25px, not 537.1
+   itself. Found the hard way: writing 540px here (the pane-width figure directly) measurably
+   never merged the toolbar into one row anywhere in `gems.instructionsWidth`'s whole 200-560px
+   range -- verified over CDP by binary search (a fresh `<style>` injecting the identical rule,
+   unlayered, confirmed `@container`/`min-width` themselves work fine at trivial thresholds; the
+   540-vs-515 pair below is what a real sweep of the PANE's rendered width against each value
+   showed). 515px here puts the merge at a pane width of about 540px (measured on the built
+   page, 2026-09-24: two rows at 480px, one row at 540px and 560px) -- past 537.1px and inside
+   the 200-560px range
+   INSTRUCTIONS_WIDTH_MAX (settings.js) now reaches, so the one-row layout the ticket asked for
+   is actually reachable by dragging the handle, not merely correct in principle. See
+   kb/page-and-controls.md's tier toolbar section for the same numbers and the content-box trap. */
 #tier-toolbar {
   position: sticky;
   bottom: 0;
   flex: 0 0 auto;
   display: flex;
-  flex-wrap: wrap;
+  flex-direction: column;
   gap: 4px;
   margin: auto calc(-1 * var(--pane-pad)) 0;
   padding: 10px var(--pane-pad);
   background: var(--panel);
   border-top: 1px solid var(--panel-edge);
+}
+
+/* Below the breakpoint: each group is its own flex row of buttons (4, then 3), and
+   #tier-toolbar (column, above) stacks the two. */
+.tier-toolbar-row {
+  display: flex;
+  gap: 4px;
+}
+
+/* At or above the breakpoint: the groups disappear from the box tree (their buttons become
+   #tier-toolbar's own direct flex children, laid out in a row) and #tier-toolbar itself lays
+   its now-flat children out in one row instead of stacking them. */
+@container instructions (min-width: 515px) {
+  #tier-toolbar {
+    flex-direction: row;
+  }
+
+  .tier-toolbar-row {
+    display: contents;
+  }
 }
 
 /* The buttons are shadcn-svelte Buttons and Toggles (TierToolbar.svelte), styled by their own

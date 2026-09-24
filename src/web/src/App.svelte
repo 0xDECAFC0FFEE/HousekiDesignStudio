@@ -22,7 +22,13 @@
   import ResizeGirdlePanel from './components/ResizeGirdlePanel.svelte';
   import { resizeGirdleOpen, cancelResizeGirdleMode } from './lib/resize_girdle_mode.js';
   import { exitFullscreen } from './lib/fullscreen.js';
-  import { eventTargetTakesText } from './lib/keys.js';
+  import { eventTargetTakesText, eventTargetIsEditable, eventTargetActivatesOnEnter } from './lib/keys.js';
+  import { get } from 'svelte/store';
+  import {
+    tierView, selectedTier, toolbarActions, rowClicked, designLocked, flatTierOrder,
+    adjacentTierSelection,
+  } from './lib/tier_controller.js';
+  import { editSelectedTier } from './lib/edit_mode.js';
 
   let gearDialog;
 
@@ -54,6 +60,75 @@
       }
 
       return;
+    }
+
+    // The tier toolbar's keyboard equivalents (T-0257): Backspace/Delete deletes the selected
+    // tier, Enter edits it, Up/Down move the selection -- each exactly what the corresponding
+    // button (or, for Up/Down, a click on a different row) already does, so a mode that makes a
+    // button inactive (edit mode's New/Edit, or a whole-design mode's entire bar) makes its key
+    // inert too for free: `toolbarActions.delete()`/`.edit()` already no-op unless
+    // `$toolbar.delete`/`.edit` is active, which is exactly the button's own click handler.
+    //
+    // `eventTargetIsEditable` (not the narrower `eventTargetTakesText` the checks above use) is
+    // the guard here on purpose: it also excludes a `<select>`, which the ticket names
+    // explicitly and `eventTargetTakesText` does not, since Undo/Redo WANTS a focused select to
+    // still take Cmd/Ctrl+Z as the page's undo. A dialog or menu is already ruled out above.
+    if (!eventTargetIsEditable(event)) {
+      if (event.key === 'Backspace' || event.key === 'Delete') {
+        // Consumed either way, whether or not a tier is actually deleted: an unclaimed
+        // Backspace is the browser's own "navigate back" once nothing editable has focus in
+        // some builds, which would be a far worse surprise than a key that finds nothing to do.
+        event.preventDefault();
+        toolbarActions.delete();
+        return;
+      }
+
+      // Deferred to a focused button, link or menu item's own native Enter-activates-it default
+      // action (see eventTargetActivatesOnEnter's own comment for why `defaultPrevented` cannot
+      // be trusted for that): Enter on the tier toolbar's own Delete or Preform button, say,
+      // keeps meaning "activate this button".
+      if (event.key === 'Enter' && !eventTargetActivatesOnEnter(event)) {
+        event.preventDefault();
+        editSelectedTier();
+        return;
+      }
+
+      // Up/Down move the selection through the pane's OWN order (pavilion above crown, as
+      // shown), not a reorder (that is Alt+Up/Down on a focused row, TierRow.svelte's own,
+      // unaffected: this never fires with Alt held). `role="slider"` is excluded the same way
+      // the cutting assistant's own arrow check above excludes it: IndexRuler and ValueRuler
+      // handle their own Up/Down and already call preventDefault, but a focused Bits UI slider's
+      // OWN arrow handling is a matter of it being an ARIA custom widget that must implement
+      // that itself, not a native browser default `defaultPrevented` could be trusted to have
+      // already caught here -- the same reasoning eventTargetActivatesOnEnter's comment gives,
+      // kept as a direct role check here rather than a second shared helper for one line.
+      //
+      // Not while a whole-design mode holds the design (T-0231/T-0234/T-0237): their own bar
+      // replaces the tier toolbar entirely, and those modes deliberately keep a row from
+      // becoming "selected" while they are open (the cutting assistant's own current-tier
+      // highlight is not a selection, precisely so its description editor never opens) --
+      // moving the selection here would fight that. Edit mode is NOT excluded: it needs no
+      // special case, because selecting a different tier while one is being edited already
+      // collapses back onto the tier being edited (selection.js's highlightDesignTier), the same
+      // as clicking a different row already does today.
+      if ((event.key === 'ArrowUp' || event.key === 'ArrowDown') &&
+        !event.altKey && !event.ctrlKey && !event.metaKey && !event.shiftKey &&
+        event.target?.getAttribute?.('role') !== 'slider' && !designLocked()) {
+        const order = flatTierOrder(get(tierView));
+        const next = adjacentTierSelection(order, get(selectedTier), event.key === 'ArrowDown' ? 1 : -1);
+
+        if (next !== null) {
+          event.preventDefault();
+          // The same path a row click takes (highlight on the stone and in the pane, scroll it
+          // into view): rowClicked, not a direct call to selection.js, so a mode that has taken
+          // row clicks over for itself (none does today; the cutting assistant's own override is
+          // moot here, since designLocked() above already stops this block before it) would be
+          // honoured the same way a real click is.
+          rowClicked(next);
+        }
+
+        return;
+      }
     }
 
     if (event.key !== 'Escape') {

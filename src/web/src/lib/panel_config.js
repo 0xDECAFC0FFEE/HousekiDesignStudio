@@ -39,7 +39,7 @@ export const PERSISTED_PARAM_SETTINGS = ['maxBounces', 'headShadowHalfAngle', 'l
  * Written for users, not for this project's developers (the user's request, 2026-09-18): what
  * the picture looks like, how fast it arrives, and what each gives up.
  *
- * **Both path tracers now also name the physics they use and what they leave out** (the user's
+ * **Both tracing renderers now also name the physics they use and what they leave out** (the user's
  * request, 2026-09-19: "go into detail about what first principles physics equations are used
  * (eg tir, snell's law...) along with what it doesn't model"), which softens the 2026-09-18
  * decision to keep all of it out. The LAWS are named; **the equations themselves are not
@@ -48,12 +48,18 @@ export const PERSISTED_PARAM_SETTINGS = ['maxBounces', 'headShadowHalfAngle', 'l
  * deterministic tooltip"). The Gem Cut Studio comparison came out of the first tip at the same
  * time ("we don't need to mention deterministic is based on the gcs renderer").
  *
+ * **Since 2026-09-24 the two tracing tips are the user's own wording**, given verbatim: a
+ * short technical summary of what kind of tracer each is and what it simulates, replacing the
+ * longer what-it-does-for-you tips above. Only "Whitted" and "Monte Carlo" were capitalised.
+ * They no longer list what is not modelled.
+ *
  * Every claim was checked against the shader source, not against the docs:
  *   - Deterministic: `fresnelReflectance`, `refractRay` and `traceInterior` in
  *     `src/shaders/gem.frag`, and `RenderParams::spectral_indices` in `src/params.rs` for the
  *     three fixed indices (n - d/2, n, n + d/2 into red, green, blue).
  *   - Monte Carlo: `src/shaders/lux/glass.glsl` (Fresnel, Snell, TIR, the Cauchy index),
- *     `lux/volume.glsl` (the RGB Beer-Lambert filter) and `lux/pathtracer.glsl`.
+ *     `lux/volume.glsl` (the RGB Beer-Lambert filter), `lux/pathtracer.glsl`, and
+ *     `lux/roughglass.glsl` for the frosted facets (LuxCore's single-scattering RoughGlass).
  * The equation forms were checked against outside references too -- the unpolarised Fresnel
  * reflectance as the mean of the two polarisations, and two-term Cauchy over the gemmological
  * B (686.7 nm) to G (430.8 nm) interval -- and both match what the code does. The forms, the
@@ -64,19 +70,13 @@ export const PERSISTED_PARAM_SETTINGS = ['maxBounces', 'headShadowHalfAngle', 'l
  * kb/wiring-the-luxcore-port-in-behind-a-runtime-togg.md.
  */
 export const RENDERER_HINTS = [
-  'Fast and noise-free: the picture is finished the moment it appears, so it is the one for ' +
-    'turning the stone and comparing cuts, and the only one that can outline the facets. ' +
-    'Traced from first principles: Snell’s law, the full Fresnel equations, total ' +
-    'internal reflection and Beer-Lambert absorption. Not modelled: polish, inclusions, ' +
-    'polarization, birefringence, and its fire (the rainbow colors) comes from three fixed ' +
-    'colors rather than a spectrum.',
-  'More realistic, especially the fire (the rainbow colors), but slower: the picture starts ' +
-    'grainy and sharpens while the view is left still, any change restarts it, and it cannot ' +
-    'outline the facets. The same first principles — Snell’s law, the full Fresnel ' +
-    'equations, total internal reflection, Beer-Lambert absorption — but one wavelength ' +
-    'is picked at each refraction, so the fire is spectral, and light leaving the stone is ' +
-    'traced back against it. Not modelled: polish, inclusions, polarization, birefringence, or ' +
-    'absorption that varies with wavelength.',
+  'Deterministic Whitted-style real time raytracing simulating Snell’s law, TIR, BL ' +
+    'absorption and the full Fresnel equations. Models dispersion as three fixed wavelengths ' +
+    'instead of a distribution.',
+  'Monte Carlo path tracing that simulates Snell’s law, TIR, BL absorption and the full ' +
+    'Fresnel equations. Models dispersion by randomly sampling wavelengths across the visible ' +
+    'spectrum instead of using three fixed ones. Supports frosted facets, modelled as rough ' +
+    'dielectric surfaces with single scattering.',
   'No rendering at all: the stone is a flat, opaque surface in the stone color, with no ' +
     'light, reflection or fire. Instant, and with the facet wireframe on it is a clean ' +
     'drawing of the facets.',

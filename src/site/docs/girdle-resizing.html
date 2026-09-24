@@ -1,0 +1,173 @@
+<h1>Girdle resizing</h1>
+
+<p>The girdle is the narrow band running around the widest part of the stone, where the crown
+above meets the pavilion below. Resize girdle mode makes that band thicker or thinner by moving
+the whole pavilion up or down along the stone's axis, without touching the crown, the table, or
+any facet's angle.</p>
+
+<h2>Opening the mode</h2>
+
+<p>Choose <span class="ui">Edit</span> &gt; <span class="ui">Resize girdle</span> from the menu
+bar. There is no keyboard shortcut for it. The item only opens the mode when a design is loaded
+and no other mode is already open (editing a tier, scaling height, or the cutting assistant);
+otherwise it is greyed out, and hovering it explains which one to finish first, such as "Finish
+scaling the height first: Done, or Cancel."</p>
+
+<figure>
+  <img src="images/girdle-resizing/edit-menu-resize-girdle.webp"
+    alt="The Edit menu open, with Resize girdle highlighted among the other whole-design commands"
+    loading="lazy">
+  <figcaption>Edit &gt; Resize girdle, among the studio's other whole-design commands.</figcaption>
+</figure>
+
+<h2>What you see in the mode</h2>
+
+<p>The top bar's status at the right reads <span class="ui">Mode: Resizing girdle</span>. The
+view turns to the stone's side profile automatically (the same view the <span class="ui">Side</span>
+button under the render gives you), so the girdle band is edge-on and easy to watch. The render
+settings panel is replaced by a small panel with one gauge, labelled <span class="ui">Depth</span>,
+and <span class="ui">Cancel</span> and <span class="ui">Done</span> buttons underneath. Nothing on
+the stone itself is draggable in this mode &mdash; the gauge is the only control.</p>
+
+<figure>
+  <img src="images/girdle-resizing/mode-open-overview.webp"
+    alt="The studio in resize girdle mode: the stone shown side-on, the Depth gauge panel on the right, and Mode: Resizing girdle in the top bar"
+    loading="lazy">
+  <figcaption>Resize girdle mode just after opening: the stone turned side-on, and the Depth
+    gauge at its starting mark.</figcaption>
+</figure>
+
+<p>The <span class="ui">Depth</span> gauge has no numbers on it at all &mdash; just evenly spaced
+ticks, a longer tick marking the depth you started from, and a <span class="ui">Fine</span>
+button underneath. Unlike some of the studio's other gauges, there is no box to click and type an
+exact value into; the tape itself, dragged, scrolled, or stepped with the keyboard, is the only
+way to set it.</p>
+
+<figure class="side">
+  <img src="images/girdle-resizing/panel-at-open.webp"
+    alt="The Depth gauge close up, its long starting mark sitting exactly on the centre line"
+    loading="lazy">
+  <figcaption>The gauge when the mode opens: the long starting mark sits on the centre line,
+    since nothing has changed yet.</figcaption>
+</figure>
+
+<figure class="side">
+  <img src="images/girdle-resizing/panel-thicker.webp"
+    alt="The same Depth gauge after dragging it toward a thicker girdle; the starting mark has scrolled out of view"
+    loading="lazy">
+  <figcaption>After dragging toward a thicker girdle, the starting mark has scrolled off the
+    visible part of the tape.</figcaption>
+</figure>
+
+<h2>Making the girdle thicker or thinner</h2>
+
+<p>Drag the gauge like a strip of paper: pulling it down makes the girdle band thicker (and the
+whole stone a little taller), pulling it up makes it thinner, until the girdle disappears
+completely and the crown's facets meet the pavilion's directly. Scrolling over the gauge or
+pressing the arrow keys works the other way around &mdash; scrolling or pressing
+<kbd>&uarr;</kbd> thickens the girdle, scrolling the other way or pressing <kbd>&darr;</kbd> thins
+it. The gauge has to have keyboard focus first (click it, or drag it once) before the arrow keys
+do anything.</p>
+
+<p>Hold <kbd>Shift</kbd> while dragging, or click <span class="ui">Fine</span> first, to move the
+gauge at a fifth of the usual speed for a more precise setting. <span class="ui">Fine</span> stays
+on until you click it again.</p>
+
+<figure>
+  <img src="images/girdle-resizing/viewport-baseline.webp"
+    alt="The stone side-on with its girdle band at its ordinary thickness"
+    loading="lazy">
+  <figcaption>The stone side-on, girdle at its starting thickness.</figcaption>
+</figure>
+
+<figure>
+  <img src="images/girdle-resizing/viewport-thicker.webp"
+    alt="The same stone side-on with a visibly thicker girdle band and a slightly taller pavilion"
+    loading="lazy">
+  <figcaption>Dragged toward a thicker girdle: the band has grown and the stone is a little
+    taller.</figcaption>
+</figure>
+
+<figure>
+  <img src="images/girdle-resizing/viewport-thinner.webp"
+    alt="The same stone side-on with no girdle band left at all; the crown meets the pavilion directly"
+    loading="lazy">
+  <figcaption>Dragged the other way far enough, the girdle band disappears: the crown meets the
+    pavilion directly.</figcaption>
+</figure>
+
+<figure>
+  <img src="images/girdle-resizing/thinner-overview.webp"
+    alt="Resize girdle mode with the girdle band gone, the Depth gauge's starting mark near the bottom, and Facets reading 61 instead of 67"
+    loading="lazy">
+  <figcaption>With the girdle gone, the stone's own Facets count (bottom right of the render)
+    drops, here from 67 to 61.</figcaption>
+</figure>
+
+<h2>What changes, and what stays fixed</h2>
+
+<p>Only the pavilion's own facets move, and they all move together, by the same amount along the
+stone's axis, so wherever two pavilion facets used to meet the girdle at the same height, they
+still do &mdash; the girdle stays level. The crown, the table and the girdle's own facets never
+move, and no facet's angle changes anywhere in the design, however far you drag the gauge. Nothing
+about a tier's cutting index numbers changes either.</p>
+
+<p>This is easy to miss on screen, because the studio's tier tables in the left-hand pane never
+show a cutting depth number to begin with (only a tier's id, angle and cutting indices), so
+resizing the girdle leaves that whole list looking exactly as it did. It is also easy to miss in
+the stone's proportions readout at the bottom right of the render: since the whole pavilion moves
+as one rigid piece, its own height above the culet does not change, so none of the Facets, T/W,
+C/W or P/W figures move either &mdash; except Facets, which drops once the girdle band has
+shrunk away to nothing. The only reliable way to see the change is to look at the render itself.</p>
+
+<h2>Confirming, cancelling and leaving</h2>
+
+<p>Click <span class="ui">Done</span> to keep the change and close the mode; it is filed as a
+single step in the studio's ordinary edit history, however many times you dragged the gauge back
+and forth first. Click <span class="ui">Cancel</span>, or press <kbd>Escape</kbd>, to put every
+tier back exactly as it was and close the mode without recording anything.</p>
+
+<p>Opening the mode always turns the view to the stone's side profile, whatever you were looking
+at before. If you use the <span class="ui">Top</span> or <span class="ui">Side</span> buttons, or
+drag the stone to look at it from somewhere else, while the mode is open, both
+<span class="ui">Done</span> and <span class="ui">Cancel</span> put the view back to wherever it
+was pointing before you opened the mode &mdash; not to whichever view you last chose while
+resizing.</p>
+
+<h2>Undo and redo</h2>
+
+<p>While the mode is open, <span class="ui">Undo</span> and <span class="ui">Redo</span> (the
+Edit menu items, and <kbd>Ctrl</kbd>+<kbd>Z</kbd> / <kbd>Ctrl</kbd>+<kbd>Shift</kbd>+<kbd>Z</kbd>,
+or <kbd>Cmd</kbd>+<kbd>Z</kbd> / <kbd>Cmd</kbd>+<kbd>Shift</kbd>+<kbd>Z</kbd> on a Mac) step back
+and forth through your own drags in this session, not through the studio's wider history. Once you
+click <span class="ui">Done</span> or <span class="ui">Cancel</span> and leave the mode,
+<span class="ui">Undo</span> and <span class="ui">Redo</span> go back to working on the whole
+design as usual &mdash; and if you kept the change, one more <span class="ui">Undo</span> takes
+back the whole resize in a single step.</p>
+
+<h2>Every gesture and shortcut</h2>
+
+<table>
+  <tr><th>Action</th><th>How</th></tr>
+  <tr><td>Open the mode</td><td><span class="ui">Edit</span> &gt; <span class="ui">Resize girdle</span></td></tr>
+  <tr><td>Thicken the girdle</td><td>Drag the gauge down; scroll up over it; or, with the gauge
+    focused, press <kbd>&uarr;</kbd> (a small step) or <kbd>Page Up</kbd> (a bigger jump)</td></tr>
+  <tr><td>Thin the girdle</td><td>Drag the gauge up; scroll down over it; or, with the gauge
+    focused, press <kbd>&darr;</kbd> (a small step) or <kbd>Page Down</kbd> (a bigger jump)</td></tr>
+  <tr><td>Jump to the thickest setting</td><td><kbd>Home</kbd>, with the gauge focused</td></tr>
+  <tr><td>Jump to the thinnest setting (girdle gone)</td><td><kbd>End</kbd>, with the gauge focused</td></tr>
+  <tr><td>Fine adjustment (a fifth of the usual speed)</td><td>Click <span class="ui">Fine</span>
+    first, or hold <kbd>Shift</kbd> while dragging</td></tr>
+  <tr><td>Undo / redo this session's drags</td><td><kbd>Ctrl</kbd>+<kbd>Z</kbd> /
+    <kbd>Ctrl</kbd>+<kbd>Shift</kbd>+<kbd>Z</kbd> (<kbd>Cmd</kbd>+<kbd>Z</kbd> /
+    <kbd>Cmd</kbd>+<kbd>Shift</kbd>+<kbd>Z</kbd> on a Mac)</td></tr>
+  <tr><td>Keep the change and leave</td><td><span class="ui">Done</span></td></tr>
+  <tr><td>Discard the change and leave</td><td><span class="ui">Cancel</span>, or <kbd>Escape</kbd></td></tr>
+</table>
+
+<div class="note">
+  <p>Resize girdle only moves the pavilion's own facets. To change a single tier's own angle or
+  depth by hand instead, see <a href="editing-tiers.html">Editing facets by tier</a>. To make the
+  whole stone taller or flatter while every facet keeps its shape, see
+  <a href="tangent-ratio-scaling.html">Tangent ratio height scaling</a>.</p>
+</div>

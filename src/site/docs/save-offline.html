@@ -1,0 +1,120 @@
+<h1>Saving the studio to your computer</h1>
+
+<p>The studio is a single page. Everything it needs &ndash; the renderer, the stone, the controls &ndash;
+is inside that one file, so once your browser has loaded it, you can save your own copy to your
+computer and open it again any time: with no internet connection, and no account.</p>
+
+<h2>Why save a copy</h2>
+<ul>
+  <li>Keep working with no internet connection &ndash; on a plane, or anywhere your connection drops.</li>
+  <li>Keep a version you like exactly as it is, in case a newer one changes something.</li>
+  <li>No account or sign-in is needed. The saved file is yours, on your own computer.</li>
+</ul>
+
+<div class="note"><p>The studio's own <span class="ui">File</span> menu does not have a working
+way to save the page itself &ndash; its <span class="ui">Save</span> item does not do anything yet.
+Saving a copy of the studio is done through your browser, the same way you would save any other
+page.</p></div>
+
+<h2>Saving it</h2>
+<p>With the studio open in your browser tab, press <kbd>Ctrl</kbd>+<kbd>S</kbd> (Windows or
+Linux) or <kbd>Cmd</kbd>+<kbd>S</kbd> (Mac). This is the most reliable way to reach the save
+dialog, because browsers move their menus around between versions.</p>
+
+<p>If you would rather use a menu, here is roughly where to look. Choose a location and file
+name, and pick the option below when your browser asks what to save it as &ndash; the studio needs
+nothing else, so the plainest, single-file option is enough.</p>
+
+<table>
+  <tr><th>Browser</th><th>Menu</th><th>Save as / format</th></tr>
+  <tr>
+    <td>Chrome</td>
+    <td><span class="ui">⋮</span> menu (top right) &gt; <span class="ui">Cast, save, and
+      share</span> &gt; <span class="ui">Save page as…</span> in recent versions &ndash; the wording
+      has moved before, so the shortcut above is the reliable option</td>
+    <td><span class="ui">Webpage, HTML only</span></td>
+  </tr>
+  <tr>
+    <td>Edge</td>
+    <td><span class="ui">⋯</span> menu (top right) &gt; <span class="ui">Save page as…</span>,
+      sometimes under a further <span class="ui">More tools</span> menu</td>
+    <td><span class="ui">Webpage, HTML only</span></td>
+  </tr>
+  <tr>
+    <td>Firefox</td>
+    <td><span class="ui">☰</span> menu &gt; <span class="ui">Save Page As…</span>, or right
+      click the page and choose <span class="ui">Save Page As…</span></td>
+    <td><span class="ui">Web Page, HTML only</span></td>
+  </tr>
+  <tr>
+    <td>Safari</td>
+    <td><span class="ui">File</span> menu &gt; <span class="ui">Export As…</span> (called
+      <span class="ui">Save As…</span> in some versions)</td>
+    <td><span class="ui">Page Source</span>, not <span class="ui">Web Archive</span></td>
+  </tr>
+</table>
+
+<div class="note"><p>Menu wording changes between browser versions more often than the
+keyboard shortcut does. If a menu item above is not where this page says, search the browser's
+own menu for "save page", or use <kbd>Ctrl</kbd>+<kbd>S</kbd> / <kbd>Cmd</kbd>+<kbd>S</kbd>
+instead.</p></div>
+
+<p>The "HTML only" / "Page Source" options save one plain page file, which is all the studio
+needs. "Complete" and "Web Archive" also work, but a <span class="ui">Web Archive</span> only
+opens back up in Safari, and a "Complete" save can add an extra folder alongside the file for
+resources the studio does not actually have &ndash; there is nothing this page needs to keep beside
+it, so the single-file option is the simplest choice.</p>
+
+<h2>Opening the saved copy</h2>
+<ul>
+  <li>Double click the saved file. It opens in whichever browser your computer opens saved
+    pages with.</li>
+  <li>Or drag the file into an open browser window.</li>
+  <li>Or, from inside a browser, use its own <span class="ui">Open File…</span> command and
+    choose the saved file.</li>
+</ul>
+
+<figure>
+  <img src="images/save-offline/offline-copy.webp" alt="The studio running from a saved copy of the page, opened from a file on disk with no internet connection." loading="lazy">
+  <figcaption>The studio, opened from a saved copy on disk with no internet connection &ndash; it
+    loads and renders exactly as it does on the website.</figcaption>
+</figure>
+
+<h2>What carries over, and what does not</h2>
+<p>Opening your own design files &ndash; <span class="ui">File</span> &gt; <span class="ui">Open</span>
+&ndash; works exactly the same in a saved copy as it does on the website: it reads the file you
+choose from your computer, not anything from the internet, so it is unaffected by which copy
+you are using.</p>
+
+<p>Settings you changed on the website &ndash; light or dark mode is the main one today &ndash; are
+remembered by your browser against the website's own address, not against your computer in
+general. A saved copy lives at a different address entirely (a file on your computer, rather
+than a page on the web), so it does not see those settings: it opens with its own defaults, the
+same as a fresh copy on a different computer would. Settings you then change inside a saved
+copy are remembered by that copy from then on, but they stay with it &ndash; they will not appear on
+the website, or in a different saved copy, even another one made from the same file. Each is
+its own separate place.</p>
+
+<h2>Keeping it up to date</h2>
+<p>A saved copy is a snapshot: it keeps working exactly as it did the moment you saved it, but
+it does not update itself. If the studio gains a new feature later, a copy saved before that
+will not have it &ndash; open the website again and save a fresh copy to pick up anything new.</p>
+
+<h2>Troubleshooting</h2>
+<table>
+  <tr><th>Problem</th><th>Try this</th></tr>
+  <tr>
+    <td>The saved copy shows a blank page, or an error, when you open it</td>
+    <td>Save it again using the "HTML only" / "Page Source" option (see the table above)
+      rather than "Complete" or "Web Archive", and keep it as that one page file rather than
+      text, an image or a PDF.</td>
+  </tr>
+  <tr>
+    <td>The page opens but the stone does not appear, or it shows an error instead of
+      rendering</td>
+    <td>The studio needs a browser with WebGL 2. Most current versions of Chrome, Edge,
+      Firefox and Safari support it, but it can be turned off, or unavailable on some
+      hardware &ndash; try a different browser, or check that hardware acceleration is turned on
+      for the one you are using.</td>
+  </tr>
+</table>

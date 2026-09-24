@@ -48,7 +48,7 @@ import {
 import {
   tierView, getDesign, setTierIndices, recordTierFacets, tierFacetState, beginHistoryFrame, commitHistoryFrame, cancelHistoryFrame,
   setEditFinisher, applyFacetTarget, setTierValue, selectOnStone, setEditedTier, syncToolbar,
-  designLocked,
+  designLocked, toolbarActions,
 } from './tier_controller.js';
 import { startingFacet, rockShape, shownFacets, cutAwayFacets } from './edit_geometry.js';
 import { budgetedTask } from './work_budget.js';
@@ -132,6 +132,22 @@ export function enterEditMode(tier, facet = null) {
   // frame also draws the guides.
   window.gemRequestRender?.();
   return true;
+}
+
+/**
+ * Edits the selected tier, exactly as the tier toolbar's Edit button does: does nothing (and
+ * enters nothing) while that button is itself inactive -- `toolbarActions.edit()` already checks
+ * `$toolbar.edit.active`, so this needs no state of its own to mirror it. Shared by the button
+ * (TierToolbar.svelte), the Enter shortcut (App.svelte, T-0257) and a tier row's own Enter once
+ * the row is already the selection (TierRow.svelte, T-0257) -- one place that does "what Edit
+ * does", so the three callers cannot drift apart on what that means.
+ */
+export function editSelectedTier() {
+  const tier = toolbarActions.edit();
+
+  if (tier) {
+    enterEditMode(tier);
+  }
 }
 
 /** Leaves edit mode, if it is on, keeping the edits (Done): the settings panel comes back. */

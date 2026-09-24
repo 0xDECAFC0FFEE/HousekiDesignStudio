@@ -1,0 +1,237 @@
+<h1>Tangent ratio height scaling</h1>
+
+<p>Tangent ratio scaling makes the crown or the pavilion of your stone taller or flatter, on its
+own, without touching the other half, the girdle's outline, or the index teeth. Every facet in
+that half changes its angle together, and the studio moves each one just enough that all its
+meets still meet &mdash; so the stone keeps the same silhouette and the same cutting sequence,
+only standing taller or squatter. A cutter reaches for this to fit a rough that came out
+shallower or deeper than the design expects, or to adjust a design's proportions for a stone of a
+different refractive index, without reworking every angle in the cutting instructions by
+hand.</p>
+
+<figure><img src="images/tangent-ratio-scaling/mode-overview.webp" alt="Scale height mode open on the studio's startup stone: the mode readout reads Mode: Scaling height, the stone is shown edge-on from the side, and the right-hand panel shows Pavilion and Crown gauges both at 1.00x." loading="lazy">
+<figcaption>Scale height mode, just opened: both gauges at 1.00&times;, the stone unchanged.</figcaption></figure>
+
+<h2>Opening it</h2>
+
+<p>Choose <span class="ui">Edit</span> &gt; <span class="ui">Scale height</span> from the menu
+bar.</p>
+
+<figure class="side"><img src="images/tangent-ratio-scaling/menu-scale-height.webp" alt="The Edit menu open, showing Undo, Redo, and the whole-design transforms below them with Scale height enabled." loading="lazy">
+<figcaption>Edit &gt; Scale height.</figcaption></figure>
+
+<p>The menu item is greyed out, with a tooltip explaining why, when there's no design loaded, or
+when another mode &mdash; editing a tier, resizing the girdle, the cutting assistant, or scale
+height itself &mdash; is already open. Finish or leave that mode first (its own <span
+class="ui">Done</span>, <span class="ui">Cancel</span>, or <kbd>Escape</kbd>), then open scale
+height.</p>
+
+<h2>What the screen shows</h2>
+
+<p>Once it opens, the top bar's mode readout, at the right-hand end, reads <span class="ui">Mode:
+Scaling height</span> &mdash; a reminder, from anywhere on the page, that you're scaling rather
+than looking at your finished design.</p>
+
+<p>The stone turns to the same side-on view as the render pane's own <span class="ui">Side</span>
+button &mdash; crown up, the girdle seen edge-on &mdash; since that's the angle a height change
+actually shows up from. You can still orbit and zoom while the mode is open; whichever way you
+leave it, the view snaps back to wherever it was pointed before you opened scale height, even if
+you moved the camera in between.</p>
+
+<p>On the left, the cutting instructions pane stays exactly as usual, so you can watch every
+tier's angle follow the gauges as you drag them. On the right, in place of the render settings, is
+the scale height panel:</p>
+
+<figure class="side"><img src="images/tangent-ratio-scaling/panel-closeup.webp" alt="Close-up of the gauge card: Pavilion and Crown gauges both reading 1.00x, their Fine buttons, a greyed Reset to 1x button, and the Lock crown to pavilion switch." loading="lazy">
+<figcaption>The gauge card: the two gauges, Reset, and the lock. Cancel and Done sit below it, at the bottom of the panel.</figcaption></figure>
+
+<ul>
+  <li>Two vertical gauges, <span class="ui">Pavilion</span> on the left and <span
+  class="ui">Crown</span> on the right, each a tape you can drag, running from 0.25&times; to
+  4&times; and starting at 1.00&times;.</li>
+  <li>A <span class="ui">Fine</span> button under each gauge, for slower, more precise
+  dragging.</li>
+  <li><span class="ui">Reset to 1&times;</span>, under the gauges.</li>
+  <li><span class="ui">Lock crown to pavilion</span>, a switch under Reset.</li>
+  <li><span class="ui">Cancel</span> and <span class="ui">Done</span>, at the very bottom.</li>
+</ul>
+
+<h2>Scaling a half taller or flatter</h2>
+
+<p>Drag a gauge's tape downward to make that half of the stone <strong>taller</strong> (a larger
+ratio); drag it upward to make it <strong>flatter</strong> (a smaller ratio) &mdash; the same way
+pulling a strip of paper down brings its larger numbers to the centre line. The Pavilion and Crown
+gauges move independently unless you turn on <span class="ui">Lock crown to pavilion</span> (see
+below), so you can make one half taller while making the other flatter in the same session.</p>
+
+<figure><img src="images/tangent-ratio-scaling/viewport-before.webp" alt="The stone from the side at Pavilion 1.00x and Crown 1.00x, its original proportions." loading="lazy">
+<figcaption>Before: Pavilion 1.00&times;, Crown 1.00&times;.</figcaption></figure>
+
+<figure><img src="images/tangent-ratio-scaling/after-scaling.webp" alt="The same stone after setting Pavilion to 0.50x and Crown to 1.80x: the pavilion has flattened and the crown has grown much taller, while the girdle and table stay the same size." loading="lazy">
+<figcaption>After: Pavilion 0.50&times; (flatter), Crown 1.80&times; (taller). The girdle and the
+table haven't moved.</figcaption></figure>
+
+<figure><img src="images/tangent-ratio-scaling/viewport-after.webp" alt="A closer view of the scaled stone: a much flatter pavilion under a tall, steep crown." loading="lazy">
+<figcaption>The same change, viewed close up: a flatter pavilion under a taller crown.</figcaption></figure>
+
+<table>
+  <tr><th>Gesture</th><th>Does</th></tr>
+  <tr><td>Drag the tape</td><td>Scales that half live as you move the pointer; the stone and the
+  cutting instructions follow. Releasing the pointer records one step you can undo.</td></tr>
+  <tr><td>Scroll the wheel over a gauge</td><td>Nudges it directly; each notch is applied and
+  recorded immediately, so several notches in a row make that many undo steps.</td></tr>
+  <tr><td><kbd>&uarr;</kbd> / <kbd>&darr;</kbd> (gauge focused)</td><td>Moves by 0.01&times;,
+  applied and recorded immediately.</td></tr>
+  <tr><td><kbd>Page Up</kbd> / <kbd>Page Down</kbd></td><td>Moves by 0.25&times;, one major
+  tick.</td></tr>
+  <tr><td><kbd>Home</kbd></td><td>Jumps to the top of the tape, 4&times; &mdash; the tallest the
+  gauge goes.</td></tr>
+  <tr><td><kbd>End</kbd></td><td>Jumps to the bottom of the tape, 0.25&times; &mdash; the
+  flattest.</td></tr>
+  <tr><td>Click the gauge's reading</td><td>Opens a text box to type an exact ratio.
+  <kbd>Enter</kbd>, or clicking away, applies it; <kbd>Escape</kbd> cancels just the typing,
+  without leaving the mode.</td></tr>
+  <tr><td>Hold <kbd>Shift</kbd> while dragging, or click the gauge's own <span
+  class="ui">Fine</span> button first</td><td>Moves the tape a fifth as far as the pointer, for
+  finer placing. <span class="ui">Fine</span> stays on until you click it again; <kbd>Shift</kbd>
+  only applies while it's held.</td></tr>
+</table>
+
+<figure class="side"><img src="images/tangent-ratio-scaling/typing-value.webp" alt="The Crown gauge's reading replaced by a text box, ready to type an exact ratio." loading="lazy">
+<figcaption>Clicking a gauge's reading to type an exact ratio.</figcaption></figure>
+
+<h3>Reset and the lock</h3>
+
+<p><span class="ui">Reset to 1&times;</span> puts both gauges back to 1&times; in one step &mdash;
+it leaves the lock switch as it was, since that's a separate choice. It's greyed out (with a
+tooltip saying so) whenever both gauges already read 1&times;.</p>
+
+<p><span class="ui">Lock crown to pavilion</span> ties the two gauges together: once it's on,
+dragging either one moves both by the same amount, to the same ratio. Turning it on immediately
+brings the crown to whatever ratio the pavilion is already at.</p>
+
+<figure class="side"><img src="images/tangent-ratio-scaling/lock-on.webp" alt="Both gauges reading 0.50x with the Lock crown to pavilion switch turned on, and Reset to 1x now active." loading="lazy">
+<figcaption>The lock turned on: both gauges read the same ratio, and now move together.</figcaption></figure>
+
+<h2>What happens to each tier's angle</h2>
+
+<p>Scaling a half changes every one of its tiers' angles by the same rule &mdash; a larger ratio
+turns a facet's angle up, a smaller one turns it down &mdash; while the table and the girdle keep
+their own angles exactly, and every tier's index teeth and notes are untouched. Continuing the
+0.50&times; pavilion / 1.80&times; crown example above, the cutting instructions pane shows:</p>
+
+<table>
+  <tr><th>Tier</th><th>Angle at 1.00&times;</th><th>Angle after scaling</th></tr>
+  <tr><td>P1</td><td>36.58&deg;</td><td>20.36&deg;</td></tr>
+  <tr><td>G1 (girdle)</td><td>90.00&deg;</td><td>90.00&deg; &mdash; unchanged</td></tr>
+  <tr><td>P2</td><td>41.54&deg;</td><td>23.89&deg;</td></tr>
+  <tr><td>C1</td><td>55.07&deg;</td><td>68.79&deg;</td></tr>
+  <tr><td>C2</td><td>35.18&deg;</td><td>51.75&deg;</td></tr>
+  <tr><td>C3</td><td>28.49&deg;</td><td>44.34&deg;</td></tr>
+  <tr><td>C4</td><td>24.88&deg;</td><td>39.85&deg;</td></tr>
+  <tr><td>C5</td><td>28.24&deg;</td><td>44.04&deg;</td></tr>
+  <tr><td>C6</td><td>14.92&deg;</td><td>25.62&deg;</td></tr>
+  <tr><td>T (table)</td><td>0.00&deg;</td><td>0.00&deg; &mdash; unchanged</td></tr>
+</table>
+
+<p>The pavilion tiers' angles all dropped (flatter, at 0.50&times;) and the crown tiers' angles
+all rose (taller, at 1.80&times;), while the girdle and the table stayed exactly where they
+were.</p>
+
+<figure class="side"><img src="images/tangent-ratio-scaling/instructions-before.webp" alt="The cutting instructions pane at 1.00x: Pavilion tiers P1 36.58 degrees, G1 90.00 degrees, P2 41.54 degrees; Crown tiers C1 55.07 degrees through C6 14.92 degrees." loading="lazy">
+<figcaption>The rows that change, before scaling. (The table's row, further down the Crown
+section, isn't shown here &mdash; see the table above.)</figcaption></figure>
+
+<figure class="side"><img src="images/tangent-ratio-scaling/instructions-after.webp" alt="The same cutting instructions pane after scaling: Pavilion tiers now read 20.36 and 23.89 degrees with G1 unchanged at 90.00, and Crown tiers C1 through C6 all read higher angles." loading="lazy">
+<figcaption>After scaling: the pavilion angles are lower, the crown angles are higher, and the
+girdle (G1) hasn't moved.</figcaption></figure>
+
+<div class="note"><p>While scale height is open, the cutting instructions can't be reordered or
+edited, and the other tier tools are unavailable &mdash; the mode holds the whole design until you
+leave it with <span class="ui">Done</span>, <span class="ui">Cancel</span>, or
+<kbd>Escape</kbd>.</p></div>
+
+<h2>Confirming, cancelling and leaving</h2>
+
+<ul>
+  <li><span class="ui">Done</span> keeps the scaled angles, as one step of the studio's own
+  Undo.</li>
+  <li><span class="ui">Cancel</span> puts every tier back exactly as it was when you opened scale
+  height, and records nothing.</li>
+  <li><kbd>Escape</kbd> does the same as <span class="ui">Cancel</span> &mdash; unless you're in
+  the middle of typing an exact ratio, in which case it only cancels that typing, and the mode
+  stays open. Press <kbd>Escape</kbd> again, with nothing being typed, to leave.</li>
+</ul>
+
+<p>Either way out restores the view you had before you opened scale height, and the render
+settings panel comes back in place of the gauges.</p>
+
+<figure><img src="images/tangent-ratio-scaling/back-to-overview.webp" alt="The studio back in Mode: Overview after leaving scale height mode: the render settings panel has returned, the stone is back to its original view, and the cutting instructions show the design's original angles." loading="lazy">
+<figcaption>After leaving: back to Mode: Overview, with the original view and render settings restored.</figcaption></figure>
+
+<h2>Undo and redo</h2>
+
+<p>While scale height is open, <span class="ui">Undo</span> and <span class="ui">Redo</span>
+&mdash; the <span class="ui">Edit</span> menu's items, and <kbd>Cmd</kbd>+<kbd>Z</kbd> /
+<kbd>Ctrl</kbd>+<kbd>Z</kbd> and <kbd>Shift</kbd>+<kbd>Cmd</kbd>+<kbd>Z</kbd> /
+<kbd>Ctrl</kbd>+<kbd>Shift</kbd>+<kbd>Z</kbd> (or <kbd>Ctrl</kbd>+<kbd>Y</kbd>) &mdash; step
+through changes made to the two gauges and the lock only: a drag's release, a wheel notch, a key
+press, a typed value, a <span class="ui">Reset</span>, or a lock toggle each count as one step.
+This local undo has nothing to do with the rest of your edit history until you click <span
+class="ui">Done</span>.</p>
+
+<p><span class="ui">Done</span> folds the whole session into a single step of the studio's own
+Undo: pressing <kbd>Cmd</kbd>+<kbd>Z</kbd> / <kbd>Ctrl</kbd>+<kbd>Z</kbd> afterwards puts every
+tier straight back to how it stood before you opened scale height, in one step, whatever number of
+drags, scrolls or typed values it took to get there; <kbd>Shift</kbd>+<kbd>Cmd</kbd>+<kbd>Z</kbd> /
+<kbd>Ctrl</kbd>+<kbd>Shift</kbd>+<kbd>Z</kbd> brings the whole change back the same way.</p>
+
+<h2>Every gesture and shortcut</h2>
+
+<table>
+  <tr><th>Gesture / key</th><th>Where</th><th>Does</th></tr>
+  <tr><td>Click</td><td><span class="ui">Edit</span> &gt; <span class="ui">Scale height</span></td>
+  <td>Opens the mode</td></tr>
+  <tr><td>Drag</td><td>A gauge's tape</td><td>Scales that half live; releasing records the
+  edit</td></tr>
+  <tr><td>Scroll wheel</td><td>A gauge's tape</td><td>Nudges it 0.01&times;, recorded
+  immediately</td></tr>
+  <tr><td><kbd>&uarr;</kbd> <kbd>&darr;</kbd></td><td>A gauge, focused</td><td>0.01&times; a step,
+  recorded immediately</td></tr>
+  <tr><td><kbd>Page Up</kbd> <kbd>Page Down</kbd></td><td>A gauge, focused</td><td>0.25&times;, one
+  major tick</td></tr>
+  <tr><td><kbd>Home</kbd></td><td>A gauge, focused</td><td>Jumps to 4&times;, the tallest</td></tr>
+  <tr><td><kbd>End</kbd></td><td>A gauge, focused</td><td>Jumps to 0.25&times;, the
+  flattest</td></tr>
+  <tr><td>Click</td><td>A gauge's reading</td><td>Opens a text box to type an exact ratio</td></tr>
+  <tr><td><kbd>Enter</kbd></td><td>While typing a ratio</td><td>Applies it</td></tr>
+  <tr><td><kbd>Escape</kbd></td><td>While typing a ratio</td><td>Cancels the typing only</td></tr>
+  <tr><td>Hold <kbd>Shift</kbd> while dragging, or click <span class="ui">Fine</span></td>
+  <td>A gauge's tape</td><td>Fine adjustment: a fifth as far as the pointer</td></tr>
+  <tr><td>Click</td><td><span class="ui">Reset to 1&times;</span></td><td>Both gauges back to
+  1&times;, one step</td></tr>
+  <tr><td>Click</td><td><span class="ui">Lock crown to pavilion</span></td><td>Ties the gauges
+  together, bringing the crown to the pavilion's ratio</td></tr>
+  <tr><td>Click</td><td><span class="ui">Done</span></td><td>Keeps the scaling, as one step of
+  Undo, and leaves the mode</td></tr>
+  <tr><td>Click</td><td><span class="ui">Cancel</span></td><td>Discards the scaling and leaves the
+  mode</td></tr>
+  <tr><td><kbd>Escape</kbd></td><td>Anywhere in the mode, outside a text box</td><td>Same as
+  <span class="ui">Cancel</span></td></tr>
+  <tr><td><kbd>Cmd</kbd>+<kbd>Z</kbd> / <kbd>Ctrl</kbd>+<kbd>Z</kbd></td><td>Anywhere outside a
+  text box</td><td>Undo &mdash; the gauges while the mode is open, or the whole session after
+  <span class="ui">Done</span></td></tr>
+  <tr><td><kbd>Shift</kbd>+<kbd>Cmd</kbd>+<kbd>Z</kbd> / <kbd>Ctrl</kbd>+<kbd>Shift</kbd>+<kbd>Z</kbd>,
+  or <kbd>Ctrl</kbd>+<kbd>Y</kbd></td><td>Anywhere outside a text box</td><td>Redo</td></tr>
+</table>
+
+<h2>See also</h2>
+
+<ul>
+  <li><a href="editing-tiers.html">Editing facets by tier</a>, for reading the cutting
+  instructions pane and changing one tier's angle by hand instead of scaling a whole half at
+  once.</li>
+  <li><a href="girdle-resizing.html">Girdle resizing</a>, the other whole-design transform on the
+  <span class="ui">Edit</span> menu &mdash; it changes the girdle's own thickness against the rest
+  of the stone, rather than a half's height.</li>
+</ul>

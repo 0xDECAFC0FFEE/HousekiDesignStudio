@@ -81,6 +81,7 @@ Usage:  python3 src/scripts/make_page.py [--output build/www/studio.html] [--ski
 import argparse
 import base64
 import gzip
+import html
 import json
 import pathlib
 import re
@@ -159,6 +160,9 @@ SITE_DIR = SRC / "site"
 SITE_CONFIG = SITE_DIR / "site.json"
 SITE_OUTPUT_DIR = BUILD / "www"
 SITE_URL_PLACEHOLDER = "@@SITE_URL@@"
+# The user documentation (2026-09-24): pages.json, the shared _layout.html, the home page's
+# _index.html, one article fragment per page and their screenshots in images/. See build_docs.
+DOCS_DIR = SITE_DIR / "docs"
 
 # The minifier, and how Deno runs it. Deno rather than node, which is broken on this machine
 # (kb/build-and-test-commands.md). --allow-env and --allow-read because the npm packages it
@@ -623,6 +627,123 @@ def with_theme(page):
     return page
 
 
+def docs_nav(sections, current, to_docs):
+    """The documentation sidebar: one heading per section of pages.json and a link per page,
+    `current` (a slug, or None on the home page) marked as the page being read. `to_docs` is the
+    relative path from the page being written to build/www/docs/ ("docs/" from the home page,
+    "" from a page inside it)."""
+    lines = []
+
+    for section in sections:
+        lines.append(f"    <h2>{html.escape(section['title'])}</h2>")
+        lines.append("    <ul>")
+
+        for page in section["pages"]:
+            current_attr = ' aria-current="page"' if page["slug"] == current else ""
+            badge = ' <span class="badge">In progress</span>' if page.get("wip") else ""
+            lines.append(f'      <li><a href="{to_docs}{page["slug"]}.html"{current_attr}>'
+                         f'{html.escape(page["title"])}{badge}</a></li>')
+
+        lines.append("    </ul>")
+
+    return "\n".join(lines)
+
+
+def docs_cards(sections):
+    """The home page's list of every page, a card per page under a heading per section."""
+    lines = []
+
+    for section in sections:
+        lines.append(f"<h2>{html.escape(section['title'])}</h2>")
+        lines.append('<ul class="cards">')
+
+        for page in section["pages"]:
+            badge = ' <span class="badge">In progress</span>' if page.get("wip") else ""
+            lines.append(f'  <li><a href="docs/{page["slug"]}.html"><strong>{html.escape(page["title"])}{badge}</strong>'
+                         f'<span>{html.escape(page["summary"])}</span></a></li>')
+
+        lines.append("</ul>")
+
+    return "\n".join(lines)
+
+
+def docs_page(layout, sections, title, description, body, current, to_docs, to_root, docs_index):
+    """One documentation page: `layout` with its own placeholders filled, then the theme's."""
+    if "@@" in body:
+        fail(f"the documentation page {title!r} contains '@@', which the layout uses for its placeholders.")
+
+    page = (layout.replace("@@DOCS_TITLE@@", html.escape(title))
+            .replace("@@DOCS_DESCRIPTION@@", html.escape(description, quote=True))
+            .replace("@@DOCS_NAV@@", docs_nav(sections, current, to_docs))
+            .replace("@@DOCS_INDEX@@", docs_index)
+            .replace("@@DOCS_ROOT@@", to_root)
+            .replace("@@DOCS_BODY@@", body.strip()))
+
+    return with_theme(page)
+
+
+def build_docs():
+    """Writes the user documentation from src/site/docs/ and returns the paths written.
+
+    pages.json lists the pages in order, in sections. Each page's article is the fragment
+    src/site/docs/<slug>.html, wrapped in the shared _layout.html with the sidebar generated from
+    pages.json; _index.html is the home page's, with the list of pages at its @@DOCS_CARDS@@. The
+    home page is build/www/docs.html, where site.json's `docs` link points, and the pages are
+    build/www/docs/<slug>.html. Screenshots live in src/site/docs/images/ and are copied to
+    build/www/docs/images/.
+
+    Every page listed must have a fragment, every fragment must be listed, and every image a
+    page shows must exist, so a missing page or a broken screenshot fails the build rather than
+    the published site."""
+    config = json.loads((DOCS_DIR / "pages.json").read_text())
+    sections = config["sections"]
+    pages = [page for section in sections for page in section["pages"]]
+    slugs = [page["slug"] for page in pages]
+    layout = (DOCS_DIR / "_layout.html").read_text()
+
+    if len(set(slugs)) != len(slugs):
+        fail(f"{DOCS_DIR / 'pages.json'} lists a page twice.")
+
+    fragments = {path.stem for path in DOCS_DIR.glob("*.html") if not path.name.startswith("_")}
+
+    if fragments != set(slugs):
+        fail(f"{DOCS_DIR}: pages.json and the page files disagree; missing files "
+             f"{sorted(set(slugs) - fragments)}, unlisted files {sorted(fragments - set(slugs))}.")
+
+    output_dir = SITE_OUTPUT_DIR / "docs"
+
+    # Rebuilt from scratch, so a page or screenshot removed from the source leaves the site too.
+    if output_dir.exists():
+        shutil.rmtree(output_dir)
+
+    output_dir.mkdir(parents=True)
+
+    if (DOCS_DIR / "images").is_dir():
+        shutil.copytree(DOCS_DIR / "images", output_dir / "images")
+
+    written = []
+    index_body = (DOCS_DIR / "_index.html").read_text().replace("@@DOCS_CARDS@@", docs_cards(sections))
+    index = SITE_OUTPUT_DIR / "docs.html"
+    index.write_text(docs_page(layout, sections, "Documentation",
+                               "How to use Houseki Design Studio, the in-browser gem cut designer.",
+                               index_body, None, "docs/", "", "docs.html"))
+    written.append(index)
+
+    for page in pages:
+        body = (DOCS_DIR / f"{page['slug']}.html").read_text()
+
+        for source in re.findall(r'<img[^>]*\bsrc="([^"]+)"', body):
+            if not (DOCS_DIR / source).is_file():
+                fail(f"{DOCS_DIR / (page['slug'] + '.html')} shows {source}, which does not exist.")
+
+        path = output_dir / f"{page['slug']}.html"
+        path.write_text(docs_page(layout, sections, page["title"], page["summary"], body,
+                                  page["slug"], "", "../", "../docs.html"))
+        written.append(path)
+
+    return written
+
+
 def build_site(app_output):
     """Writes the landing page (src/site/index.html) to build/www/index.html, with robots.txt and, once
     the site has a URL, sitemap.xml. Returns the paths written.
@@ -674,10 +795,18 @@ def build_site(app_output):
     (SITE_OUTPUT_DIR / "robots.txt").write_text(robots)
     written.append(SITE_OUTPUT_DIR / "robots.txt")
 
+    # The user documentation (2026-09-24): build/www/docs.html, its home page, and one page per
+    # entry in src/site/docs/pages.json under build/www/docs/. Indexed and in the sitemap since
+    # 2026-09-24, when it replaced the noindex "coming soon" placeholder with real pages.
+    docs_written = build_docs()
+    written += docs_written
+    docs_paths = [path.relative_to(SITE_OUTPUT_DIR).as_posix() for path in docs_written]
+
     sitemap = SITE_OUTPUT_DIR / "sitemap.xml"
 
     if url:
-        entries = "".join(f"  <url><loc>{url}{path}</loc></url>\n" for path in ("", app_name, "about.html"))
+        entries = "".join(f"  <url><loc>{url}{path}</loc></url>\n"
+                          for path in ("", app_name, "about.html", *docs_paths))
         sitemap.write_text('<?xml version="1.0" encoding="UTF-8"?>\n'
                            '<urlset xmlns="http://www.sitemaps.org/schemas/sitemap/0.9">\n'
                            f"{entries}</urlset>\n")
@@ -685,12 +814,6 @@ def build_site(app_output):
     elif sitemap.exists():
         # A sitemap from a build that had a URL would now list a stale address.
         sitemap.unlink()
-
-    # The documentation placeholder (a "coming soon" page, marked noindex and left out of the
-    # sitemap until it has content, 2026-09-19), with the theme filled in like the landing page.
-    docs_page = with_theme((SITE_DIR / "docs.html").read_text())
-    (SITE_OUTPUT_DIR / "docs.html").write_text(docs_page)
-    written.append(SITE_OUTPUT_DIR / "docs.html")
 
     # The about page, with the theme filled in the same way.
     about_page = with_theme((SITE_DIR / "about.html").read_text())

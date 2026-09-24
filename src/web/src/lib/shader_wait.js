@@ -3,7 +3,7 @@
 //
 // WHY THIS EXISTS (measured 2026-09-22, Firefox 156 and Chrome 153 on an RTX 2080).
 // `GemApp`'s constructor links one ~285 KB fragment shader -- `gem.frag` concatenated with
-// every `lux/*.glsl` file, both path tracers in a single program; see `FRAGMENT_SHADER` in
+// every `lux/*.glsl` file, both renderers in a single program; see `FRAGMENT_SHADER` in
 // `src/renderer/lib.rs`. On Windows every browser runs WebGL through ANGLE, which translates
 // that GLSL to HLSL and hands it to Direct3D's shader compiler, and that compiler takes
 // 7.7-11.9 s over it. macOS and Android hand the shader to Metal or to the native GLES driver

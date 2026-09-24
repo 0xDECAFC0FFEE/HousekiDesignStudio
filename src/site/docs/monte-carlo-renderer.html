@@ -1,0 +1,122 @@
+<h1>Monte Carlo renderer</h1>
+
+<p>The Monte Carlo renderer is the studio's slower, more realistic renderer. Rather than drawing
+a finished picture in one pass, it builds the image up sample by sample, starting grainy and
+sharpening the longer the stone is left alone. It traces colour across the whole visible
+spectrum rather than a handful of fixed colours, which gives it smoother, more natural fire, and
+it is the only renderer that can show frosted facets.</p>
+
+<figure><img src="images/monte-carlo-renderer/converged.webp" alt="The studio's startup stone rendered with the Monte Carlo renderer, left to settle into a smooth, detailed image" loading="lazy">
+<figcaption>The stone the studio opens with, in the Monte Carlo renderer, left to settle.</figcaption></figure>
+
+<h2>Switching to it</h2>
+
+<p>Open the dropdown at the top of the <span class="ui">Tracing</span> section of the settings
+and choose <span class="ui">Monte Carlo</span> (the other choices are
+<span class="ui">Deterministic</span> and <span class="ui">Flat</span> &ndash; see the
+<a href="deterministic-renderer.html">Deterministic renderer</a> page for those). Hovering the
+dropdown shows a tooltip describing the selected renderer.</p>
+
+<figure class="side"><img src="images/monte-carlo-renderer/renderer-tooltip.webp" alt="The Tracing section of the settings with the renderer dropdown showing its tooltip, describing the Monte Carlo renderer" loading="lazy">
+<figcaption>The Monte Carlo renderer's tooltip.</figcaption></figure>
+
+<div class="note"><p>The first time the Monte Carlo renderer is selected in a session there can be a
+brief pause before the first image appears. Switching back and forth after that is instant.</p></div>
+
+<h2>An image that sharpens over time</h2>
+
+<p>The moment the Monte Carlo renderer is selected, or anything about the view or the stone
+changes, the picture restarts from scratch: a single noisy, grainy sample. Left alone, it keeps
+adding more samples on top of each other, and the noise fades as more accumulate. A line under
+the <span class="ui">Tracing</span> settings reports progress as a percentage and how long it has
+been running, ending "(converged)" once it stops improving &ndash; for example, "100% complete, over
+12 seconds (converged)."</p>
+
+<figure><img src="images/monte-carlo-renderer/grainy-early.webp" alt="The stone in the Monte Carlo renderer moments after switching to it, a noisy, grainy image" loading="lazy">
+<figcaption>Moments after switching to the Monte Carlo renderer: one sample in, still noisy.</figcaption></figure>
+
+<figure><img src="images/monte-carlo-renderer/converged.webp" alt="The same stone in the Monte Carlo renderer after being left to settle, a smooth, detailed image" loading="lazy">
+<figcaption>The same view, left to settle: the noise has cleared.</figcaption></figure>
+
+<p><strong>Any change restarts it.</strong> Turning the stone, changing a material, moving a
+slider, or resizing the window all throw away the samples gathered so far and start again from a
+single noisy sample. That includes the resolution and quality settings below: raising them buys
+a sharper final image at the cost of restarting the wait.</p>
+
+<h2>The physics it simulates</h2>
+
+<p>The Monte Carlo renderer follows the same physical rules as the
+<a href="deterministic-renderer.html">Deterministic renderer</a> &ndash; Snell's law bending light as
+it crosses into and out of the stone, total internal reflection giving the stone its brilliant
+flashes, the full Fresnel equations deciding how much of the light at each surface reflects
+versus passes through, and Beer-Lambert absorption giving a coloured stone its body colour &ndash; see
+that page for what each looks like on the stone.</p>
+
+<p>Where it differs is <strong>dispersion</strong>, the fire a stone throws by bending different
+colours of light by slightly different amounts. Instead of tracing three fixed colours, the
+Monte Carlo renderer randomly samples colours from across the whole visible spectrum, one
+wavelength at a time, so its fire builds up into a smooth rainbow rather than a few coloured
+edges. It uses the same <span class="ui">Dispersion (fire)</span> slider as the Deterministic
+renderer, under <span class="ui">Material</span>, to decide how much fire to show.</p>
+
+<h2>Controls</h2>
+
+<p>Every <span class="ui">Material</span> and <span class="ui">Lighting</span> control works the
+same as it does for the Deterministic renderer (refractive index, dispersion, stone colour and
+opacity, the lighting model, head shadow, background and window colours &ndash; see the
+<a href="deterministic-renderer.html">Deterministic renderer</a> page for what each one does).
+The <span class="ui">Tracing</span> section adds two controls that only apply here, and hides
+one that the Monte Carlo renderer does not use:</p>
+
+<ul>
+<li><span class="ui">Samples to accumulate</span> is how much detail the picture gathers before
+it stops improving &ndash; how far the progress line above counts up to. Higher is smoother but takes
+longer to converge.</li>
+<li><span class="ui">Samples per frame</span> is how much work each individual frame does.
+Higher sharpens the picture in fewer frames, but each frame takes longer, so the page responds
+more slowly while it is moving.</li>
+<li><span class="ui">Max internal bounces</span>, <span class="ui">Resolution scale</span> and
+<span class="ui">Drag quality</span> are shared with every renderer and behave exactly as
+described on the <a href="deterministic-renderer.html">Deterministic renderer</a> page.</li>
+<li><span class="ui">Facet wireframe</span> is not shown here: the Monte Carlo renderer does not
+draw it, so the checkbox is hidden whenever this renderer is selected. Switch to
+<span class="ui">Deterministic</span> or <span class="ui">Flat</span> to see it again.</li>
+</ul>
+
+<figure class="side"><img src="images/monte-carlo-renderer/samples-panel.webp" alt="The Tracing section of the settings with the Monte Carlo renderer selected, showing Samples to accumulate, Samples per frame, and the progress line, with no Facet wireframe row" loading="lazy">
+<figcaption>The Tracing section under the Monte Carlo renderer: the two sample sliders and the
+progress line appear, and the Facet wireframe checkbox is gone.</figcaption></figure>
+
+<h2>Turning the stone</h2>
+
+<p>Drag the stone with the mouse to orbit it, and scroll the mouse wheel to zoom, exactly as with
+the other renderers. While the stone is moving &ndash; dragging, scrolling, or moving the
+<span class="ui">X rotation (spin)</span> or <span class="ui">Y rotation (tilt)</span> sliders &ndash;
+the picture drops to <span class="ui">Drag quality</span> so it can keep up, and only starts
+gathering samples towards a settled image once the movement stops. A slider's readout can also
+be clicked to type an exact number: type the value and press <kbd>Enter</kbd> to apply it, or
+<kbd>Escape</kbd> to cancel.</p>
+
+<h2>Frosted facets</h2>
+
+<p>The Monte Carlo renderer is the only one that can show a facet as frosted: rough rather than
+glass-smooth, so it scatters light instead of reflecting and refracting it cleanly. To frost a
+facet, select the tier it belongs to in the cutting instructions on the left &ndash; click its
+row, or use <kbd>&uarr;</kbd>/<kbd>&darr;</kbd> to move the selection to it &ndash; then click
+<span class="ui">Frosted</span> in the row of buttons under the cutting instructions. The tier's
+row turns bold to show it is marked, and every facet in that tier renders frosted the next time
+the Monte Carlo renderer draws it. Click <span class="ui">Frosted</span> again to unmark it.</p>
+
+<figure><img src="images/monte-carlo-renderer/tier-selected.webp" alt="A tier row selected in the cutting instructions, with the tier toolbar below it" loading="lazy">
+<figcaption>A tier selected in the cutting instructions, with the tier toolbar &ndash; including the
+Frosted button &ndash; below it.</figcaption></figure>
+
+<figure><img src="images/monte-carlo-renderer/frosted-tier-toggled.webp" alt="The same tier row marked as frosted, shown bold, with the Frosted button pressed" loading="lazy">
+<figcaption>The tier marked frosted: its row turns bold, and the Frosted button stays pressed.</figcaption></figure>
+
+<figure><img src="images/monte-carlo-renderer/frosted-render.webp" alt="The stone in the Monte Carlo renderer with one tier's facets rendered frosted, scattering light rather than reflecting it cleanly" loading="lazy">
+<figcaption>The frosted tier's facets, rendered by the Monte Carlo renderer: cloudy rather than
+glass-clear.</figcaption></figure>
+
+<div class="note"><p>Frosted facets are only ever shown by the Monte Carlo renderer. Switching to
+Deterministic or Flat draws every facet polished, whether or not it is marked frosted.</p></div>

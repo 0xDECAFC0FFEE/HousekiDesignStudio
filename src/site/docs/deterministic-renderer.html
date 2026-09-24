@@ -1,0 +1,191 @@
+<h1>Deterministic renderer</h1>
+
+<p>The Deterministic renderer is the studio's fast, instant-image renderer. It draws the stone
+completely in a single pass, with no waiting and no visual noise, which makes it the renderer to
+leave on while you turn the stone, try a material, or compare two settings side by side. Its
+picture never changes on its own: it looks the same the instant after you release the mouse as
+it does a minute later.</p>
+
+<figure><img src="images/deterministic-renderer/overview.webp" alt="The studio's startup stone rendered with the Deterministic renderer, a sharp image with no visual noise" loading="lazy">
+<figcaption>The stone the studio opens with, in the Deterministic renderer.</figcaption></figure>
+
+<h2>Switching renderers</h2>
+
+<p>The renderer is chosen from the dropdown at the top of the <span class="ui">Tracing</span>
+section of the settings, on the right of the window. It lists three choices:
+<span class="ui">Deterministic</span> (the default), <span class="ui">Monte Carlo</span> and
+<span class="ui">Flat</span>. Hovering over the dropdown shows a tooltip describing whichever
+renderer is currently selected.</p>
+
+<figure><img src="images/deterministic-renderer/renderer-tooltip.webp" alt="The Tracing section of the settings with the renderer dropdown showing its tooltip, describing the Deterministic renderer" loading="lazy">
+<figcaption>Hovering the renderer dropdown shows what the selected renderer does.</figcaption></figure>
+
+<figure><img src="images/deterministic-renderer/renderer-picker-open.webp" alt="The Tracing section of the settings with the renderer dropdown open, listing Deterministic, Monte Carlo and Flat" loading="lazy">
+<figcaption>The renderer dropdown open: Deterministic, Monte Carlo and Flat.</figcaption></figure>
+
+<p>Choosing <span class="ui">Deterministic</span> redraws the stone at once. Nothing else on the
+page needs to change: every other setting &ndash; material, lighting, bounces &ndash; carries straight
+over to whichever renderer is selected.</p>
+
+<h2>What the picture is showing</h2>
+
+<p>The Deterministic renderer follows light through the stone the way a diamond actually bends
+and reflects it, using a handful of physical rules:</p>
+
+<ul>
+<li><strong>Snell's law</strong> is what bends a ray as it crosses from air into the stone, or
+back out again &ndash; it is why a faceted stone's reflections look broken into distinct flashes
+instead of one smooth mirror.</li>
+<li><strong>Total internal reflection</strong> is what happens when light inside the stone hits a
+facet too steeply to escape: instead of dimming through it, the light bounces back inside,
+which is what gives a well-cut stone its brilliance &ndash; the bright, mirror-like flashes across
+its face.</li>
+<li><strong>The full Fresnel equations</strong> decide, at every surface, how much light reflects
+and how much passes through, depending on the angle it arrives at. It is why a facet can look
+almost like a window straight on and almost like a mirror at a glancing angle.</li>
+<li><strong>Beer-Lambert absorption</strong> is the stone taking on colour as light travels
+through it: the further light has to travel inside the stone, the more of that colour it picks
+up, which is what gives a coloured stone its body colour and its darker, richer tones in its
+deepest parts.</li>
+</ul>
+
+<div class="note"><p>The Deterministic renderer's own tooltip names these by name: Snell's law,
+total internal reflection ("TIR"), Beer-Lambert ("BL") absorption and the full Fresnel
+equations.</p></div>
+
+<p>Its one simplification is <strong>fire</strong> &ndash; the rainbow-coloured flashes a stone throws
+when it bends different colours of light by slightly different amounts (called dispersion). The
+Deterministic renderer traces only three fixed colours (a red, a green and a blue) rather than
+the whole visible spectrum, so its fire shows up as a handful of coloured edges rather than a
+smooth rainbow. It is still fast for exactly this reason: the <a href="monte-carlo-renderer.html">Monte
+Carlo renderer</a> traces a whole spectrum of colours instead, at the cost of speed.</p>
+
+<h2>Controls</h2>
+
+<p>Every control below works with the Deterministic renderer. The ones that are specific to the
+Monte Carlo renderer (<span class="ui">Samples to accumulate</span>, <span class="ui">Samples per
+frame</span>) are hidden while Deterministic is selected, because this renderer does not use
+them &ndash; see the <a href="monte-carlo-renderer.html">Monte Carlo renderer</a> page for those.</p>
+
+<h3>Material</h3>
+
+<ul>
+<li>The material dropdown holds a set of gem presets (diamond, ruby, emerald, and others), each
+setting a refractive index, a dispersion and a stone colour together.</li>
+<li><span class="ui">Refractive index</span> is how strongly the stone bends light. A higher
+index traps more light inside through total internal reflection, which is what makes a stone
+look brighter and more brilliant.</li>
+<li><span class="ui">Dispersion (fire)</span> sets how far the stone spreads light into fire.
+0 means no fire at all (and renders about three times faster); higher values spread the colours
+further apart.</li>
+<li><span class="ui">Stone color</span> is the stone's body colour: how much of each colour of
+light survives passing through it. White is colourless. Opening it shows an
+<span class="ui">Opacity</span> slider, which is how strongly the stone takes on that colour &ndash;
+lower is paler, and 0 is colourless whatever colour is picked. It never makes the stone cloudy or
+see-through to what is behind it.</li>
+</ul>
+
+<figure><img src="images/deterministic-renderer/dispersion-low.webp" alt="The stone rendered with dispersion (fire) set to 0, showing no rainbow fire" loading="lazy">
+<figcaption>Dispersion at 0: no fire.</figcaption></figure>
+
+<figure><img src="images/deterministic-renderer/dispersion-high.webp" alt="The stone rendered with dispersion (fire) turned up, showing coloured flashes at facet edges" loading="lazy">
+<figcaption>Dispersion turned up: coloured fire at the facet edges. The Deterministic renderer
+only has three colours to work with, so the fire looks like coloured edges rather than a full
+rainbow.</figcaption></figure>
+
+<figure><img src="images/deterministic-renderer/material-color.webp" alt="The stone rendered with the Ruby material preset, showing a red body colour" loading="lazy">
+<figcaption>The Ruby preset: a coloured stone.</figcaption></figure>
+
+<h3>Tracing</h3>
+
+<ul>
+<li><span class="ui">Max internal bounces</span> is how many times light may reflect inside the
+stone before the renderer gives up on it. A higher number is more accurate for deep stones, but
+slower. Light still bouncing around when the renderer runs out is shown as a darker tint of the
+stone's own colour rather than left blank. The minimum is 3 &ndash; any lower and there is barely any
+glass left to see, and the tooltip suggests using the <span class="ui">Flat</span> renderer
+instead if that little detail is wanted.</li>
+<li><span class="ui">Resolution scale</span> renders at a fraction of the screen's resolution
+while the view is still. Lower is faster but blurrier. It defaults to 100%.</li>
+<li><span class="ui">Drag quality</span> is how close to full quality the picture stays while the
+stone is being turned or zoomed &ndash; see "Turning the stone" below.</li>
+<li><span class="ui">Facet wireframe</span> outlines every facet you can see (edges hidden behind
+the stone are not drawn). It is on by default.</li>
+</ul>
+
+<figure><img src="images/deterministic-renderer/bounces-low.webp" alt="The stone rendered with Max internal bounces set to 3, looking flatter and less deep" loading="lazy">
+<figcaption>3 internal bounces: light runs out quickly, and unresolved light fills in as a darker
+tint.</figcaption></figure>
+
+<figure><img src="images/deterministic-renderer/bounces-high.webp" alt="The stone rendered with Max internal bounces set to 32, showing more internal detail" loading="lazy">
+<figcaption>32 internal bounces: light keeps bouncing longer, showing more of the stone's internal
+reflections.</figcaption></figure>
+
+<figure><img src="images/deterministic-renderer/wireframe-on.webp" alt="The stone rendered with the facet wireframe on, each visible facet outlined" loading="lazy">
+<figcaption>Facet wireframe on.</figcaption></figure>
+
+<figure><img src="images/deterministic-renderer/wireframe-off.webp" alt="The stone rendered with the facet wireframe off, showing only the shaded surfaces with no outlines" loading="lazy">
+<figcaption>Facet wireframe off.</figcaption></figure>
+
+<h3>Lighting</h3>
+
+<ul>
+<li>The lighting model dropdown chooses what lights the stone: <span class="ui">Angle rings</span>
+colours the light by how steeply it arrives (red from overhead, then cyan, yellow and magenta
+towards the horizon), which is useful for seeing which angles a cut actually uses;
+<span class="ui">Isometric</span> is even white light from everywhere above;
+<span class="ui">Cosine</span> is brightest overhead, fading towards the horizon; and
+<span class="ui">Skybox image</span> lights the stone with a photographed room, which is the
+studio's default and the most realistic-looking of the four.</li>
+<li>Choosing one of the first three shows a <span class="ui">Neutralise material</span> button:
+those three are measurement tools, and only make sense on a colourless, non-dispersive stone,
+since the stone's own colour otherwise multiplies the reading. The button zeroes the stone's
+colour and dispersion.</li>
+<li><span class="ui">Flat background</span> shows a plain colour behind the stone instead of the
+lighting, and also colours light seen through the back of the stone, unless
+<span class="ui">Separate window color</span> is turned on.</li>
+<li><span class="ui">Head shadow color</span> is the colour of light blocked by your own head,
+including the small dot at the centre of the table when the stone faces you straight on. Black
+is realistic; a bright colour shows which facets depend on light from directly behind the
+viewer.</li>
+<li><span class="ui">Head shadow half-angle</span> sets how wide that shadow is. 0 turns it off.</li>
+<li><span class="ui">Separate window color</span> colours light that leaks straight through the
+back of the stone (a "window"), so those leaks are easy to spot. Off, that light shows the flat
+background or the lighting instead.</li>
+</ul>
+
+<figure><img src="images/deterministic-renderer/lighting-angle-rings.webp" alt="The stone under the Angle rings lighting model, coloured bands by angle of incidence" loading="lazy">
+<figcaption>Angle rings.</figcaption></figure>
+
+<figure><img src="images/deterministic-renderer/lighting-isometric.webp" alt="The stone under the Isometric lighting model, even white light from above" loading="lazy">
+<figcaption>Isometric.</figcaption></figure>
+
+<figure><img src="images/deterministic-renderer/lighting-cosine.webp" alt="The stone under the Cosine lighting model, brightest overhead and fading towards the horizon" loading="lazy">
+<figcaption>Cosine.</figcaption></figure>
+
+<figure><img src="images/deterministic-renderer/lighting-skybox.webp" alt="The stone under the Skybox image lighting model, a photographed room" loading="lazy">
+<figcaption>Skybox image, the studio's default.</figcaption></figure>
+
+<h2>Turning the stone</h2>
+
+<p>Drag the stone with the mouse to orbit it, and scroll the mouse wheel to zoom. Any drag, wheel
+step, or move of the <span class="ui">X rotation (spin)</span> or <span class="ui">Y rotation
+(tilt)</span> sliders drops the picture to <span class="ui">Drag quality</span> while it moves
+(scaling both the resolution and the internal bounces together), then returns to full quality
+shortly after the movement stops. Because the Deterministic renderer finishes in one pass, this
+is only about keeping the stone responsive while it moves; the picture itself never needs to
+settle the way the Monte Carlo renderer's does.</p>
+
+<p>A slider's own readout can be clicked to type an exact number: type the value and press
+<kbd>Enter</kbd> to apply it, or <kbd>Escape</kbd> to cancel.</p>
+
+<h2>The Flat renderer</h2>
+
+<p>A third choice in the same dropdown, <span class="ui">Flat</span> does no rendering at all: it
+shows the stone as a flat, opaque surface in the stone's own colour, with no light, reflection or
+fire. It is instant, and with <span class="ui">Facet wireframe</span> turned on it draws a clean
+line diagram of the facets &ndash; useful for looking at a cut's geometry without anything else
+competing for attention.</p>
+
+<figure><img src="images/deterministic-renderer/flat-renderer.webp" alt="The stone rendered with the Flat renderer, a flat opaque silhouette with no lighting" loading="lazy">
+<figcaption>The Flat renderer: no lighting, no reflections, just the stone's outline and colour.</figcaption></figure>

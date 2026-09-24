@@ -1,0 +1,486 @@
+<h1>Getting started</h1>
+
+<p>This page is a tour of the whole screen: the menu bar, the cutting instructions on the left,
+the render in the middle, the settings on the right, and every mouse gesture and keyboard
+shortcut the studio has. The screenshots below show the stone the studio opens with.</p>
+
+<figure><img src="images/getting-started/overview.webp" alt="The whole studio window: the top bar, the cutting instructions pane on the left, the rendered stone in the middle with its view sliders and stats box, and the render settings panel on the right." loading="lazy">
+<figcaption>The studio's screen: the top bar, the cutting instructions, the render, and the render settings.</figcaption></figure>
+
+<p>The screen has four main areas, always on screen, plus a fifth that only appears while you are
+editing a facet:</p>
+
+<ul>
+  <li>the <strong>top bar</strong>, with the menu bar and a readout of which mode you are in;</li>
+  <li>the <strong>cutting instructions</strong> pane, on the left;</li>
+  <li>the <strong>render</strong>, in the middle, with the view sliders and the stone's
+  proportions laid over it;</li>
+  <li>the <strong>render settings</strong> panel, on the right;</li>
+  <li>a thin <strong>sub bar</strong> above the render, which only appears while you are editing a
+  facet (see "Editing a facet" below).</li>
+</ul>
+
+<p>Everything here runs from a single page in your browser, and nothing is sent to a server (see
+"Saving, undo and sharing" below). If you would rather keep a copy that opens without needing an
+internet connection, see <a href="save-offline.html">Saving the studio to your computer</a>.</p>
+
+<h2>The top bar</h2>
+
+<p>The studio's name sits top left. Beside it is the menu bar: <span class="ui">File</span>,
+<span class="ui">Edit</span>, <span class="ui">Tools</span> and <span class="ui">Help</span>.
+Click a menu to open it; click its button again, press <kbd>Escape</kbd>, or click anywhere else
+to close it. While one menu is open, moving the pointer onto another menu's button opens that one
+straight away.</p>
+
+<p>At the top right, <span class="ui">Mode: Overview</span> always tells you which mode the page
+is in — it changes to say so whenever you open a mode such as editing a tier, scaling height,
+resizing the girdle, or the cutting assistant.</p>
+
+<h3>The File menu</h3>
+
+<figure><img src="images/getting-started/menu-file.webp" alt="The File menu open, listing New, Open, Save, Export, Rename and Settings." loading="lazy">
+<figcaption>The File menu.</figcaption></figure>
+
+<table>
+  <tr><th>Item</th><th>What it does</th></tr>
+  <tr><td><span class="ui">New</span>, <span class="ui">Save</span></td><td>Greyed out; not
+  available yet.</td></tr>
+  <tr><td><span class="ui">Open</span></td><td>Opens a file picker for a <code>.obj</code>,
+  <code>.asc</code>, <code>.gem</code> or <code>.gcs</code> file. <kbd>Cmd</kbd>+<kbd>O</kbd> on a
+  Mac, <kbd>Ctrl</kbd>+<kbd>O</kbd> elsewhere.</td></tr>
+  <tr><td><span class="ui">Export</span></td><td>A submenu of file formats to save the current
+  design as. See "Saving, undo and sharing" below.</td></tr>
+  <tr><td><span class="ui">Rename</span></td><td>Opens the cut name at the top of the cutting
+  instructions for editing, with its text selected. <kbd>F2</kbd> does the same.</td></tr>
+  <tr><td><span class="ui">Settings</span></td><td>Opens the settings dialog: light or dark mode,
+  and how many decimal places an angle shows. See "Settings, theme and precision" below.</td></tr>
+</table>
+
+<h3>The Edit menu</h3>
+
+<figure class="side"><img src="images/getting-started/menu-edit.webp" alt="The Edit menu open, listing Undo, Redo, Rotate by index, Reverse index order, Resize girdle, Flip crown and pavilion, Scale height and Manual optimizer." loading="lazy">
+<figcaption>The Edit menu: undo and redo, and the whole-design transforms.</figcaption></figure>
+
+<table>
+  <tr><th>Item</th><th>What it does</th></tr>
+  <tr><td><span class="ui">Undo</span></td><td>Steps the design back one change.
+  <kbd>Cmd</kbd>+<kbd>Z</kbd> on a Mac, <kbd>Ctrl</kbd>+<kbd>Z</kbd> elsewhere. Greyed out when
+  there is nothing to undo.</td></tr>
+  <tr><td><span class="ui">Redo</span></td><td>Steps it forward again.
+  <kbd>Shift</kbd>+<kbd>Cmd</kbd>+<kbd>Z</kbd> on a Mac,
+  <kbd>Ctrl</kbd>+<kbd>Shift</kbd>+<kbd>Z</kbd> (or <kbd>Ctrl</kbd>+<kbd>Y</kbd>) elsewhere.</td></tr>
+  <tr><td><span class="ui">Resize girdle</span></td><td>Opens girdle resizing. See
+  <a href="girdle-resizing.html">Girdle resizing</a>.</td></tr>
+  <tr><td><span class="ui">Scale height</span></td><td>Opens tangent-ratio height scaling. See
+  <a href="tangent-ratio-scaling.html">Tangent ratio height scaling</a>.</td></tr>
+  <tr><td><span class="ui">Rotate by index</span>, <span class="ui">Reverse index order</span>,
+  <span class="ui">Flip crown and pavilion</span>, <span class="ui">Manual optimizer</span></td>
+  <td>Greyed out, with a tooltip explaining what each will do; not built yet. See
+  <a href="rotation-by-index.html">Rotation by index</a>,
+  <a href="crown-pavilion-flipping.html">Crown and pavilion flipping</a> and
+  <a href="manual-optimizer.html">Manual optimizer</a>.</td></tr>
+</table>
+
+<div class="note"><p>A greyed-out item that opens a mode (<span class="ui">Resize girdle</span>,
+<span class="ui">Scale height</span>) says why in its tooltip: usually because another mode, such
+as editing a tier, is already open. Only one mode can be open at a time.</p></div>
+
+<h3>The Tools menu</h3>
+
+<figure><img src="images/getting-started/menu-tools.webp" alt="The Tools menu open, listing Tilt performance, Size/yield calculator, Cutting assistant and Record rendering." loading="lazy">
+<figcaption>The Tools menu.</figcaption></figure>
+
+<table>
+  <tr><th>Item</th><th>What it does</th></tr>
+  <tr><td><span class="ui">Cutting assistant</span></td><td>Walks you through cutting the design
+  tier by tier. See <a href="cutting-assistant.html">Cutting assistant</a>.</td></tr>
+  <tr><td><span class="ui">Tilt performance</span>, <span class="ui">Size/yield calculator</span>,
+  <span class="ui">Record rendering</span></td><td>Greyed out, with a tooltip explaining what each
+  will do; not built yet. See <a href="tilt-performance.html">Tilt performance analyzer</a>,
+  <a href="size-yield-calculator.html">Size and yield calculator</a> and
+  <a href="render-recording.html">Recording renders</a>.</td></tr>
+</table>
+
+<h3>The Help menu</h3>
+
+<figure><img src="images/getting-started/menu-help.webp" alt="The Help menu open, listing Documentation and bug report." loading="lazy">
+<figcaption>The Help menu: this documentation, and a link to report a bug.</figcaption></figure>
+
+<p><span class="ui">Documentation</span> opens this site in a new tab; <span
+class="ui">bug report &#128128;</span> opens the project's issue tracker in a new tab.</p>
+
+<h2>The cutting instructions pane</h2>
+
+<p>On the left, the cutting instructions read like a sheet you would take to the machine: a
+title, an author and a date, then every tier of the pavilion and the crown in the order they are
+cut.</p>
+
+<h3>The cut header</h3>
+
+<p>The name, author and date are each a text box you click to edit: click one, type, then press
+<kbd>Enter</kbd> or click away to apply it, or <kbd>Escape</kbd> to cancel. The name is also
+what <span class="ui">File</span> &gt; <span class="ui">Rename</span> and <kbd>F2</kbd> open.</p>
+
+<figure><img src="images/getting-started/cut-name-editing.webp" alt="The cut name field open for editing, with its text selected, above the author and date." loading="lazy">
+<figcaption>Clicking the cut name (or pressing F2, or choosing File &gt; Rename) opens it for editing.</figcaption></figure>
+
+<h3>Pavilion and crown</h3>
+
+<p>Below the header are two foldable sections, <span class="ui">Pavilion</span> then <span
+class="ui">Crown</span> — click a section's title to fold or unfold it. Each row is one tier: its
+letter and number (such as P1 or C3), its angle, the teeth it is cut at, and, in italics, any
+cutting note for it. A tier kept only for its meetpoints shows its teeth in curly braces.</p>
+
+<figure class="side"><img src="images/getting-started/instructions-pane.webp" alt="The cutting instructions pane: the cut header, the Pavilion section open showing its tier rows, and the Crown section folded shut below it." loading="lazy">
+<figcaption>The cut header, the Pavilion section open, and Crown folded shut.</figcaption></figure>
+
+<p>Click a row to select its tier — the same tier highlights on the stone. Double-click a row
+(anywhere but its cutting note) to open that tier for editing; see "Editing a facet" below. With a
+row focused, <kbd>Space</kbd> selects it the same way a click does; <kbd>Enter</kbd> does too if it
+is not already the selected row, but on the row that already is, <kbd>Enter</kbd> instead opens it
+for editing, the same as <kbd>Enter</kbd> anywhere else on the page while that tier is selected.
+<kbd>Alt</kbd>+<kbd>&uarr;</kbd> / <kbd>Alt</kbd>+<kbd>&darr;</kbd> moves the focused row up or down
+within its own section. You can also press and drag a row to reorder it; a line shows where it
+will land, and a pavilion row can never be dropped among the crown's, or the other way round.</p>
+
+<p>The plain <kbd>&uarr;</kbd>/<kbd>&darr;</kbd> keys (no <kbd>Alt</kbd>, and from anywhere on the
+page, not only a focused row) move the selection itself instead: <kbd>&darr;</kbd> selects the
+next tier and <kbd>&uarr;</kbd> the previous one, running down the pavilion and into the crown and
+stopping at either end, rather than wrapping round. With nothing selected, <kbd>&darr;</kbd> picks
+the first tier and <kbd>&uarr;</kbd> the last.</p>
+
+<p>Once a row is selected, click its cutting note to type one; the note stays with that tier even
+if it is later reordered.</p>
+
+<figure class="side"><img src="images/getting-started/tier-row-selected.webp" alt="The first pavilion tier's row selected, shown with a highlighted left edge and a tinted background." loading="lazy">
+<figcaption>A selected tier's row: a tinted background and an accent bar on the left.</figcaption></figure>
+
+<h3>The tier toolbar</h3>
+
+<p>Pinned under the tier tables, these buttons act on whichever tier is selected (except <span
+class="ui">Comments</span>, which needs no selection). Selecting a tier brings most of them
+alive, as it does here. In a narrow pane the seven buttons wrap onto two rows, <span
+class="ui">New</span>/<span class="ui">Delete</span>/<span class="ui">Edit</span>/<span
+class="ui">Hide</span> over <span class="ui">Preform</span>/<span class="ui">Frosted</span>/<span
+class="ui">Comments</span>; drag the pane wider and, past about 540px, they settle into one row
+in the same order.</p>
+
+<figure><img src="images/getting-started/tier-toolbar.webp" alt="The tier toolbar with a tier selected: New, Delete, Edit and Hide active on the first row, Preform and Frosted active on the second, and Comments active." loading="lazy">
+<figcaption>The tier toolbar, all of its buttons active once a tier is selected.</figcaption></figure>
+
+<table>
+  <tr><th>Button</th><th>What it does</th></tr>
+  <tr><td><span class="ui">New</span></td><td>Adds a new tier, copied from the selected one, and
+  opens it for editing.</td></tr>
+  <tr><td><span class="ui">Delete</span></td><td>Removes the selected tier. <kbd>Backspace</kbd>
+  or <kbd>Delete</kbd> does the same, from anywhere on the page a text field isn't focused.</td></tr>
+  <tr><td><span class="ui">Edit</span></td><td>Opens the selected tier for editing — the same as
+  double-clicking its row, or pressing <kbd>Enter</kbd>.</td></tr>
+  <tr><td><span class="ui">Hide</span> (reads <span class="ui">Show</span> for a hidden tier)</td>
+  <td>Hides the tier's facets from the stone without deleting them; a hidden tier's whole row
+  greys out.</td></tr>
+  <tr><td><span class="ui">Preform</span></td><td>Marks the tier as a preform, used to set up
+  meetpoints — its teeth then show in curly braces. It is still cut into the stone as usual.</td></tr>
+  <tr><td><span class="ui">Frosted</span></td><td>Marks the tier as frosted: it darkens in the
+  list, and in the Monte Carlo renderer its facets render as frosted glass.</td></tr>
+  <tr><td><span class="ui">Comments</span></td><td>Opens a dialog for the design's own header and
+  footer comments, and its shape, size and refractive-index range — the free-text fields a
+  GemCad file carries. <kbd>Cmd</kbd>/<kbd>Ctrl</kbd>+<kbd>Enter</kbd> saves;
+  <kbd>Escape</kbd> or <span class="ui">Cancel</span> discards.</td></tr>
+</table>
+
+<div class="note"><p><kbd>Backspace</kbd>, <kbd>Delete</kbd>, <kbd>Enter</kbd> and the
+<kbd>&uarr;</kbd>/<kbd>&darr;</kbd> keys below work from anywhere on the page, not only with a
+row focused — except while typing in a text field, a dialog is open, or a dropdown has focus, and
+<kbd>&uarr;</kbd>/<kbd>&darr;</kbd> also do nothing while scaling height, resizing the girdle or
+the cutting assistant is open.</p></div>
+
+<div class="note"><p>Every button and field on the whole screen has a tooltip: rest the pointer on
+one for about half a second and an explanation appears beside it.</p></div>
+
+<h3>Resizing the pane</h3>
+
+<p>The seam on the pane's right edge is also its handle: drag it to make the pane wider or
+narrower (it has a minimum and a maximum width), or focus it with <kbd>Tab</kbd> and use
+<kbd>&larr;</kbd>/<kbd>&rarr;</kbd> to move it a step at a time, or <kbd>Home</kbd>/<kbd>End</kbd>
+to snap it to its narrowest or widest. The render settings panel's own left edge works the same
+way. Your chosen widths are remembered.</p>
+
+<h2>The render</h2>
+
+<p>The middle of the screen is the stone itself, with a ring of ticks around it (the index gear's
+teeth) that fades in when the stone is close to face-up or face-down.</p>
+
+<table>
+  <tr><th>Gesture</th><th>What it does</th></tr>
+  <tr><td>Drag</td><td>Orbits the stone around its centre.</td></tr>
+  <tr><td>Scroll the wheel</td><td>Zooms in or out.</td></tr>
+  <tr><td>Click a facet</td><td>Selects its tier — the same tier highlights in the cutting
+  instructions. Clicking empty space clears the highlight.</td></tr>
+  <tr><td>Double-click a facet</td><td>Turns the view to face it square on. If the facet belongs
+  to a tier, this opens that tier for editing instead of turning (see "Editing a facet"
+  below).</td></tr>
+  <tr><td>Drag a design file onto the render</td><td>Loads it, the same as <span
+  class="ui">File</span> &gt; <span class="ui">Open</span>. A hint appears while a file is over
+  the render.</td></tr>
+</table>
+
+<h3>The view sliders</h3>
+
+<p>Over the bottom left of the render, two sliders turn the stone directly: <span
+class="ui">X rotation (spin)</span> and <span class="ui">Y rotation (tilt)</span>, with <span
+class="ui">Top</span> and <span class="ui">Side</span> buttons under them that jump straight to
+face-up or side-on. They follow whatever orbiting or double-clicking a facet has already done, and
+their numbers are also click-to-edit text boxes.</p>
+
+<figure><img src="images/getting-started/view-controls.webp" alt="The X rotation (spin) and Y rotation (tilt) sliders, and the Top and Side buttons, laid over the bottom left of the render." loading="lazy">
+<figcaption>The view sliders and the Top/Side buttons.</figcaption></figure>
+
+<h3>The stats box</h3>
+
+<p>Over the bottom right of the render, this shows the stone's facet count and three proportions,
+each a ratio to the girdle's width across its short axis: <span class="ui">T/W</span> (the
+table's width), <span class="ui">C/W</span> (the crown's height) and <span class="ui">P/W</span>
+(the pavilion's height). A ratio the stone does not have, such as a table on a pointed stone, shows
+a dash.</p>
+
+<figure><img src="images/getting-started/stone-stats.webp" alt="The stats box, reading Facets 67, T/W 0.189, C/W 0.207 and P/W 0.414." loading="lazy">
+<figcaption>The stone's facet count and proportions.</figcaption></figure>
+
+<h2>Editing a facet</h2>
+
+<p>Double-click a tier's row in the cutting instructions, double-click one of its facets on the
+stone, or select it and click <span class="ui">Edit</span> in the tier toolbar, to open it for
+editing. The top bar's mode readout then reads <span class="ui">Mode: Editing</span> followed by
+the tier's id.</p>
+
+<p>A thin sub bar appears above the render, holding the index gear button and a scrolling ruler of
+its teeth, with <span class="ui">Symmetry</span> and <span class="ui">Offset</span> fields (or, in
+arbitrary mode, a box of teeth typed by hand). Drag the ruler, or scroll over it, to move the
+facet round the stone; the index changes as it passes each tooth.</p>
+
+<figure><img src="images/getting-started/sub-bar-edit.webp" alt="The sub bar shown only while editing: the index gear button reading 96, a scrolling ruler of teeth, and the Symmetry and Offset fields." loading="lazy">
+<figcaption>The sub bar, shown only while editing a facet: the gear button and the index ruler.</figcaption></figure>
+
+<p>In place of the render settings, the right-hand panel becomes two vertical scales, <span
+class="ui">Angle</span> and <span class="ui">Depth</span>: drag either (or scroll over it, or use
+the arrow keys once it has focus) to cut the facet there and then, with the stone updating as you
+go. Click the angle reading to type an exact value. A cutting plane is drawn over the stone showing
+exactly where the facet being edited sits.</p>
+
+<figure><img src="images/getting-started/edit-mode-overview.webp" alt="The studio in edit mode: the mode readout reading Editing P1, the sub bar above the render, a cutting plane laid over the stone, and the angle and depth scales on the right." loading="lazy">
+<figcaption>Editing a facet: the sub bar, the cutting plane over the stone, and the angle/depth scales.</figcaption></figure>
+
+<figure class="side"><img src="images/getting-started/edit-panel.webp" alt="The edit panel's Angle and Depth vertical scales, each with a Fine button, and the facet's teeth listed underneath." loading="lazy">
+<figcaption>The angle and depth scales, each with a Fine toggle for slower, more precise drags.</figcaption></figure>
+
+<p><span class="ui">Cancel</span> stops editing and undoes every change made since it began;
+<kbd>Escape</kbd> does the same. <span class="ui">Done</span> stops editing and keeps the
+changes.</p>
+
+<div class="note"><p>Only one tier can be open for editing at a time: while a facet is being
+edited, the other tier-toolbar buttons and rows, and double-clicking a different facet, do
+nothing until you choose <span class="ui">Cancel</span> or <span class="ui">Done</span>.</p></div>
+
+<p>Clicking the gear button opens the index gear dialog: the number of teeth on the index wheel,
+a <span class="ui">Fractional teeth</span> checkbox, and an <span class="ui">Arbitrary
+mode</span> checkbox that switches the sub bar to typed indexes. <kbd>Enter</kbd> applies (when
+the fields are valid); <kbd>Escape</kbd> or <span class="ui">Cancel</span> closes it unchanged.</p>
+
+<figure><img src="images/getting-started/gear-dialog.webp" alt="The index gear dialog: a Number of teeth field reading 96, and Fractional teeth and Arbitrary mode checkboxes." loading="lazy">
+<figcaption>The index gear dialog, opened from the gear button in the sub bar.</figcaption></figure>
+
+<p>See <a href="editing-tiers.html">Editing facets by tier</a> for the full detail of editing,
+adding, deleting, hiding and reordering tiers.</p>
+
+<h2>The render settings panel</h2>
+
+<p>On the right, foldable sections choose how the stone is rendered: <span
+class="ui">Material</span> (a preset, refractive index, dispersion and stone color), <span
+class="ui">Tracing</span> (which renderer, and its quality settings) and <span
+class="ui">Lighting</span> (the lighting model and its colors). Click a section's title to fold
+or unfold it — here is <span class="ui">Tracing</span> unfolded, as an example:</p>
+
+<figure class="side"><img src="images/getting-started/tracing-section.webp" alt="The Tracing section unfolded: a Deterministic renderer picker, Max internal bounces, Resolution scale and Drag quality sliders, and a Facet wireframe switch." loading="lazy">
+<figcaption>The Tracing section: the renderer picker and its quality settings.</figcaption></figure>
+
+<p>Click a color swatch, such as <span class="ui">Stone color</span>, to open a picker: hue,
+saturation, value and opacity sliders, and a <span class="ui">Pick from screen</span> button that
+samples a color from anywhere on your screen.</p>
+
+<figure class="side"><img src="images/getting-started/color-picker.webp" alt="The color picker opened from a swatch: a Pick from screen button, then Hue, Saturation, Value and Opacity sliders." loading="lazy">
+<figcaption>The color picker, opened from any color swatch in the settings panel.</figcaption></figure>
+
+<p>See <a href="deterministic-renderer.html">Deterministic renderer</a> and
+<a href="monte-carlo-renderer.html">Monte Carlo renderer</a> for what the two renderers under
+<span class="ui">Tracing</span> do.</p>
+
+<h3>Fullscreen</h3>
+
+<p>At the top of the panel, <span class="ui">Fullscreen</span> hides the top bar and the cutting
+instructions pane, leaving only the stone and this settings panel. Click it again — labelled
+<span class="ui">Exit fullscreen</span> — or press <kbd>Escape</kbd>, to bring them back.</p>
+
+<figure><img src="images/getting-started/fullscreen.webp" alt="Fullscreen mode: only the render and the settings panel remain on screen, with the top bar and cutting instructions hidden." loading="lazy">
+<figcaption>Fullscreen: everything but the render and its settings is hidden.</figcaption></figure>
+
+<h2>Settings, theme and precision</h2>
+
+<p>Choose <span class="ui">File</span> &gt; <span class="ui">Settings</span> for the studio's own
+preferences: a light/dark toggle, and how many decimal places an angle is shown to in the cutting
+instructions and the angle scale. Both are remembered.</p>
+
+<figure class="side"><img src="images/getting-started/settings-dialog.webp" alt="The Settings dialog: a light/dark toggle, an Angle decimal places field reading 2, and a greyed-out Concave cutting profile section." loading="lazy">
+<figcaption>The Settings dialog, in dark mode.</figcaption></figure>
+
+<p>Clicking the toggle switches the whole page — this documentation included — between dark and
+light colors.</p>
+
+<figure class="side"><img src="images/getting-started/settings-dialog-light.webp" alt="The same Settings dialog after switching to light mode." loading="lazy">
+<figcaption>The Settings dialog, in light mode.</figcaption></figure>
+
+<figure><img src="images/getting-started/overview-light.webp" alt="The whole studio window in light mode, with the same layout as the dark overview." loading="lazy">
+<figcaption>The whole studio in light mode.</figcaption></figure>
+
+<div class="note wip"><p>The <span class="ui">Concave cutting profile</span> section of the
+Settings dialog is a placeholder: its fields cannot be typed into or chosen yet.</p></div>
+
+<h2>Saving, undo and sharing</h2>
+
+<p>Every change you can undo is also saved into the page's own address as you make it — there is
+no separate save button, and nothing is sent to a server. Copy the address bar to send someone
+your design; opening it restores it exactly. See
+<a href="save-export.html#share-your-designs">Sharing designs by link</a>.</p>
+
+<p><span class="ui">File</span> &gt; <span class="ui">Export</span> writes the design out as a
+file instead — GemCad's <code>.gem</code> or <code>.asc</code>, Gem Cut Studio's
+<code>.gcs</code>, Wavefront <code>.obj</code>, <code>.stl</code>, or a PDF cutting sheet. See
+<a href="save-export.html">Saving and exporting</a> for opening and saving files.</p>
+
+<h2>Every mouse gesture and keyboard shortcut</h2>
+
+<h3>Anywhere on the page</h3>
+
+<table>
+  <tr><th>Shortcut</th><th>Does</th></tr>
+  <tr><td><kbd>Cmd</kbd>+<kbd>O</kbd> (Mac) / <kbd>Ctrl</kbd>+<kbd>O</kbd> (elsewhere)</td>
+  <td><span class="ui">File</span> &gt; <span class="ui">Open</span></td></tr>
+  <tr><td><kbd>Cmd</kbd>+<kbd>S</kbd> (Mac) / <kbd>Ctrl</kbd>+<kbd>S</kbd> (elsewhere)</td>
+  <td>Your browser's own "save page" shortcut, not one of the studio's — <span
+  class="ui">File</span> &gt; <span class="ui">Save</span> itself is greyed out. See
+  <a href="save-offline.html">Saving the studio to your computer</a>.</td></tr>
+  <tr><td>Hover any control</td><td>Shows its tooltip after about half a second</td></tr>
+  <tr><td><kbd>Cmd</kbd>+<kbd>Z</kbd> (Mac) / <kbd>Ctrl</kbd>+<kbd>Z</kbd> (elsewhere)</td>
+  <td>Undo</td></tr>
+  <tr><td><kbd>Shift</kbd>+<kbd>Cmd</kbd>+<kbd>Z</kbd> (Mac) /
+  <kbd>Ctrl</kbd>+<kbd>Shift</kbd>+<kbd>Z</kbd> (elsewhere)</td><td>Redo</td></tr>
+  <tr><td><kbd>Ctrl</kbd>+<kbd>Y</kbd> (not on a Mac)</td><td>Redo</td></tr>
+  <tr><td><kbd>F2</kbd></td><td>Renames the design (opens the cut name field)</td></tr>
+  <tr><td><kbd>Backspace</kbd> / <kbd>Delete</kbd></td><td>Deletes the selected tier — the same as
+  the tier toolbar's <span class="ui">Delete</span> button. Nothing while a text field, a dialog
+  or a dropdown has focus.</td></tr>
+  <tr><td><kbd>Enter</kbd></td><td>Opens the selected tier for editing — the same as <span
+  class="ui">Edit</span> — unless focus is on a button, a link or a menu item, which it presses
+  instead as usual. Nothing while a text field, a dialog or a dropdown has focus.</td></tr>
+  <tr><td><kbd>&uarr;</kbd> / <kbd>&darr;</kbd></td><td>Moves the tier selection to the previous
+  or next tier, down the pavilion and into the crown, stopping at either end rather than
+  wrapping; with nothing selected, <kbd>&darr;</kbd> picks the first tier and <kbd>&uarr;</kbd>
+  the last. Nothing while a text field, a dialog or a dropdown has focus, or while scaling
+  height, resizing the girdle or the cutting assistant is open.</td></tr>
+  <tr><td><kbd>Escape</kbd></td><td>Closes an open menu or dialog. Otherwise: leaves edit mode, or
+  scale height, or the cutting assistant, or resize girdle mode, whichever is open; with none
+  open, leaves fullscreen.</td></tr>
+  <tr><td><kbd>&larr;</kbd> / <kbd>&rarr;</kbd> (only while the cutting assistant is open)</td>
+  <td>Previous / next cut</td></tr>
+  <tr><td><kbd>Shift</kbd>+<kbd>&larr;</kbd> / <kbd>Shift</kbd>+<kbd>&rarr;</kbd> (cutting
+  assistant open)</td><td>Previous / next tier</td></tr>
+</table>
+
+<h3>On the stone</h3>
+
+<table>
+  <tr><th>Gesture</th><th>Does</th></tr>
+  <tr><td>Drag</td><td>Orbits the stone</td></tr>
+  <tr><td>Scroll</td><td>Zooms in or out</td></tr>
+  <tr><td>Click a facet</td><td>Selects its tier; clicking empty space clears the selection</td></tr>
+  <tr><td>Double-click a facet</td><td>Turns to face it, or opens its tier for editing if it
+  belongs to one</td></tr>
+  <tr><td>Drag a file onto it</td><td>Loads that design</td></tr>
+</table>
+
+<h3>Cutting instructions rows</h3>
+
+<table>
+  <tr><th>Gesture</th><th>Does</th></tr>
+  <tr><td>Click a row</td><td>Selects its tier</td></tr>
+  <tr><td>Double-click a row (not its note)</td><td>Opens that tier for editing</td></tr>
+  <tr><td><kbd>Space</kbd> (row focused)</td><td>Same as clicking it</td></tr>
+  <tr><td><kbd>Enter</kbd> (row focused, not yet selected)</td><td>Same as clicking it: selects
+  it</td></tr>
+  <tr><td><kbd>Enter</kbd> (row focused and already selected)</td><td>Opens it for editing — the
+  same as the page-wide <kbd>Enter</kbd> above</td></tr>
+  <tr><td><kbd>Alt</kbd>+<kbd>&uarr;</kbd> / <kbd>Alt</kbd>+<kbd>&darr;</kbd> (row focused)</td>
+  <td>Moves the tier up/down within its section</td></tr>
+  <tr><td>Press and drag a row</td><td>Reorders it within its section</td></tr>
+  <tr><td>Click a section's title (Pavilion, Crown)</td><td>Folds or unfolds it</td></tr>
+</table>
+
+<div class="note"><p>The plain <kbd>&uarr;</kbd>/<kbd>&darr;</kbd> keys, without <kbd>Alt</kbd>,
+are not a row gesture — they move the tier selection itself from anywhere on the page; see
+"Anywhere on the page" above.</p></div>
+
+<h3>Text you can click to edit (the cut name, author, date, a tier's note, a slider's number)</h3>
+
+<table>
+  <tr><th>Gesture</th><th>Does</th></tr>
+  <tr><td>Click it</td><td>Opens a text box, with its text selected where that makes sense</td></tr>
+  <tr><td><kbd>Enter</kbd>, or clicking away</td><td>Applies the typed text</td></tr>
+  <tr><td><kbd>Escape</kbd></td><td>Cancels, keeping the old value</td></tr>
+</table>
+
+<h3>Sliders</h3>
+
+<table>
+  <tr><th>Gesture</th><th>Does</th></tr>
+  <tr><td>Drag the thumb</td><td>Changes the value</td></tr>
+  <tr><td>Click the number beside it</td><td>Opens it for typing an exact value</td></tr>
+</table>
+
+<h3>The index ruler and the angle/depth scales (while editing a facet)</h3>
+
+<table>
+  <tr><th>Gesture</th><th>Does</th></tr>
+  <tr><td>Drag the tape</td><td>Moves it</td></tr>
+  <tr><td>Scroll over it</td><td>Moves it</td></tr>
+  <tr><td><kbd>&uarr;</kbd>/<kbd>&darr;</kbd> (any of the three, focused); also
+  <kbd>&larr;</kbd>/<kbd>&rarr;</kbd> on the index ruler</td>
+  <td>Moves by one step</td></tr>
+  <tr><td><kbd>Page Up</kbd> / <kbd>Page Down</kbd></td><td>Moves by one large tick</td></tr>
+  <tr><td><kbd>Home</kbd> (index ruler) / <kbd>Home</kbd>, <kbd>End</kbd> (angle, depth)</td>
+  <td>Jumps to 0, or to the near/far end of the scale</td></tr>
+  <tr><td>Hold <kbd>Shift</kbd> while dragging, or click <span class="ui">Fine</span></td>
+  <td>Moves five times slower, for precise placing</td></tr>
+  <tr><td>Click the angle reading</td><td>Opens it for typing an exact value (the depth scale
+  shows no number to click)</td></tr>
+</table>
+
+<h3>Dialogs</h3>
+
+<table>
+  <tr><th>Shortcut</th><th>Does</th></tr>
+  <tr><td><kbd>Enter</kbd> (index gear dialog)</td><td>Applies, if the fields are valid</td></tr>
+  <tr><td><kbd>Cmd</kbd>/<kbd>Ctrl</kbd>+<kbd>Enter</kbd> (comments dialog)</td>
+  <td>Saves the comments</td></tr>
+  <tr><td><kbd>Escape</kbd>, or clicking outside it</td><td>Closes the dialog without applying
+  anything</td></tr>
+</table>
+
+<h3>Resizing the side panes</h3>
+
+<table>
+  <tr><th>Gesture</th><th>Does</th></tr>
+  <tr><td>Drag the seam between two panes</td><td>Widens or narrows the pane beside it</td></tr>
+  <tr><td><kbd>&larr;</kbd>/<kbd>&rarr;</kbd> (seam focused)</td><td>Moves it a step</td></tr>
+  <tr><td><kbd>Home</kbd> / <kbd>End</kbd> (seam focused)</td><td>Moves it to its narrowest or
+  widest</td></tr>
+</table>

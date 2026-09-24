@@ -450,6 +450,51 @@ export function sectionOrder(section) {
   return currentDesign.tiers.filter(tier => sectionOf(tier) === section);
 }
 
+// ---- Up/Down: move the selection through the pane's own order (T-0257)
+//
+// Not a reorder (that is Alt+Arrow, moveTier above, which moves a TIER within its section):
+// this only moves which row is selected, the same as clicking a different row, through every
+// tier the pane shows, pavilion above crown, in one list. Pure functions, so the picking rule
+// is unit-tested without a design, a store or a DOM row in sight; the keyboard handler
+// (App.svelte) does nothing but read `tierView`/`selectedTier` and hand them here.
+
+/**
+ * Every tier in the pane's own top-to-bottom order -- pavilion above crown, exactly as
+ * `tierView` renders the two sections. A hidden tier is still in this list: it stays in the
+ * pane, greyed out but selectable, exactly as a click on it still selects it.
+ */
+export function flatTierOrder(view) {
+  return [...view.pavilion, ...view.crown].map(row => row.tier);
+}
+
+/**
+ * The tier Up/Down should select next, `direction` 1 for Down (the next tier) or -1 for Up
+ * (the previous one), within `order` (flatTierOrder's own list, or any list of tier objects in
+ * display order). Clamped at each end, like moveTier's reorder: Down on the pane's last tier, or
+ * Up on its first, leaves the selection exactly where it was, rather than wrapping to the other
+ * end.
+ *
+ * With nothing selected (or a stale selection no longer in the list -- render() already clears
+ * one that leaves the design, so this is a belt-and-braces case, not an expected one), there is
+ * no tier to move from: Down starts at the first tier and Up at the last, the same place
+ * scanning from that key's own end of the list would first land, like Home/End.
+ */
+export function adjacentTierSelection(order, selected, direction) {
+  if (order.length === 0) {
+    return null;
+  }
+
+  const at = selected === null ? -1 : order.indexOf(selected);
+
+  if (at === -1) {
+    return direction > 0 ? order[0] : order[order.length - 1];
+  }
+
+  const next = at + direction;
+
+  return next >= 0 && next < order.length ? order[next] : selected;
+}
+
 /** Refills `section`'s slots of design.tiers with `order`, by the interleaving rule above. */
 function writeSectionOrder(section, order) {
   let cursor = 0;
@@ -629,11 +674,15 @@ const TOOL_TIPS = {
   // the tier that it was created from").
   new: 'Adds a copy of the selected tier right after it and starts editing the copy. Undo ' +
     'removes it.',
+  // T-0257: Enter, alongside the existing double-click.
   edit: 'Edits the selected tier: the index gear shows its teeth, and the stone shows the ' +
-    'cutting plane on one of its facets. Double-clicking a tier or a facet ' +
+    'cutting plane on one of its facets. Double-clicking a tier or a facet, or pressing Enter, ' +
     'does the same. Done keeps the changes; Cancel or Escape undoes them.',
+  // T-0257: Backspace and Delete are both bound to this, matching "Escape does the same"'s
+  // phrasing on the mode panels' Cancel buttons -- both keys, since keyboards differ on which
+  // one they have (a laptop's Delete is often fn+Backspace, or missing outright).
   delete: 'Deletes the selected tier from the cutting instructions, and its facets from the ' +
-    'stone. Undo brings it back.',
+    'stone. Undo brings it back. Backspace or Delete does the same.',
   // Show/Hide's tip follows its label: one for each.
   hide: 'Hides the selected tier: it stays in the list, greyed out, but its facets are left ' +
     'off the stone.',

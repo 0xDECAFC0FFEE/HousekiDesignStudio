@@ -1,0 +1,224 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>@@DOCS_TITLE@@ | Houseki Design Studio</title>
+<meta name="description" content="@@DOCS_DESCRIPTION@@">
+<meta name="theme-color" content="#2e3440">
+<meta name="color-scheme" content="dark light">
+@@THEME_SCRIPT@@
+<link rel="icon" href="@@LOGO_ICON@@">
+<!-- The shared layout of every documentation page (src/site/docs/, built by make_page.py's
+     build_docs). The sidebar is generated from pages.json; the article is one page's fragment. -->
+<style>
+  :root {
+    --panel: #2e3440;
+    --panel-edge: #4c566a;
+    --raised: #3b4252;
+    --text: #eceff4;
+    --muted: #d8dee9;
+    --accent: #8fbcbb;
+    --on-accent: #2e3440;
+    --warn: #ebcb8b;
+  }
+
+  * { box-sizing: border-box; }
+
+  html, body { margin: 0; min-height: 100%; }
+
+  body {
+    display: flex;
+    flex-direction: column;
+    min-height: 100vh;
+    background: var(--panel);
+    color: var(--text);
+    font: 17px/1.65 ui-sans-serif, system-ui, -apple-system, "Segoe UI", sans-serif;
+  }
+
+  a { color: var(--accent); }
+
+  header {
+    display: flex;
+    align-items: center;
+    gap: 0.75rem;
+    padding: 0.75rem 1rem;
+    border-bottom: 1px solid var(--panel-edge);
+  }
+
+  header .mark { width: 32px; height: 32px; }
+  header a.home { color: var(--text); font-weight: 700; text-decoration: none; }
+  header .spacer { flex: 1; }
+  header a.open {
+    padding: 0.35rem 0.9rem;
+    border-radius: 6px;
+    background: var(--accent);
+    color: var(--on-accent);
+    font-weight: 600;
+    text-decoration: none;
+  }
+
+  .layout {
+    flex: 1;
+    display: grid;
+    grid-template-columns: 15rem minmax(0, 1fr);
+    gap: 2.5rem;
+    width: 100%;
+    max-width: 72rem;
+    margin: 0 auto;
+    padding: 2rem 1rem 4rem;
+  }
+
+  nav.docs-nav { font-size: 0.92rem; }
+  nav.docs-nav h2 {
+    margin: 1.25rem 0 0.35rem;
+    color: var(--muted);
+    font-size: 0.75rem;
+    letter-spacing: 0.08em;
+    text-transform: uppercase;
+  }
+  nav.docs-nav h2:first-child { margin-top: 0; }
+  nav.docs-nav ul { margin: 0; padding: 0; list-style: none; }
+  nav.docs-nav a {
+    display: block;
+    padding: 0.2rem 0.6rem;
+    border-left: 2px solid transparent;
+    color: var(--text);
+    text-decoration: none;
+  }
+  nav.docs-nav a:hover { border-left-color: var(--panel-edge); }
+  nav.docs-nav a[aria-current="page"] { border-left-color: var(--accent); color: var(--accent); font-weight: 600; }
+
+  .badge {
+    display: inline-block;
+    margin-left: 0.35rem;
+    padding: 0 0.4rem;
+    border: 1px solid var(--warn);
+    border-radius: 999px;
+    color: var(--warn);
+    font-size: 0.7rem;
+    font-weight: 600;
+    line-height: 1.5;
+    vertical-align: middle;
+  }
+
+  article { max-width: 46rem; }
+  article h1 { margin: 0 0 1rem; font-size: clamp(1.9rem, 5vw, 2.5rem); line-height: 1.15; }
+  article h2 { margin: 2.5rem 0 0.75rem; font-size: 1.4rem; }
+  article h3 { margin: 1.75rem 0 0.5rem; font-size: 1.1rem; }
+  article p, article li { color: var(--muted); }
+  article strong { color: var(--text); }
+  article img { display: block; max-width: 100%; height: auto; border: 1px solid var(--panel-edge); border-radius: 6px; }
+  article figure { margin: 1.5rem 0; }
+  article figcaption { margin-top: 0.5rem; color: var(--muted); font-size: 0.88rem; }
+  /* A tall, narrow screenshot (a side pane, a menu, a close-up): the image kept small on the
+     left with its caption beside it, rather than a full-width image towering over a one-line
+     caption. Stacks again on a phone. */
+  /* Half and half, on one raised card, so the caption reads as belonging to its image. */
+  article figure.side {
+    display: grid;
+    grid-template-columns: minmax(0, 1fr) minmax(0, 1fr);
+    gap: 1.25rem;
+    align-items: start;
+    padding: 0.9rem;
+    border: 1px solid var(--panel-edge);
+    border-radius: 8px;
+    background: var(--raised);
+  }
+  article figure.side img { border-color: var(--panel-edge); }
+  article figure.side figcaption {
+    margin-top: 0;
+    padding-left: 1rem;
+    border-left: 3px solid var(--accent);
+    color: var(--text);
+    font-size: 0.95rem;
+  }
+  @media (max-width: 560px) {
+    article figure.side { grid-template-columns: minmax(0, 1fr); gap: 0.75rem; }
+  }
+  article table { width: 100%; margin: 1rem 0; border-collapse: collapse; font-size: 0.95rem; }
+  article th, article td { padding: 0.45rem 0.6rem; border-bottom: 1px solid var(--panel-edge); text-align: left; vertical-align: top; }
+  article th { color: var(--text); }
+  article td { color: var(--muted); }
+  article .note {
+    margin: 1.5rem 0;
+    padding: 0.75rem 1rem;
+    border-left: 3px solid var(--accent);
+    border-radius: 0 6px 6px 0;
+    background: var(--raised);
+  }
+  article .note.wip { border-left-color: var(--warn); }
+  article .note p:last-child { margin-bottom: 0; }
+  article .note p:first-child { margin-top: 0; }
+
+  kbd {
+    display: inline-block;
+    padding: 0 0.4rem;
+    border: 1px solid var(--panel-edge);
+    border-bottom-width: 2px;
+    border-radius: 4px;
+    background: var(--raised);
+    color: var(--text);
+    font: 0.85em/1.5 ui-monospace, SFMono-Regular, Menlo, monospace;
+  }
+
+  .ui { color: var(--text); font-weight: 600; }
+
+  .cards { display: grid; grid-template-columns: repeat(auto-fill, minmax(15rem, 1fr)); gap: 0.75rem; margin: 0 0 2rem; padding: 0; list-style: none; }
+  .cards a {
+    display: block;
+    height: 100%;
+    padding: 0.9rem 1rem;
+    border: 1px solid var(--panel-edge);
+    border-radius: 6px;
+    background: var(--raised);
+    color: var(--text);
+    text-decoration: none;
+  }
+  .cards a:hover { border-color: var(--accent); }
+  .cards strong { display: block; margin-bottom: 0.25rem; }
+  .cards span { color: var(--muted); font-size: 0.9rem; }
+
+  footer {
+    position: relative;
+    padding: 1.5rem 1rem;
+    border-top: 3px double var(--panel-edge);
+    color: var(--muted);
+    font-size: 0.8rem;
+    text-align: center;
+  }
+
+  footer .theme-toggle { position: absolute; top: 50%; right: 1rem; transform: translateY(-50%); }
+
+  @media (max-width: 760px) {
+    .layout { grid-template-columns: minmax(0, 1fr); gap: 1.5rem; }
+    nav.docs-nav { padding-bottom: 1rem; border-bottom: 1px solid var(--panel-edge); }
+    header .home-label { display: none; }
+  }
+</style>
+@@THEME_STYLE@@
+</head>
+<body>
+<header>
+  @@LOGO@@
+  <a class="home" href="@@DOCS_INDEX@@"><span class="home-label">Houseki Design Studio </span>Docs</a>
+  <span class="spacer"></span>
+  <a class="open" href="@@DOCS_ROOT@@studio.html">Open the studio</a>
+</header>
+<div class="layout">
+  <nav class="docs-nav" aria-label="Documentation">
+@@DOCS_NAV@@
+  </nav>
+  <article>
+@@DOCS_BODY@@
+  </article>
+</div>
+<footer>
+  <span>&copy; 2026 Houseki Design Studio. All rights reserved.</span>
+  <button type="button" class="theme-toggle" data-theme-toggle aria-label="Light mode" aria-pressed="false" title="Switch between dark and light colors">
+    <svg class="theme-toggle-moon" viewBox="0 0 24 24" aria-hidden="true" focusable="false"><path d="M12 3a6 6 0 0 0 9 9 9 9 0 1 1-9-9Z"/></svg>
+    <svg class="theme-toggle-sun" viewBox="0 0 24 24" aria-hidden="true" focusable="false"><circle cx="12" cy="12" r="4"/><path d="M12 2v2M12 20v2m-7.07-17.07 1.41 1.41m11.32 11.32 1.41 1.41M2 12h2m16 0h2M6.34 17.66l-1.41 1.41M19.07 4.93l-1.41 1.41"/></svg>
+  </button>
+</footer>
+</body>
+</html>

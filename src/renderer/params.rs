@@ -223,7 +223,7 @@ impl LightingModel {
     }
 }
 
-/// Which of the two path tracers in the shader renders the frame (T-0120).
+/// Which of the renderers in the shader draws the frame (T-0120).
 ///
 /// The renderer is being replaced by a faithful port of LuxCore. Rather than swap the
 /// shader outright, both live in one program and this selects between them at runtime, so
@@ -232,7 +232,9 @@ impl LightingModel {
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum Renderer {
     /// `gem.frag`'s own `renderHandWritten()`: the clean-room tracer this project was built
-    /// on, with all of its Gem Cut Studio matching behaviour. Named for what actually sets
+    /// on, with all of its Gem Cut Studio matching behaviour. A Whitted-style, specular-only
+    /// ray tracer rather than a path tracer: it keeps both Fresnel branches at every surface
+    /// instead of sampling one, and makes no random choices. Named for what actually sets
     /// it apart from the port -- it traces a small fixed set of wavelengths per pixel and
     /// is done in a single draw, rather than converging over many like a Monte Carlo
     /// estimator -- not for how it was written; the port is also hand-written.
@@ -521,15 +523,22 @@ pub struct GemMaterial {
 ///
 /// The absorption vectors are chosen to give a plausible body colour rather than
 /// measured, since real absorption spectra vary by specimen. Where a species comes in many
-/// colours, one typical colour was picked: pink tourmaline, imperial topaz, red spinel, and
-/// colourless quartz, zircon and YAG.
+/// colours, T-0259 picked the one the trade prizes most rather than an arbitrary typical
+/// one -- pink (rubellite) tourmaline, imperial topaz, vivid red-pink spinel, vivid blue
+/// zircon (Cambodian heat-treated, not the historically "colourless" grade) -- and left
+/// colourless the varieties actually valued that way: quartz (rock crystal), YAG, diamond,
+/// cubic zirconia and moissanite (all diamond simulants prized for having no body colour),
+/// and opal (whose value is play-of-colour, which this renderer does not model). See
+/// kb/gemstone-preset-colours-trade-valued-targets-and.md for the source and target sRGB
+/// behind each preset below.
 pub const MATERIALS: &[GemMaterial] = &[
     GemMaterial {
         name: "Fluorite",
         refractive_index: 1.434,
         dispersion: 0.007,
-        // Pale purple.
-        absorption: Vector3::new(0.2, 0.4, 0.1),
+        // Deep purple: fluorite's most sought colour (GIA/IGS trade guides put clean
+        // violet and deep blue-purple ahead of its green and yellow shades). T-0259.
+        absorption: Vector3::new(0.6, 1.35, 0.45),
     },
     GemMaterial {
         name: "Opal",
@@ -556,83 +565,101 @@ pub const MATERIALS: &[GemMaterial] = &[
         name: "Amethyst",
         refractive_index: 1.544,
         dispersion: 0.013,
-        absorption: Vector3::new(0.35, 0.8, 0.2),
+        // Deep "Siberian" purple: the trade's benchmark grade, a rich grape purple that
+        // flashes red under incandescent light (red absorbed less than blue, unlike the
+        // paler, cooler stone this used to be). T-0259. Pinned by
+        // the_out_of_bounces_fill_tints_a_decoded_shade_with_a_linear_transmittance below,
+        // which must be updated in step with this vector.
+        absorption: Vector3::new(0.3, 1.2, 0.55),
     },
     GemMaterial {
         name: "Citrine",
         refractive_index: 1.544,
         dispersion: 0.013,
-        // Yellow-orange.
-        absorption: Vector3::new(0.05, 0.25, 0.9),
+        // "Madeira" citrine: a deep reddish orange with red flashes, the trade's finest
+        // grade (most citrine sold is a much paler lemon yellow). T-0259.
+        absorption: Vector3::new(0.05, 0.9, 1.6),
     },
     GemMaterial {
         name: "Smoky quartz",
         refractive_index: 1.544,
         dispersion: 0.013,
-        // Greyish brown.
-        absorption: Vector3::new(0.35, 0.45, 0.6),
+        // Deep "root beer" brown, the most prized smoky quartz depth. T-0259.
+        absorption: Vector3::new(0.45, 0.55, 0.75),
     },
     GemMaterial {
         name: "Emerald",
         refractive_index: 1.58,
         dispersion: 0.014,
-        absorption: Vector3::new(0.9, 0.12, 0.6),
+        // Vivid, slightly bluish green at medium-dark tone ("Muzo green"), the Colombian
+        // benchmark colour. T-0259.
+        absorption: Vector3::new(1.05, 0.15, 0.6),
     },
     GemMaterial {
         name: "Aquamarine",
         refractive_index: 1.58,
         dispersion: 0.014,
-        // Pale blue-green.
-        absorption: Vector3::new(0.45, 0.1, 0.05),
+        // "Santa Maria" blue: a deep, saturated blue with the green cast bred out, the
+        // most valuable aquamarine grade (most aquamarine sold is much paler). T-0259.
+        absorption: Vector3::new(1.1, 0.65, 0.05),
     },
     GemMaterial {
         name: "Topaz",
         refractive_index: 1.62,
         dispersion: 0.014,
-        // Imperial: golden orange.
-        absorption: Vector3::new(0.04, 0.4, 0.9),
+        // Imperial topaz: a sherry-red orange with a pink cast, the "red factor" that
+        // sets the finest (and most expensive) topaz apart from ordinary golden topaz.
+        // T-0259.
+        absorption: Vector3::new(0.05, 0.55, 0.75),
     },
     GemMaterial {
         name: "Tourmaline",
         refractive_index: 1.63,
         dispersion: 0.017,
-        // Pink.
-        absorption: Vector3::new(0.05, 0.6, 0.25),
+        // Vivid pink (rubellite): a saturated, stable pink-to-red with no brownish or
+        // grey cast, the most valued pink tourmaline grade. T-0259.
+        absorption: Vector3::new(0.05, 0.65, 0.22),
     },
     GemMaterial {
         name: "Dioptase",
         refractive_index: 1.67,
         dispersion: 0.036,
-        // Intense, dark green.
-        absorption: Vector3::new(1.6, 0.25, 0.9),
+        // Intense blue-green, brighter and more saturated than emerald's more muted
+        // green -- dioptase's own characteristic colour, and a real render came out
+        // indistinguishable from emerald until the blue was pushed further and the
+        // whole vector lightened for more brilliance. T-0259.
+        absorption: Vector3::new(1.05, 0.1, 0.55),
     },
     GemMaterial {
         name: "Peridot",
         refractive_index: 1.67,
         dispersion: 0.020,
-        // Yellowish green.
-        absorption: Vector3::new(0.5, 0.1, 0.8),
+        // Vivid grass green, peridot's finest colour (most peridot sold is more
+        // yellowish than this). T-0259.
+        absorption: Vector3::new(0.6, 0.1, 0.85),
     },
     GemMaterial {
         name: "Tanzanite",
         refractive_index: 1.695,
         dispersion: 0.019,
-        // Violet-blue.
-        absorption: Vector3::new(0.6, 0.9, 0.1),
+        // Deep blue-violet, leaning more blue than violet: the tanzanite market's
+        // highest grade. T-0259.
+        absorption: Vector3::new(0.5, 1.0, 0.08),
     },
     GemMaterial {
         name: "Spinel",
         refractive_index: 1.718,
         dispersion: 0.020,
-        // Pinkish red.
-        absorption: Vector3::new(0.05, 0.8, 0.4),
+        // Vivid red-pink ("Jedi" spinel): after plain vivid red, the market's next most
+        // prized spinel colour, and distinct here from ruby's purer, bluer red. T-0259.
+        absorption: Vector3::new(0.05, 0.95, 0.55),
     },
     GemMaterial {
         name: "Pyrope",
         refractive_index: 1.74,
         dispersion: 0.022,
-        // Deep red.
-        absorption: Vector3::new(0.1, 1.6, 1.3),
+        // Deep, pure red with the brown cast cut back further. T-0259.
+        absorption: Vector3::new(0.1, 1.65, 1.45),
     },
     GemMaterial {
         name: "Tsavorite",
@@ -645,34 +672,40 @@ pub const MATERIALS: &[GemMaterial] = &[
         name: "Hessonite",
         refractive_index: 1.745,
         dispersion: 0.028,
-        // Cinnamon orange-brown.
-        absorption: Vector3::new(0.1, 0.55, 1.1),
+        // Cinnamon: a warm, saturated orange-brown, deepened toward the finest
+        // ("cinnamon stone") grade. T-0259.
+        absorption: Vector3::new(0.25, 0.7, 1.25),
     },
     GemMaterial {
         name: "Rhodolite",
         refractive_index: 1.76,
         dispersion: 0.026,
-        // Purplish red.
-        absorption: Vector3::new(0.1, 1.0, 0.45),
+        // Raspberry purplish-red ("Spirit" colour), rhodolite's most sought shade.
+        // T-0259.
+        absorption: Vector3::new(0.1, 1.05, 0.55),
     },
     GemMaterial {
         name: "Sapphire",
         refractive_index: 1.77,
         dispersion: 0.018,
-        absorption: Vector3::new(0.9, 0.55, 0.15),
+        // Deep, velvety royal/cornflower blue, the Kashmir-grade colour the trade values
+        // above all other sapphire shades. T-0259.
+        absorption: Vector3::new(1.0, 0.85, 0.13),
     },
     GemMaterial {
         name: "Ruby",
         refractive_index: 1.77,
         dispersion: 0.018,
-        absorption: Vector3::new(0.08, 1.1, 0.9),
+        // "Pigeon's blood": a vivid, pure red with only a whisper of blue, no orange or
+        // brown -- the ruby trade's own name for its finest colour. T-0259.
+        absorption: Vector3::new(0.06, 1.4, 1.05),
     },
     GemMaterial {
         name: "Spessartine",
         refractive_index: 1.80,
         dispersion: 0.027,
-        // Orange.
-        absorption: Vector3::new(0.03, 0.45, 1.2),
+        // Mandarin ("fanta") orange, the top spessartine grade. T-0259.
+        absorption: Vector3::new(0.03, 0.4, 1.15),
     },
     GemMaterial {
         name: "YAG",
@@ -684,14 +717,18 @@ pub const MATERIALS: &[GemMaterial] = &[
         name: "Demantoid",
         refractive_index: 1.885,
         dispersion: 0.057,
-        // Yellowish green.
-        absorption: Vector3::new(0.55, 0.08, 0.7),
+        // Vivid grass green: the rare top grade (most Russian demantoid is yellower).
+        // T-0259.
+        absorption: Vector3::new(0.65, 0.08, 0.75),
     },
     GemMaterial {
         name: "Zircon",
         refractive_index: 1.95,
         dispersion: 0.039,
-        absorption: Vector3::new(0.02, 0.02, 0.03),
+        // Vivid blue: heat-treated Cambodian ("Starlite") blue zircon is the variety's
+        // most popular and valuable colour today, ahead of the colourless stones once cut
+        // as a cheap diamond simulant. T-0259.
+        absorption: Vector3::new(0.6, 0.35, 0.03),
     },
     GemMaterial {
         name: "Cubic zirconia",
@@ -709,14 +746,19 @@ pub const MATERIALS: &[GemMaterial] = &[
         name: "Moissanite",
         refractive_index: 2.65,
         dispersion: 0.104,
-        absorption: Vector3::new(0.05, 0.04, 0.08),
+        // Colourless: like diamond and cubic zirconia, moissanite is prized as a diamond
+        // simulant precisely for having no body colour, so this is nudged closer to
+        // neutral rather than kept at its old faint yellow-green cast. T-0259.
+        absorption: Vector3::new(0.03, 0.03, 0.04),
     },
     GemMaterial {
         name: "Rutile",
         refractive_index: 2.76,
         dispersion: 0.280,
-        // Synthetic rutile's pale yellow.
-        absorption: Vector3::new(0.03, 0.08, 0.3),
+        // Synthetic rutile's pale yellow, deepened slightly for visibility: a known
+        // drawback against colourless diamond simulants, not a prized colour, so it is
+        // kept pale rather than made vivid. T-0259.
+        absorption: Vector3::new(0.05, 0.12, 0.35),
     },
 ];
 
@@ -862,7 +904,7 @@ pub struct RenderParams {
     /// Ignored by the ported LuxCore path, whose page control is hidden for that reason.
     pub wireframe: bool,
 
-    /// Which path tracer in the shader draws the frame (T-0120). See `Renderer`.
+    /// Which renderer in the shader draws the frame (T-0120). See `Renderer`.
     pub renderer: Renderer,
 
     /// Samples per pixel for `Renderer::LuxCore`. Ignored by the deterministic path, which
@@ -2586,21 +2628,22 @@ mod tests {
     /// - `decoded_product`, what it computed before T-0072:
     ///   `displayToRadiance(uExhaustionShade * exp(-uAbsorption))`.
     ///
-    /// The material is amethyst, absorption (0.35, 0.80, 0.20), at the default half shade. It is
-    /// a shipped preset, so this is a case a user reaches by picking a stone from the menu.
+    /// The material is amethyst, absorption (0.30, 1.20, 0.55) since T-0259 retuned the preset
+    /// to a deep "Siberian" purple, at the default half shade. It is a shipped preset, so this
+    /// is a case a user reaches by picking a stone from the menu.
     ///
     /// Test and what it verifies:
     /// - **the tint is the stone's own transmittance, under all three transfers.** The shade is
     ///   a scalar, so the fill's colour must be exactly the ratio of `exp(-absorption)` between
-    ///   channels -- `exp(0.45) = 1.568` red over green and `exp(0.60) = 1.822` blue over green
+    ///   channels -- `exp(0.90) = 2.460` red over green and `exp(0.65) = 1.916` blue over green
     ///   -- whatever transfer is loaded and whatever the shade and exposure are. That is the
     ///   whole content of "a tint of the gem colour": deeply trapped light must not read as a
     ///   different hue from the stone's own body colour;
     /// - **the bug this replaces.** Decoding the product instead gamma-raises the transmittance,
     ///   so its tint is `exp(-absorption)^2.2` under the gamma transfer and worse still under
-    ///   the filmic one. The old form is checked to be *wrong*: 2.881 : 1 : 4.191 under filmic
-    ///   (nearly double the saturation) and 2.691 : 1 : 3.743 under gamma. Without this the
-    ///   first check would pass against the broken code under TONEMAP_LINEAR alone;
+    ///   the filmic one. The old form is checked to be *wrong*: 8.034 : 1 : 4.399 under filmic
+    ///   (more than three times the saturation) and 7.243 : 1 : 4.179 under gamma. Without this
+    ///   the first check would pass against the broken code under TONEMAP_LINEAR alone;
     /// - **why it survived.** Under `Linear` decode is itself linear, so `decode(s * T)` and
     ///   `decode(s) * T` are the same expression. The analytical models -- the only ones the
     ///   GCS comparison views use -- are paired with exactly that transfer;
@@ -2616,8 +2659,10 @@ mod tests {
 
         assert_eq!(
             (absorption.x, absorption.y, absorption.z),
-            (0.35, 0.8, 0.2),
-            "setup: this test's expected numbers are for amethyst's absorption"
+            (0.3, 1.2, 0.55),
+            "setup: this test's expected numbers are for amethyst's absorption \
+             (T-0259 retuned it to the deep 'Siberian' colour; every literal below is \
+             recomputed from this vector, not the preset's old paler purple)"
         );
 
         let shade = RenderParams::default().exhaustion_shade;
@@ -2635,14 +2680,14 @@ mod tests {
         let decoded_product =
             |mode: ToneMapMode, exposure: f32| transmittance.map(|t| mode.decode(shade * t, exposure));
 
-        // The tint the stone actually has: exp(0.80 - 0.35) and exp(0.80 - 0.20).
+        // The tint the stone actually has: exp(1.20 - 0.30) and exp(1.20 - 0.55).
         let expected_red_over_green = (absorption.y - absorption.x).exp();
         let expected_blue_over_green = (absorption.y - absorption.z).exp();
 
         assert!(
-            (expected_red_over_green - 1.5683).abs() < 1e-3
-                && (expected_blue_over_green - 1.8221).abs() < 1e-3,
-            "setup: amethyst's unit-distance tint should be 1.568 : 1 : 1.822, got {} : 1 : {}",
+            (expected_red_over_green - 2.4596).abs() < 1e-3
+                && (expected_blue_over_green - 1.9155).abs() < 1e-3,
+            "setup: amethyst's unit-distance tint should be 2.460 : 1 : 1.916, got {} : 1 : {}",
             expected_red_over_green,
             expected_blue_over_green
         );
@@ -2671,8 +2716,8 @@ mod tests {
         // brightness; under the linear one it is the same expression, which is why no
         // analytical render could ever have caught this.
         for (mode, red_over_green, blue_over_green) in [
-            (ToneMapMode::Filmic, 2.881f32, 4.191f32),
-            (ToneMapMode::Gamma, 2.691, 3.743),
+            (ToneMapMode::Filmic, 8.034f32, 4.399f32),
+            (ToneMapMode::Gamma, 7.243, 4.179),
             (ToneMapMode::Linear, expected_red_over_green, expected_blue_over_green),
         ] {
             let old = decoded_product(mode, 1.0);
@@ -2697,9 +2742,12 @@ mod tests {
                 );
             } else {
                 // The margin the fix recovers, and proof the tint check above is not vacuous:
-                // the old form's saturation is out by at least 1.1 in red and 1.9 in blue.
+                // the old form's saturation is out by at least 4.0 in red and 1.9 in blue
+                // (recomputed for T-0259's deeper amethyst; the smaller of the filmic/gamma
+                // margins is 4.783 red, 2.263 blue, so these keep the same kind of buffer
+                // below the true margin the original 1.1 / 1.9 thresholds had).
                 assert!(
-                    old.x / old.y - expected_red_over_green > 1.1
+                    old.x / old.y - expected_red_over_green > 4.0
                         && old.z / old.y - expected_blue_over_green > 1.9,
                     "{:?}: the old form should be visibly over-saturated, but its tint {} : 1 : \
                      {} is close to the correct {} : 1 : {}; if this is now small the test can \
@@ -2711,8 +2759,8 @@ mod tests {
                     expected_blue_over_green
                 );
 
-                // And it is visibly darker as well, once displayed: 12 to 37 levels of 255
-                // (filmic 22.3 / 36.6 / 14.2 red, green, blue; gamma 18.9 / 31.3 / 12.0).
+                // And it is visibly darker as well, once displayed: 16 to 41 levels of 255
+                // (filmic 19.8 / 41.2 / 30.2 red, green, blue; gamma 16.8 / 35.5 / 25.7).
                 for (channel, new_value, old_value) in [
                     ("red", fixed(mode, 1.0).x, old.x),
                     ("green", fixed(mode, 1.0).y, old.y),

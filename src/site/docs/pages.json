@@ -1,0 +1,100 @@
+{
+  "sections": [
+    {
+      "title": "Getting started",
+      "pages": [
+        {
+          "slug": "getting-started",
+          "title": "Getting started",
+          "summary": "A tour of the studio's screen, and every mouse and keyboard shortcut in one place."
+        },
+        {
+          "slug": "save-offline",
+          "title": "Saving the studio to your computer",
+          "summary": "Keep your own copy of the studio that opens without an internet connection."
+        }
+      ]
+    },
+    {
+      "title": "Rendering",
+      "pages": [
+        {
+          "slug": "deterministic-renderer",
+          "title": "Deterministic renderer",
+          "summary": "The fast, noise-free renderer for turning the stone and comparing cuts."
+        },
+        {
+          "slug": "monte-carlo-renderer",
+          "title": "Monte Carlo renderer",
+          "summary": "The slower, more realistic renderer, with spectral fire and frosted facets."
+        }
+      ]
+    },
+    {
+      "title": "Editing",
+      "pages": [
+        {
+          "slug": "editing-tiers",
+          "title": "Editing facets by tier",
+          "summary": "Change a tier's angle, index and depth, and add, delete, hide or frost tiers."
+        },
+        {
+          "slug": "save-export",
+          "title": "Saving and exporting",
+          "summary": "Open and export design files, print a cutting sheet as a PDF, and share designs as links."
+        },
+        {
+          "slug": "rotation-by-index",
+          "title": "Rotation by index",
+          "summary": "Rotate a design around the index gear.",
+          "wip": true
+        },
+        {
+          "slug": "girdle-resizing",
+          "title": "Girdle resizing",
+          "summary": "Make the girdle thicker or thinner."
+        },
+        {
+          "slug": "crown-pavilion-flipping",
+          "title": "Crown and pavilion flipping",
+          "summary": "Swap a design's crown and pavilion.",
+          "wip": true
+        },
+        {
+          "slug": "tangent-ratio-scaling",
+          "title": "Tangent ratio height scaling",
+          "summary": "Make a stone taller or flatter while its facets keep their shape."
+        },
+        {
+          "slug": "manual-optimizer",
+          "title": "Manual optimizer",
+          "summary": "Tune a design's angles for brightness by hand.",
+          "wip": true
+        },
+        {
+          "slug": "tilt-performance",
+          "title": "Tilt performance analyzer",
+          "summary": "See how a design looks as it tilts away from face-up.",
+          "wip": true
+        },
+        {
+          "slug": "size-yield-calculator",
+          "title": "Size and yield calculator",
+          "summary": "Work out a finished stone's size and weight from the rough.",
+          "wip": true
+        },
+        {
+          "slug": "cutting-assistant",
+          "title": "Cutting assistant",
+          "summary": "Follow the design tier by tier at the machine."
+        },
+        {
+          "slug": "render-recording",
+          "title": "Recording renders",
+          "summary": "Record the rendered stone as it turns.",
+          "wip": true
+        }
+      ]
+    }
+  ]
+}

@@ -9,9 +9,18 @@
   // whatever came after it (nothing does today, but the next column added later would).
   //
   // A row is clickable (`clickable`, T-0160: single-clicking a row highlights its tier on the
-  // stone, same as single-clicking one of its own facets), never a turn -- and Enter/Space on
-  // the focused row does the same. Alt+ArrowUp / Alt+ArrowDown (T-0165) is the keyboard
-  // equivalent of dragging it one place within its own section.
+  // stone, same as single-clicking one of its own facets), never a turn -- and Space on the
+  // focused row does the same. Alt+ArrowUp / Alt+ArrowDown (T-0165) is the keyboard equivalent
+  // of dragging it one place within its own section.
+  //
+  // Enter (T-0257) is two things depending on the row's own state, so it never fights the
+  // page-wide Enter shortcut that edits the selected tier (App.svelte's onkeydown): on a row
+  // that is not yet the selection (reached by Tab, say, without a prior click) it selects the
+  // row, same as Space -- there is nothing to edit yet, since the toolbar's Edit button needs a
+  // selection first. On the row that IS already the selection (the ordinary case: a click both
+  // selects a row and focuses it) it instead does what Edit does, via edit_mode.js's shared
+  // editSelectedTier -- the same function App.svelte's own Enter calls, so a row keeps its own
+  // Enter handler without it becoming a second, possibly-drifting copy of "what Enter means".
   //
   // `tier.__gemTier` is stashed on the row element by the `tierRowElement` action, so
   // the drag (tier_drag.js) can read off "which tier does this row represent" from a pointer
@@ -23,7 +32,7 @@
   } from '../lib/tier_controller.js';
   import { formatTierAngle, formatTierIndex } from '../lib/tiers.js';
   import { angleDecimals } from '../lib/preferences.js';
-  import { enterEditMode } from '../lib/edit_mode.js';
+  import { enterEditMode, editSelectedTier } from '../lib/edit_mode.js';
   import { cuttingRows } from '../lib/cutting_assistant_mode.js';
   import EditableText from './EditableText.svelte';
 
@@ -68,8 +77,24 @@
       return;
     }
 
-    if (event.key === 'Enter' || event.key === ' ') {
-      // Space's default action is scrolling the pane; a row click never scrolls it.
+    if (event.key === 'Enter') {
+      event.preventDefault();
+
+      // Already selected: Enter edits it (T-0257), exactly as App.svelte's own Enter shortcut
+      // would if focus were anywhere else on the page.
+      if (get(selectedTier) === tier) {
+        editSelectedTier();
+      } else {
+        rowClicked(tier);
+      }
+
+      return;
+    }
+
+    if (event.key === ' ') {
+      // Space's default action is scrolling the pane; a row click never scrolls it. Space
+      // always selects, even on an already-selected row: unlike Enter, there is no established
+      // page-wide "Space does X" it would need to defer to.
       event.preventDefault();
       rowClicked(tier);
       return;

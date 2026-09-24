@@ -180,7 +180,7 @@ macro_rules! glsl_without_comments {
 
 const VERTEX_SHADER: &str = glsl_without_comments!(include_str!("shaders/gem.vert"));
 
-/// The fragment shader: the deterministic path tracer and the ported LuxCore one (T-0120),
+/// The fragment shader: the deterministic ray tracer and the ported LuxCore path tracer (T-0120),
 /// as one source that is compiled into a separate program per renderer -- see `ProgramKind`
 /// and `fragment_source`.
 ///
@@ -1928,8 +1928,8 @@ impl GemApp {
         Ok(value)
     }
 
-    /// Selects which path tracer renders the frame: 0 the deterministic one, 1 the ported
-    /// LuxCore one (T-0120).
+    /// Selects which renderer draws the frame: 0 the deterministic ray tracer, 1 the ported
+    /// LuxCore path tracer (T-0120).
     ///
     /// Both are compiled into the same program, so this is a uniform change and costs
     /// nothing -- unlike `set_lighting_model`, it can be toggled freely.

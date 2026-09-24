@@ -22,7 +22,7 @@ const int RENDERER_LUXCORE = 1;
 // No rendering, only an opaque surface in the stone colour: gem.frag's renderFlat().
 const int RENDERER_FLAT = 2;
 
-// Which path traces this frame. See src/shaders/lux/entry.glsl's main().
+// Which renderer draws this frame. See src/shaders/lux/entry.glsl's main().
 uniform int uRenderer;
 
 // Samples per pixel the ported path takes in ONE pass, i.e. in one draw of the

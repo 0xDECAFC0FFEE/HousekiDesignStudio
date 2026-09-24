@@ -1,0 +1,453 @@
+<h1>Editing facets by tier</h1>
+
+<p>The cutting instructions pane, on the left of the studio, lists every facet tier in your
+design in the order you'd cut it. This page covers reading that list, finding a tier's facets on
+the stone (and a facet's tier back in the list), and editing a tier's angle, depth and indexes in
+edit mode.</p>
+
+<figure><img src="images/editing-tiers/overview.webp" alt="The studio with the cutting instructions pane on the left, listing the Pavilion and Crown tiers, and the render on the right showing the facet count and proportions." loading="lazy">
+<figcaption>The cutting instructions pane (left) and the stone's stats (bottom right of the
+render).</figcaption></figure>
+
+<h2>Reading the cutting instructions pane</h2>
+
+<p>The pane has two sections, <span class="ui">Pavilion</span> then <span class="ui">Crown</span>
+&mdash; in that order because that's the order a stone is actually cut. Click either section's
+header to fold or unfold it.</p>
+
+<figure class="side"><img src="images/editing-tiers/pane-rows.webp" alt="A close-up of the Pavilion section's three rows and the start of the Crown section, showing each row's id, angle, index teeth and notes." loading="lazy">
+<figcaption>Each row is one tier: its id, angle, index teeth and any notes.</figcaption></figure>
+
+<p>Each row shows:</p>
+
+<table>
+  <tr><th>Column</th><th>Shows</th></tr>
+  <tr><td>Id</td><td>A letter and a number, in cutting order: <strong>P1, P2&hellip;</strong> for
+  an ordinary pavilion tier, <strong>C1, C2&hellip;</strong> for an ordinary crown tier,
+  <strong>G</strong> (numbered if there's more than one) for a girdle facet, and <strong>T</strong>
+  for the table. These ids describe the cutting sequence, not the file that was opened &mdash;
+  they're worked out fresh every time.</td></tr>
+  <tr><td>Angle</td><td>The facet's mast angle, always shown as a positive number (the girdle is
+  90&deg;, a flat culet is 0&deg;) whichever side of the stone it's actually cut on.</td></tr>
+  <tr><td>Index teeth</td><td>Every index-gear tooth this tier cuts a facet at, separated by
+  dashes, e.g. <code>4-12-20</code>. A <strong>preform</strong> tier's teeth are wrapped in curly
+  braces, <code>{4-12-20}</code> &mdash; it's still cut normally, but the braces mark it as one
+  kept for its meetpoints rather than the finished cut. See the toolbar's <span
+  class="ui">Preform</span> button below.</td></tr>
+  <tr><td>Notes</td><td>The tier's own cutting instruction, in italics, when it has one. Select
+  the row (a single click) and click its notes to edit them; press <kbd>Enter</kbd> or click away
+  to keep the change, <kbd>Escape</kbd> to cancel it.</td></tr>
+</table>
+
+<div class="note"><p>A hidden tier's whole row is greyed out but stays in the list, numbered and
+selectable. A frosted tier's angle and teeth sit on a darker background. Both are set from the
+toolbar &mdash; see <a href="#the-tier-toolbar">the tier toolbar</a> below.</p></div>
+
+<h2>Finding a tier on the stone, and a facet's tier</h2>
+
+<p>Click a tier's row and every one of its facets lights up on the stone. Click one of those
+facets directly on the stone and the same thing happens the other way: the facet's tier is
+selected, its row gets an accent border and tint, and the pane scrolls it into view if it isn't
+already visible. Clicking empty space, off the stone, clears the highlight.</p>
+
+<figure><img src="images/editing-tiers/tier-selected.webp" alt="The C2 tier row selected in the cutting instructions pane, with its accent-tinted border, and C2's facets tinted on the stone." loading="lazy">
+<figcaption>Clicking a row selects its tier, on the stone and in the pane.</figcaption></figure>
+
+<figure><img src="images/editing-tiers/facet-selected.webp" alt="A facet clicked on the stone, with its tier's row (C4) highlighted in the pane and the facet's colour dimmed by the highlight tint." loading="lazy">
+<figcaption>Clicking a facet on the stone selects its tier back in the pane.</figcaption></figure>
+
+<div class="note"><p>A single click never turns the stone. On a loaded design, a
+<strong>double</strong> click on a tier's row or on one of its facets opens edit mode instead
+(below) &mdash; the stone is left exactly as it was, not turned to face the facet.</p></div>
+
+<h2>Entering edit mode</h2>
+
+<p>Edit mode holds one tier at a time and lets you change its angle, its depth and its index
+teeth, watching the stone update as you go. There are four ways in, and all four do nothing while
+another tier is already being edited (their tooltips say to finish that one first):</p>
+
+<ol>
+  <li>Double-click a tier's row (not its notes &mdash; a click there on the selected row opens the
+  notes editor instead).</li>
+  <li>Double-click one of the tier's facets on the stone.</li>
+  <li>Select a tier and click the toolbar's <span class="ui">Edit</span> button, or press
+  <kbd>Enter</kbd> (see <a href="#the-tier-toolbar">the tier toolbar</a> below).</li>
+  <li>Click the toolbar's <span class="ui">New</span> button, which copies the selected tier and
+  opens the copy in edit mode.</li>
+</ol>
+
+<p>Once you're in, the top bar's mode readout, at the right, reads <span class="ui">Mode: Editing
+&lt;id&gt;</span> &mdash; a reminder from anywhere on the page that you're editing rather than
+looking at the finished design. The render settings are replaced by the edit panel, the sub bar
+becomes that tier's own index controls, and a cutting plane appears on the stone. The camera
+doesn't move.</p>
+
+<figure><img src="images/editing-tiers/edit-mode-overview.webp" alt="Edit mode open on tier C1: the mode readout reads Mode: Editing C1, the sub bar shows the index gear ruler and Symmetry/Offset fields, the cutting plane crosses the top of the stone, the edit panel on the right shows Angle and Depth scales, and the tier toolbar at the bottom left shows New and Edit greyed out." loading="lazy">
+<figcaption>Edit mode on C1: the mode readout, the index controls in the sub bar, the cutting
+plane, and the Angle/Depth scales.</figcaption></figure>
+
+<figure><img src="images/editing-tiers/toolbar-edit-entry.webp" alt="Edit mode entered by selecting a row and then clicking the toolbar's Edit button." loading="lazy">
+<figcaption>Entering edit mode with the toolbar's Edit button, after selecting a row.</figcaption></figure>
+
+<h2>The cutting plane</h2>
+
+<p>While you're editing a tier, a translucent quad is drawn through the stone in the facet's own
+plane &mdash; exactly where that cut lies, the width of the stone across it. It's drawn over the
+picture rather than being part of the render, so it costs nothing to draw and never slows the
+tracer down. It follows the stone as you orbit or zoom, and it stays on the facet you started
+editing on: changing the angle, the depth or the tier's teeth moves the plane with them, but
+nothing while you're in this session moves it to a different facet.</p>
+
+<figure><img src="images/editing-tiers/cutting-plane.webp" alt="A close-up of the render in edit mode, showing the translucent cutting plane crossing the top of the stone at the facet being edited." loading="lazy">
+<figcaption>The cutting plane, at the facet edit mode opened on.</figcaption></figure>
+
+<h2>The angle and depth scales</h2>
+
+<figure class="side"><img src="images/editing-tiers/edit-panel.webp" alt="A close-up of the edit panel's top: the Angle and Depth tape rulers and, below them, the tier's facet count and teeth." loading="lazy">
+<figcaption>The edit panel: the Angle and Depth scales and the tier's teeth. Cancel and Done sit
+further down the same panel (see the full edit-mode screenshot above).</figcaption></figure>
+
+<p>The edit panel holds two vertical tape rulers, <span class="ui">Angle</span> and <span
+class="ui">Depth</span>, each a strip you can drag like a tape measure. The <span
+class="ui">Angle</span> scale runs 0&deg; to 90&deg;, with 0 at the top for a crown tier and at
+the bottom for a pavilion tier, so the number always increases the same way the cutting
+instructions read it. The <span class="ui">Depth</span> scale has no numbers at all &mdash; it's
+an internal unit, not one a cutter reads off directly &mdash; but it still shows ticks, and a
+smaller value on it cuts a deeper facet.</p>
+
+<table>
+  <tr><th>Gesture</th><th>Does</th></tr>
+  <tr><td>Drag the tape</td><td>Cuts the facet live as you move the pointer; the stone, the
+  cutting instructions and the plane all follow. Releasing the pointer is what gets recorded as
+  one step you can undo &mdash; the whole drag counts as a single edit.</td></tr>
+  <tr><td>Scroll the wheel over a scale</td><td>Nudges it one step at a time. Unlike a drag, each
+  wheel notch is applied and recorded immediately, so scrolling several notches makes that many
+  separate undo steps.</td></tr>
+  <tr><td><kbd>&uarr;</kbd> / <kbd>&darr;</kbd> (scale focused)</td><td>Moves by one step, in
+  whichever direction is "up" the scale. Also applied and recorded immediately, like the
+  wheel.</td></tr>
+  <tr><td><kbd>Page Up</kbd> / <kbd>Page Down</kbd></td><td>Moves by one major tick.</td></tr>
+  <tr><td><kbd>Home</kbd> / <kbd>End</kbd></td><td>Jumps to the two ends of the scale.</td></tr>
+  <tr><td>Click the <span class="ui">Angle</span> reading</td><td>Opens a text box to type an
+  exact value. <kbd>Enter</kbd>, or clicking away, applies it; <kbd>Escape</kbd> cancels just the
+  typing. (The <span class="ui">Depth</span> scale has no reading to click &mdash; typing a depth
+  isn't offered, since the number means nothing outside the tape itself.)</td></tr>
+  <tr><td>Hold <kbd>Shift</kbd> while dragging, or click a scale's own <span class="ui">Fine</span>
+  button first</td><td>Moves the tape a fifth as far as the pointer, for finer placing. The
+  <span class="ui">Fine</span> button stays on until you click it again; <kbd>Shift</kbd> only
+  applies while it's held.</td></tr>
+</table>
+
+<figure class="side"><img src="images/editing-tiers/angle-scale-before.webp" alt="The Angle scale alone, reading 55.07 degrees, before a drag." loading="lazy">
+<figcaption>The Angle scale before a drag.</figcaption></figure>
+
+<figure class="side"><img src="images/editing-tiers/angle-scale-after.webp" alt="The Angle scale alone, reading 61.07 degrees, after dragging it upward." loading="lazy">
+<figcaption>After dragging the tape: the angle, the row and the stone all follow.</figcaption></figure>
+
+<figure class="side"><img src="images/editing-tiers/typing-angle.webp" alt="The Angle reading replaced by a text box, ready to type an exact value." loading="lazy">
+<figcaption>Clicking the Angle reading to type an exact value.</figcaption></figure>
+
+<figure><img src="images/editing-tiers/depth-scale-before.webp" alt="The render before dragging the Depth scale, showing the cutting plane at its original depth." loading="lazy">
+<figcaption>Before dragging the Depth scale.</figcaption></figure>
+
+<figure><img src="images/editing-tiers/depth-scale-after.webp" alt="The render after dragging the Depth scale, showing the cutting plane and the facet cut deeper into the stone." loading="lazy">
+<figcaption>After dragging the Depth scale: the plane, and the facet it cuts, move with it.</figcaption></figure>
+
+<h2>The index gear, while editing a tier</h2>
+
+<p>Whatever the sub bar describes while you're in edit mode <em>is</em> that tier's list of index
+teeth. It's the same index controls the sub bar always shows, but while a tier is open they cut
+that tier live instead of doing nothing.</p>
+
+<figure><img src="images/editing-tiers/index-ruler-editing.webp" alt="The sub bar in edit mode: the gear button reading 96 teeth, the scrolling tooth tape with tooth 0 centred, and the Symmetry and Offset fields." loading="lazy">
+<figcaption>The sub bar's index gear, tooth tape, and Symmetry/Offset fields, while editing a
+tier.</figcaption></figure>
+
+<ul>
+  <li><strong>The gear button</strong>, at the left, reads the design's tooth count (96 by
+  default). Click it to open the <span class="ui">Index gear</span> dialog: <span
+  class="ui">Number of teeth</span>, a <span class="ui">Fractional teeth</span> checkbox (allows
+  an index between two teeth, like 4.5), and an <span class="ui">Arbitrary mode</span> checkbox
+  (see below). <kbd>Enter</kbd> applies, <kbd>Escape</kbd> or <span class="ui">Cancel</span>
+  closes it without changing anything, and <span class="ui">Apply</span> is greyed out while the
+  numbers entered don't make sense together.</li>
+  <li><strong>The tooth tape</strong> scrolls under a fixed centre mark; the tooth there is the
+  tier's own starting index. Drag it, or scroll the wheel over it, to bring a different tooth to
+  the centre &mdash; the facet moves round the stone as you do, live. With the tape focused, the
+  arrow keys step one tooth, <kbd>Page Up</kbd>/<kbd>Page Down</kbd> jump a big tick, and
+  <kbd>Home</kbd> goes to tooth 0. Releasing the tape (or letting the wheel settle) snaps it to
+  the nearest tooth. A drag, a burst of scrolling, or several quick key presses all settle into
+  <strong>one</strong> undo step, a quarter second after you stop &mdash; unlike the Angle and
+  Depth scales' wheel and arrow keys, which each record their own step.</li>
+  <li><strong>Symmetry</strong> sets how many copies of the facet are cut equally spaced around
+  the stone; it must divide evenly into the tooth count, or the field turns red and the invalid
+  value isn't applied.</li>
+  <li><strong>Offset</strong> adds one more facet a fixed number of teeth after each symmetry
+  copy; 0 means none.</li>
+  <li>Click <span class="ui">Symmetry</span> or <span class="ui">Offset</span> to type a value
+  directly; <kbd>Enter</kbd> or clicking away applies it, and leaving the field with an invalid
+  value puts back whatever's actually in use.</li>
+  <li>A <span class="ui">Fine</span> button beside the tape (and holding <kbd>Shift</kbd> while
+  dragging it) works the same way as the Angle and Depth scales' own <span class="ui">Fine</span>
+  buttons &mdash; each of the three tapes has its own.</li>
+  <li>Below the scales, a line of text always shows the tier's current cut, e.g. "6 facets at
+  0-16-32-48-64-80".</li>
+</ul>
+
+<p><span class="ui">Arbitrary mode</span> (ticked in the gear dialog) replaces the tooth tape and
+the Symmetry/Offset fields with a single <span class="ui">Indexes</span> text box, where you type
+the tier's teeth by hand &mdash; separated by dashes, commas or spaces. Turning it on carries the
+tape's current teeth into the box; turning it back off needs an evenly spaced list, or it's
+refused with a tooltip explaining why.</p>
+
+<figure><img src="images/editing-tiers/gear-dialog.webp" alt="The Index gear dialog, showing Number of teeth, Fractional teeth and Arbitrary mode." loading="lazy">
+<figcaption>The Index gear dialog, opened from the sub bar's gear button.</figcaption></figure>
+
+<figure><img src="images/editing-tiers/index-ruler-dragged.webp" alt="The sub bar's tooth tape after being dragged to a different tooth, with the Symmetry and Offset fields unchanged." loading="lazy">
+<figcaption>Dragging the tooth tape to a different starting tooth.</figcaption></figure>
+
+<h2>Typing exact values</h2>
+
+<p>Every number on this page that can be typed follows the same rule: click it (or, for a scale,
+click its reading) to open a text box, and <kbd>Enter</kbd> or clicking away applies the value.
+This covers the Angle reading, the sub bar's Symmetry and Offset fields, the Indexes box in
+arbitrary mode, and the gear dialog's Number of teeth. Whatever <kbd>Escape</kbd> does in any of
+these fields, it never leaves edit mode while you're typing &mdash; on the Angle reading it
+cancels the typing outright; in the gear dialog it closes the whole dialog without applying.</p>
+
+<h2 id="the-tier-toolbar">The tier toolbar</h2>
+
+<p>Seven buttons sit at the bottom of the cutting instructions pane, in this order: <span
+class="ui">New</span>, <span class="ui">Delete</span>, <span class="ui">Edit</span>, <span
+class="ui">Hide</span>, <span class="ui">Preform</span>, <span class="ui">Frosted</span>, <span
+class="ui">Comments</span>. All but <span class="ui">Comments</span> act on the selected tier; a
+button that can't be used right now is greyed out, with a tooltip explaining why (hover it to
+see).</p>
+
+<p>Below about 540px the pane shows two rows &mdash; <span class="ui">New</span>/<span
+class="ui">Delete</span>/<span class="ui">Edit</span>/<span class="ui">Hide</span> above <span
+class="ui">Preform</span>/<span class="ui">Frosted</span>/<span class="ui">Comments</span>, always
+that same split &mdash; and one row of all seven once the pane is wider than that (drag the handle
+between the pane and the render to widen it, up to 560px).</p>
+
+<figure class="side"><img src="images/editing-tiers/toolbar.webp" alt="The tier toolbar at the pane's default width: New, Delete, Edit, Hide on one row, Preform, Frosted, Comments on a second." loading="lazy">
+<figcaption>The toolbar at the pane's default width: two rows.</figcaption></figure>
+
+<figure class="side"><img src="images/editing-tiers/toolbar-wide.webp" alt="The tier toolbar with the pane widened past about 540px: all seven buttons, New, Delete, Edit, Hide, Preform, Frosted, Comments, on one row." loading="lazy">
+<figcaption>The same toolbar with the pane widened: one row of seven.</figcaption></figure>
+
+<table>
+  <tr><th>Button</th><th>Does</th></tr>
+  <tr><td><span class="ui">New</span></td><td>Copies the selected tier, inserts the copy right
+  after it, and opens the copy in edit mode.</td></tr>
+  <tr><td><span class="ui">Delete</span></td><td>Removes the selected tier and rebuilds the stone.
+  Greyed out on a section's last remaining tier &mdash; the pavilion and the crown must each keep
+  at least one. <kbd>Backspace</kbd> or <kbd>Delete</kbd> does the same, anywhere on the page a
+  text field isn't focused.</td></tr>
+  <tr><td><span class="ui">Edit</span></td><td>Opens the selected tier in edit mode, the same as
+  double-clicking its row or pressing <kbd>Enter</kbd> with a tier selected.</td></tr>
+  <tr><td><span class="ui">Hide</span> / <span class="ui">Show</span></td><td>Toggles whether the
+  tier is cut into the stone at all. A hidden tier's row greys out entirely but stays in the list,
+  numbered and selectable; the label reads <span class="ui">Show</span> once it's hidden.</td></tr>
+  <tr><td><span class="ui">Preform</span></td><td>Marks the tier as a preform step: its teeth show
+  wrapped in curly braces on the row. It's still cut normally &mdash; the braces are a note that
+  this tier is kept for its meetpoints, not that it's skipped.</td></tr>
+  <tr><td><span class="ui">Frosted</span></td><td>Marks the tier's facets as rough (frosted)
+  glass; its angle and teeth get a darker background on the row. Only the Monte Carlo renderer
+  actually draws a frosted facet as rough; the deterministic renderer shows it as an ordinary
+  polished facet.</td></tr>
+  <tr><td><span class="ui">Comments</span></td><td>Opens a dialog for the whole design's own
+  header and footer comments &mdash; not the selected tier's notes, which are edited in the pane
+  itself (see above). It's active whenever a design is loaded, with no tier selected.</td></tr>
+</table>
+
+<figure><img src="images/editing-tiers/new-tier.webp" alt="Tiers C1, C2 and a new C3, C3 being a copy of C2 and selected, sitting right after it in the list." loading="lazy">
+<figcaption>New adds a copy of the selected tier (C2) right after it, as C3.</figcaption></figure>
+
+<figure><img src="images/editing-tiers/hidden-tier.webp" alt="Tier C5's row greyed out after clicking Hide, between its ordinary neighbours C4 and C6, staying in the list but taken out of the stone." loading="lazy">
+<figcaption>A hidden tier: greyed out, but still listed and selectable.</figcaption></figure>
+
+<figure><img src="images/editing-tiers/frosted-tier.webp" alt="Tier C6's angle and teeth sitting on a darker background after clicking Frosted, with C5 above it still greyed out from Hide and C4 above that." loading="lazy">
+<figcaption>A frosted tier's angle and teeth sit on a darker background.</figcaption></figure>
+
+<h3>Selecting and editing tiers from the keyboard</h3>
+
+<p>With the pointer anywhere except a text field, a dialog or a dropdown:</p>
+
+<table>
+  <tr><th>Key</th><th>Does</th></tr>
+  <tr><td><kbd>&uarr;</kbd> / <kbd>&darr;</kbd></td><td>Moves the selection up or down through the
+  pane's own order (Pavilion, then Crown, top to bottom). With nothing selected, <kbd>&darr;</kbd>
+  picks the first tier and <kbd>&uarr;</kbd> the last; at either end of the list the selection
+  stays put rather than wrapping round.</td></tr>
+  <tr><td><kbd>Enter</kbd></td><td>Opens the selected tier in edit mode &mdash; the same as
+  clicking <span class="ui">Edit</span>. If the pointer's focus is on a button, link or menu item
+  instead, <kbd>Enter</kbd> activates that as usual and does not edit anything.</td></tr>
+  <tr><td><kbd>Backspace</kbd> / <kbd>Delete</kbd></td><td>Deletes the selected tier &mdash; the
+  same as clicking <span class="ui">Delete</span>, including its refusal on a section's last
+  tier.</td></tr>
+</table>
+
+<p>None of these three fire while typing into a field (the cut name, a tier's notes, a slider
+readout&hellip;), with a <span class="ui">&lt;select&gt;</span> focused, or while a dialog or menu
+is open. <kbd>&uarr;</kbd>/<kbd>&darr;</kbd> also do nothing while a whole-design mode &mdash;
+<a href="tangent-ratio-scaling.html">scale height</a>, <a href="girdle-resizing.html">resize
+girdle</a> or the <a href="cutting-assistant.html">cutting assistant</a> &mdash; holds the design,
+since those modes' own toolbar is entirely inactive too. They do nothing harmful in edit mode
+either: the selection cannot leave the tier being edited, so pressing them just leaves it
+where it is.</p>
+
+<div class="note"><p>Don't confuse these with <kbd>Alt</kbd>+<kbd>&uarr;</kbd>/<kbd>Alt</kbd>+
+<kbd>&darr;</kbd>, which move a row within the cutting sequence (see
+<a href="#reordering-tiers">Reordering tiers</a> below) rather than change which tier is
+selected.</p></div>
+
+<h2 id="reordering-tiers">Reordering tiers</h2>
+
+<p>Drag a row up or down to change where it's cut &mdash; within its own section only; a pavilion
+row can never be dropped into the crown table or the other way round. The keyboard equivalent,
+with a row focused, is <kbd>Alt</kbd>+<kbd>&uarr;</kbd> / <kbd>Alt</kbd>+<kbd>&darr;</kbd>, which
+moves it one place at a time. Every other row's id renumbers immediately to match the new cutting
+order.</p>
+
+<h2>Leaving edit mode</h2>
+
+<p>Two buttons at the bottom of the edit panel, and a key, all get you out:</p>
+
+<ul>
+  <li><span class="ui">Done</span> keeps everything you changed.</li>
+  <li><span class="ui">Cancel</span> undoes every change made since you entered edit mode &mdash;
+  the angle, the depth, and the teeth all go back to where they started.</li>
+  <li><kbd>Escape</kbd> does the same as <span class="ui">Cancel</span> &mdash; except while a text
+  box has focus (the Angle reading being typed into, say) or a dialog is open, where Escape is
+  taken by that instead, and edit mode is left alone.</li>
+</ul>
+
+<p>Edit mode also ends on its own if the tier being edited stops existing &mdash; a <span
+class="ui">Delete</span>, an undo of a <span class="ui">New</span>, or opening a different
+design.</p>
+
+<figure><img src="images/editing-tiers/after-cancel.webp" alt="The studio back in Mode: Overview after pressing Escape in edit mode, with the render settings panel restored." loading="lazy">
+<figcaption>Escape (or Cancel) leaves edit mode and undoes the session's changes.</figcaption></figure>
+
+<figure><img src="images/editing-tiers/after-done.webp" alt="Tier C1's row reading 58.07 degrees after clicking Done, up from its original 55.07, with C2 below it for context." loading="lazy">
+<figcaption>Done leaves edit mode and keeps the change: the row shows the new angle.</figcaption></figure>
+
+<h2>Undo and redo</h2>
+
+<p>Every change on this page &mdash; reordering tiers, editing a tier's angle, depth or teeth,
+<span class="ui">New</span>, <span class="ui">Delete</span>, <span class="ui">Hide</span>/<span
+class="ui">Show</span>, <span class="ui">Preform</span>, <span class="ui">Frosted</span>, and the
+design's comments &mdash; goes on one edit history you can step through:</p>
+
+<table>
+  <tr><th>Key</th><th>Does</th></tr>
+  <tr><td><kbd>Cmd</kbd>+<kbd>Z</kbd> / <kbd>Ctrl</kbd>+<kbd>Z</kbd></td><td>Undo</td></tr>
+  <tr><td><kbd>Shift</kbd>+<kbd>Cmd</kbd>+<kbd>Z</kbd> /
+  <kbd>Ctrl</kbd>+<kbd>Shift</kbd>+<kbd>Z</kbd></td><td>Redo</td></tr>
+  <tr><td><kbd>Ctrl</kbd>+<kbd>Y</kbd> (not on a Mac)</td><td>Redo</td></tr>
+</table>
+
+<p>These shortcuts, and the <span class="ui">Edit</span> menu's <span class="ui">Undo</span> and
+<span class="ui">Redo</span> items, act on the page's history &mdash; not on a text box. If the
+pointer is inside a field you're typing into, the same keys undo your typing there instead, the
+ordinary way a text box works.</p>
+
+<p>A whole edit-mode session &mdash; from opening it to <span class="ui">Done</span> &mdash;
+settles into edits the same way described above: dragging a scale is one undo per drag, but the
+wheel and the arrow keys on the Angle and Depth scales each apply and record immediately, so
+several wheel notches or key presses in a row make that many separate undo steps. The sub bar's
+tooth tape, by contrast, batches a whole drag, scroll or run of key presses into a single undo.</p>
+
+<h2>The Edit menu</h2>
+
+<figure class="side"><img src="images/editing-tiers/edit-menu.webp" alt="The Edit menu open, showing Undo, Redo, and the whole-design transforms below them." loading="lazy">
+<figcaption>The Edit menu.</figcaption></figure>
+
+<p><span class="ui">Undo</span> and <span class="ui">Redo</span> are greyed out when there's
+nothing to step through. Below them are transforms that rewrite the whole design at once, rather
+than one tier &mdash; which is why they live in a menu instead of the tier toolbar:</p>
+
+<ul>
+  <li><span class="ui">Resize girdle</span> opens its own mode; see <a
+  href="girdle-resizing.html">Girdle resizing</a>.</li>
+  <li><span class="ui">Scale height</span> opens its own mode; see <a
+  href="tangent-ratio-scaling.html">Tangent ratio height scaling</a>.</li>
+  <li><span class="ui">Rotate by index</span>, <span class="ui">Reverse index order</span>,
+  <span class="ui">Flip crown and pavilion</span> and <span class="ui">Manual optimizer</span> are
+  greyed out &mdash; not built yet.</li>
+</ul>
+
+<div class="note"><p>To follow a whole design tier by tier at the machine, rather than edit it, see
+<a href="cutting-assistant.html">Cutting assistant</a>.</p></div>
+
+<h2>The stats box</h2>
+
+<p>The render's bottom-right corner shows the stone's facet count and three proportions, worked
+out from the stone as it stands right now &mdash; they update as you edit.</p>
+
+<figure><img src="images/editing-tiers/stats-box.webp" alt="A close-up of the stats box: Facets 61, T/W 0.189, C/W 0.207, P/W 0.414." loading="lazy">
+<figcaption>Facets, T/W, C/W and P/W, bottom right of the render &mdash; here with a tier
+hidden, so the facet count is lower than the full design's 67.</figcaption></figure>
+
+<table>
+  <tr><th>Stat</th><th>What it means to a cutter</th></tr>
+  <tr><td>Facets</td><td>How many facets the stone has, girdle facets included.</td></tr>
+  <tr><td>T/W</td><td>The table's width along the stone's long axis, divided by the girdle's width
+  across its short axis.</td></tr>
+  <tr><td>C/W</td><td>The crown's height, from the girdle to the table, divided by the girdle's
+  width across its short axis.</td></tr>
+  <tr><td>P/W</td><td>The pavilion's height, from the culet to the girdle, divided by the girdle's
+  width across its short axis.</td></tr>
+</table>
+
+<h2>Every gesture and shortcut</h2>
+
+<table>
+  <tr><th>Gesture / key</th><th>Where</th><th>Does</th></tr>
+  <tr><td>Click</td><td>A tier's row, or one of its facets on the stone</td><td>Selects that
+  tier</td></tr>
+  <tr><td>Double-click</td><td>A tier's row, or one of its facets on the stone</td><td>Enters edit
+  mode on that tier</td></tr>
+  <tr><td>Drag</td><td>The Angle or Depth scale, or the sub bar's tooth tape</td><td>Cuts the
+  facet live; releasing (or the tape snapping) records the edit</td></tr>
+  <tr><td>Drag</td><td>A tier's row</td><td>Reorders it within its own section</td></tr>
+  <tr><td>Scroll wheel</td><td>The Angle or Depth scale</td><td>Nudges the value one step,
+  recorded immediately</td></tr>
+  <tr><td>Scroll wheel</td><td>The sub bar's tooth tape</td><td>Moves it a tooth at a time,
+  batched into one undo</td></tr>
+  <tr><td><kbd>&uarr;</kbd> <kbd>&darr;</kbd></td><td>The Angle or Depth scale, focused</td><td>One
+  step, recorded immediately</td></tr>
+  <tr><td><kbd>Page Up</kbd> <kbd>Page Down</kbd></td><td>The Angle or Depth scale, or the tooth
+  tape, focused</td><td>One major tick, or one big tooth step</td></tr>
+  <tr><td><kbd>Home</kbd> <kbd>End</kbd></td><td>The Angle or Depth scale, focused</td><td>Jumps to
+  the ends of the scale</td></tr>
+  <tr><td><kbd>Home</kbd></td><td>The tooth tape, focused</td><td>Jumps to tooth 0</td></tr>
+  <tr><td><kbd>&larr;</kbd> <kbd>&rarr;</kbd> <kbd>&uarr;</kbd> <kbd>&darr;</kbd></td><td>The tooth
+  tape, focused</td><td>Steps one tooth</td></tr>
+  <tr><td><kbd>Shift</kbd> held while dragging</td><td>Any scale or the tooth tape</td><td>Fine
+  adjustment: a fifth as far as the pointer</td></tr>
+  <tr><td><kbd>Alt</kbd>+<kbd>&uarr;</kbd> / <kbd>Alt</kbd>+<kbd>&darr;</kbd></td><td>A tier's row,
+  focused</td><td>Reorders it one place within its section</td></tr>
+  <tr><td><kbd>&uarr;</kbd> / <kbd>&darr;</kbd></td><td>Anywhere outside a text field, dialog or
+  dropdown</td><td>Moves the tier selection up or down the pane's own order; nothing selected
+  &rarr; <kbd>&darr;</kbd> picks the first tier, <kbd>&uarr;</kbd> the last; clamped at both
+  ends</td></tr>
+  <tr><td><kbd>Enter</kbd></td><td>A row, not yet selected, focused</td><td>Selects it, same as a
+  click</td></tr>
+  <tr><td><kbd>Enter</kbd></td><td>A tier already selected, anywhere outside a text field or a
+  focused button/link/menu item</td><td>Opens it in edit mode, same as <span
+  class="ui">Edit</span></td></tr>
+  <tr><td><kbd>Backspace</kbd> / <kbd>Delete</kbd></td><td>Anywhere outside a text field, with a
+  tier selected</td><td>Deletes the selected tier, same as <span class="ui">Delete</span></td></tr>
+  <tr><td><kbd>Escape</kbd></td><td>Anywhere in edit mode, outside a text box or dialog</td><td>Leaves
+  edit mode and undoes the session, same as <span class="ui">Cancel</span></td></tr>
+  <tr><td><kbd>Escape</kbd></td><td>Typing the Angle reading</td><td>Cancels the typing; edit mode
+  stays open</td></tr>
+  <tr><td><kbd>Escape</kbd></td><td>A text box focused (Symmetry, Offset, Indexes&hellip;)</td><td>Never
+  leaves edit mode, even though it doesn't cancel anything in these fields either</td></tr>
+  <tr><td><kbd>Enter</kbd></td><td>While typing a value</td><td>Applies it</td></tr>
+  <tr><td><kbd>Cmd</kbd>/<kbd>Ctrl</kbd>+<kbd>Z</kbd></td><td>Anywhere outside a text box</td><td>Undo</td></tr>
+  <tr><td><kbd>Shift</kbd>+<kbd>Cmd</kbd>/<kbd>Ctrl</kbd>+<kbd>Z</kbd>, or
+  <kbd>Ctrl</kbd>+<kbd>Y</kbd></td><td>Anywhere outside a text box</td><td>Redo</td></tr>
+</table>

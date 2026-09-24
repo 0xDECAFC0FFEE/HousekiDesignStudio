@@ -96,7 +96,15 @@ export function writeSettingColor(name, rgb) {
 
 export const INSTRUCTIONS_WIDTH_SETTING = 'gems.instructionsWidth';
 export const INSTRUCTIONS_WIDTH_MIN = 200;
-export const INSTRUCTIONS_WIDTH_MAX = 480;
+// 560, not 480 (T-0257): the tier toolbar's seven buttons -- New, Delete, Edit, Hide, Preform,
+// Frosted, Comments -- only merge into one row at a pane width of about 540px (instructions.css's
+// own breakpoint, measured from the buttons' real rendered minimum widths), which is past the old
+// 480px ceiling. Below 480 nothing changes; raising the ceiling only means the pane can now
+// actually be dragged wide enough to reach the one-row layout the ticket asked for, rather than
+// the CSS rule existing but being unreachable through the handle. Measured on the built page
+// (2026-09-24): two rows at a pane width of 480px, one row at 540px and 560px. See
+// instructions.css's own comment above #tier-toolbar for the measurement.
+export const INSTRUCTIONS_WIDTH_MAX = 560;
 
 // The right-hand pane, the render settings and edit mode's bar (2026-09-22, the user: "can you
 // make both left and right pane widths draggable"). 300px was its fixed width; 240px still fits

@@ -5,8 +5,8 @@ Only what the comparison needs: load a stone (the built-in one, or an OBJ's text
 set the handful of parameters that have to match the LuxCore oracle scene, render at
 an exact pixel size, and capture the canvas before the browser can clear it.
 
-Since T-0120 the shader holds two path tracers -- the hand-written one and the ported
-LuxCore one -- selected at runtime. `$GEM_RENDERER` picks which one is captured; see
+Since T-0120 the shader holds two renderers -- the deterministic ray tracer and the ported
+LuxCore path tracer -- selected at runtime. `$GEM_RENDERER` picks which one is captured; see
 `selected_renderer` below for why it is an environment variable.
 
 Since T-0122 the ported path converges progressively, so `render()` is stateful: one call
@@ -68,7 +68,7 @@ LUX_ENVIRONMENTS = {"project": 0, "luxcore": 1}
 # src/renderer/shaders/lux/host.glsl.
 RENDERERS = {"handwritten": 0, "luxcore": 1}
 
-# Environment variables that pick which of the two path tracers in the shader is measured
+# Environment variables that pick which of the two renderers in the shader is measured
 # (T-0120).
 #
 # Why an environment variable rather than a flag: tools/compare_luxcore.py owns the metrics
@@ -377,7 +377,7 @@ def capture(
     # capture measured against LuxCore or Gem Cut Studio must not have lines drawn on it.
     chrome.evaluate("window.gemApp.set_wireframe(false)")
 
-    # Which path tracer to measure, and its own settings, before the caller's parameters --
+    # Which renderer to measure, and its own settings, before the caller's parameters --
     # so a caller that passes `luxSamples` explicitly still wins over the environment.
     renderer = selected_renderer()
     if renderer is not None:
