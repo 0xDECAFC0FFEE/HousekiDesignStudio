@@ -493,6 +493,20 @@ const FACET_TURN_MS = 200;
 // slower still), so a deliberate double click is never missed for being too slow.
 const DOUBLE_CLICK_MS = 400;
 
+// Whether a sideways drag spins the stone the other way (2026-09-24). The cutting assistant's
+// pavilion phase looks at the stone from below with it upside down on the dop (tilt -120), and
+// there the usual direction reads backwards: the user, "dragging left moves the rock
+// counterclockwise. this is because the rock is flipped upside down. can you reverse the
+// direction of pulling on the x axis?". Only the spin is reversed; dragging up and down is
+// unchanged. The mode registers the reader (cutting_assistant_mode.js), as it does the stone-pick
+// block with tier_controller.js: session.js imports this file and the mode imports session.js, so
+// this file does not import the mode.
+let reverseDragSpin = () => false;
+
+export function setReverseDragSpin(reader) {
+  reverseDragSpin = reader;
+}
+
 /** Stops a turn towards a clicked facet where it is, for when the user moves the view. */
 export function cancelFacetTurn() {
   if (facetTurn !== null) {
@@ -716,8 +730,9 @@ export function attachCanvasControls(canvasElement) {
     // regardless of window size. Dragging up tilts positively, which is the direction
     // the old pitch-based drag took from face-up.
     const scale = 2.5 / canvas.clientHeight;
+    const spinSign = reverseDragSpin() ? 1 : -1;
 
-    engine.app.orbit(-deltaX * scale, -deltaY * scale);
+    engine.app.orbit(spinSign * deltaX * scale, -deltaY * scale);
 
     // Keep the X and Y rotation sliders showing the pose the drag produced.
     bumpParams();

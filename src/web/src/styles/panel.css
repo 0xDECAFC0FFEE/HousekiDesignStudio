@@ -116,10 +116,6 @@
 
 .hint { color: var(--muted); font-size: 11px; margin-top: 8px; }
 
-/* Pinned to #panel's bottom (margin-top: auto, #panel is a flex column): which mode this panel
-   belongs to, overview's own. See SettingsPanel.svelte's comment above #panel-mode. */
-#panel-mode { margin-top: auto; padding-top: 10px; border-top: 1px solid var(--panel-edge); }
-
 /* ---- Color settings: a row with the setting's name (and checkbox, if it has one) and a
    swatch; clicking the swatch opens the setting's hue, saturation and value sliders below
    it. See makeHsvPicker. HSV rather than HSL, because it is what Gem Cut Studio's color

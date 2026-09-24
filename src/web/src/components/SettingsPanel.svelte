@@ -92,15 +92,11 @@
     {@render controls()}
   {/if}
 
-  <!-- This panel IS overview mode's own bar, the way EditPanel is edit mode's (App.svelte stacks
-       the two in one grid cell and swaps which is visible). Pinned to the bottom
-       (`margin-top: auto`, #panel is already a flex column) rather than placed after the last
-       section, so it reads as the panel's own footer and stays put as sections are collapsed or
-       expanded above it. 2026-09-22, the user: "at the bottom of the render settings section can
-       you add a bit about the mode" -- more modes are planned, one per currently-greyed
-       Edit/Tools menu item (kb/application-modes-current-and-planned.md); this is where each
-       would name itself if it gets its own settings-style panel the way edit mode did. -->
-  <div id="panel-mode" class="hint">Mode: Overview</div>
+  <!-- "Mode: Overview", this panel's own pinned-bottom footer (2026-09-22, the user: "at the
+       bottom of the render settings section can you add a bit about the mode"), moved to the top
+       bar's right end 2026-09-24 (the user: "move the mode status information to the top right
+       of the menu bar") -- see TopBar.svelte's `modeStatus` and `#topbar-mode`. Not replaced
+       here: that single readout now covers every mode, not just this panel's own. -->
 
   <!-- Persistent or minor conditions only (see the `error` store's comment). A one-off failure of
        something the user just asked for -- a file or a link that could not be read -- goes to

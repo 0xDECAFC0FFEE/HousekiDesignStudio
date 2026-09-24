@@ -30,7 +30,8 @@
 </script>
 
 <div id="resize-girdle-panel">
-  <h2 class="girdle-panel-title">Resizing girdle</h2>
+  <!-- The panel's own "Resizing girdle" title moved to the top bar's mode status 2026-09-24 --
+       see TopBar.svelte's `modeStatus` and kb/mode-status-in-the-top-bar.md. -->
   <p class="girdle-panel-hint">Drag the gauge to move the whole pavilion up or down the stone's
     axis, while the crown and the girdle stay where they are: every pavilion meetpoint on the
     girdle moves together, so the girdle stays level. Up makes the girdle band taller, down
@@ -69,13 +70,6 @@
 </div>
 
 <style>
-  .girdle-panel-title {
-    margin: 2px 0 4px;
-    color: var(--text);
-    font-size: 14px;
-    font-weight: 600;
-  }
-
   .girdle-panel-hint {
     margin: 0 0 12px;
     color: var(--muted);

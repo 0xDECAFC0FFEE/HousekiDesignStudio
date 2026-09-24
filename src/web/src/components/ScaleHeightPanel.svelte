@@ -41,7 +41,8 @@
 </script>
 
 <div id="scale-height-panel">
-  <h2 class="scale-panel-title">Scaling height</h2>
+  <!-- The panel's own "Scaling height" title moved to the top bar's mode status 2026-09-24 --
+       see TopBar.svelte's `modeStatus` and kb/mode-status-in-the-top-bar.md. -->
   <p class="scale-panel-hint">Drag a gauge to make that half of the stone taller or flatter. Every
     facet turns so its angle's tangent is multiplied by the ratio, and moves so its meets still
     meet. Done keeps the changes; Cancel or Escape undoes them.</p>
@@ -106,13 +107,6 @@
 </div>
 
 <style>
-  .scale-panel-title {
-    margin: 2px 0 4px;
-    color: var(--text);
-    font-size: 14px;
-    font-weight: 600;
-  }
-
   .scale-panel-hint {
     margin: 0 0 12px;
     color: var(--muted);

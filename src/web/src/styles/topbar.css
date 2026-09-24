@@ -81,6 +81,26 @@
   text-overflow: ellipsis;
 }
 
+/* The mode status, at the bar's right end (2026-09-24; moved here from SettingsPanel's pinned
+   footer and each mode panel's own title -- see TopBar.svelte's comment above `modeStatus`).
+   `margin-left: auto` claims the spare width `#app-title`'s own comment describes (687px of it
+   at the default 1024px window), the same way flexbox's other single `auto` margin would; with
+   none to spare it resolves to 0 and this element sits flush after the menu, competing for the
+   remaining space exactly as `#app-title` does -- `flex: 0 1 auto` and `min-width: 0` (not
+   `flex: none`, unlike the menu bar and the logo) let it shrink to an ellipsis, or to nothing,
+   rather than push a menu button off the window. It is muted, not `--accent`, to read as
+   information rather than a control -- there is nothing to click. */
+#topbar-mode {
+  flex: 0 1 auto;
+  min-width: 0;
+  margin-left: auto;
+  overflow: hidden;
+  white-space: nowrap;
+  text-overflow: ellipsis;
+  color: var(--muted);
+  font-size: 13px;
+}
+
 /* ---- Small screens ----
    Narrow (below Tailwind's `sm`, 40rem): tighter padding and gaps. The title then shortens with
    an ellipsis while every menu button stays on screen, down to about 280px.
@@ -93,6 +113,12 @@
   #topbar::after { left: 10px; right: 10px; }
   #app-title { font-size: 14px; }
   #app-logo { width: 22px; height: 22px; margin-right: -2px; }
+  /* At the narrowest supported width (320px) the menu already reaches the bar's own padding
+     with nothing spare (kb/the-studio-s-design-language.md: "the Help button's right edge is at
+     x=310"), so this can only ever show by shrinking the title first -- both are `flex: 0 1
+     auto` -- and disappearing to an ellipsis or to nothing rather than crowd a menu button off
+     the window. */
+  #topbar-mode { font-size: 11px; }
 }
 
 /* The menu itself is a shadcn-svelte Menubar (TopBar.svelte), styled by its own classes; the

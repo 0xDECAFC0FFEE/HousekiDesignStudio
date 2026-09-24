@@ -41,10 +41,10 @@
     }
   });
 
-  // The tier's own row id (C1, P2, T...), so the panel names what is being edited the way the
-  // cutting instructions do.
-  const id = $derived([...$tierView.pavilion, ...$tierView.crown]
-    .find(row => row.tier === tier)?.id ?? '');
+  // The tier's own row id (C1, P2, T...) used to name what was being edited ("Editing {id}")
+  // lived here until 2026-09-24, when the panel's title moved to the top bar's mode status
+  // (TopBar.svelte's `modeStatus`, which does the identical lookup) -- see
+  // kb/mode-status-in-the-top-bar.md. Nothing left in this panel needs the id.
 
   // Read through the view's key, so an undo, a redo or a gear change moves the sliders too.
   const angle = $derived(($tierView.key, tier ? angleValue(tier) : 0));
@@ -110,7 +110,6 @@
 </script>
 
 <div id="edit-panel">
-  <h2 class="edit-panel-title">Editing {id}</h2>
   <p class="edit-panel-hint">Drag a scale to cut the facet. Done keeps the changes; Cancel or Escape undoes them.</p>
 
   {#if tier}
@@ -178,13 +177,9 @@
 </div>
 
 <style>
-  .edit-panel-title {
-    margin: 2px 0 4px;
-    color: var(--text);
-    font-size: 14px;
-    font-weight: 600;
-  }
-
+  /* The panel's own "Editing {id}" title used to open here (2px 0 4px above it); with no title,
+     the hint is the first thing in the panel and keeps its own top margin instead of the
+     title's, unlike before when the two were spaced apart. */
   .edit-panel-hint, .edit-panel-teeth {
     margin: 0 0 12px;
     color: var(--muted);

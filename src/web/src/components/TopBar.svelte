@@ -249,6 +249,33 @@
           : $cutting.open ? `${RESIZE_GIRDLE_TIP} Close the cutting assistant first: Done, or Escape.`
             : $resizeGirdleOpen ? `${RESIZE_GIRDLE_TIP} It is already open.`
               : RESIZE_GIRDLE_TIP);
+
+  // Mode status (moved here from two places, 2026-09-24): SettingsPanel's own pinned footer,
+  // "Mode: Overview" (added 2026-09-22, the user: "at the bottom of the render settings section
+  // can you add a bit about the mode"), and each mode panel's own <h2> title ("Editing {id}",
+  // EditPanel; "Scaling height", ScaleHeightPanel; "Cutting assistant", CuttingAssistantPanel;
+  // "Resizing girdle", ResizeGirdlePanel) -- four call sites all naming the same thing, the
+  // mode the page is in right now. The user asked to "move the mode status information to the
+  // top right of the menu bar"; this single readout replaces all four, always on screen (as
+  // SettingsPanel's footer always was) rather than only while a mode panel is mounted, so a
+  // glance at the bar answers "which mode am I in" from anywhere on the page.
+  //
+  // The four live modes are mutually exclusive (kb/application-modes-current-and-planned.md:
+  // each refuses to open while another is), so at most one of the four branches below is ever
+  // true; the order does not matter, but it is written to match the panels' own stacking order
+  // in App.svelte.
+  const editTier = $derived($editing?.tier ?? null);
+  // EditPanel's own `id` lookup, verbatim: the tier's row id (C1, P2, ...), the way the cutting
+  // instructions name it, not the tier object itself.
+  const editTierId = $derived(editTier
+    ? ([...$tierView.pavilion, ...$tierView.crown].find(row => row.tier === editTier)?.id ?? '')
+    : '');
+  const modeStatus = $derived(
+    editTier !== null ? `Editing ${editTierId}`
+      : $scaleHeightOpen ? 'Scaling height'
+        : $cutting.open ? 'Cutting assistant'
+          : $resizeGirdleOpen ? 'Resizing girdle'
+            : 'Overview');
 </script>
 
 <svelte:document onkeydown={onDocumentKeydown} />
@@ -436,6 +463,12 @@
       </Menubar.Content>
     </Menubar.Menu>
   </Menubar.Root>
+
+  <!-- The mode status (see the comment above `modeStatus`): pushed to the bar's right end by its
+       own `margin-left: auto` (topbar.css), the same technique `#app-title` uses to give way
+       rather than push a menu button off screen -- both can shrink, and the menu bar itself
+       never does. -->
+  <div id="topbar-mode" data-tip="Which mode the page is in right now.">Mode: {modeStatus}</div>
 </div>
 
 <SettingsDialog bind:this={settingsDialog} />

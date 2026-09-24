@@ -59,7 +59,8 @@
 </script>
 
 <div id="cutting-panel">
-  <h2 class="cutting-panel-title">Cutting assistant</h2>
+  <!-- The panel's own "Cutting assistant" title moved to the top bar's mode status 2026-09-24 --
+       see TopBar.svelte's `modeStatus` and kb/mode-status-in-the-top-bar.md. -->
   <p class="cutting-panel-hint">Steps through the cutting instructions one facet at a time, from a
     rough cube on the dop. Nothing in the design changes. Done or Escape closes it.</p>
 
@@ -148,13 +149,6 @@
 </div>
 
 <style>
-  .cutting-panel-title {
-    margin: 2px 0 4px;
-    color: var(--text);
-    font-size: 14px;
-    font-weight: 600;
-  }
-
   .cutting-panel-hint {
     margin: 0 0 12px;
     color: var(--muted);

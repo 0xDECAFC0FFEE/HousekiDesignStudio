@@ -46,6 +46,7 @@ import { showStoneStats } from './stone_stats.js';
 import { buildFacetTierMap, setFacetTierMap } from './facet_map.js';
 import { syncFrostedFacets } from './selection.js';
 import { budgetedTask } from './work_budget.js';
+import { setReverseDragSpin } from './viewport.js';
 import {
   PAVILION, CROWN, buildCutSequence, clampPosition, tierAt, tierStart, nextCut, prevCut, nextTier, prevTier,
   phaseAt, tierState, boundsOf, roughCube, dopSize, dopPlacement, viewFrame,
@@ -101,6 +102,10 @@ setDesignLock(() => session !== null, ' Close the cutting assistant first: Done,
 
 // The rough on screen is not the design's stone, so a click on it picks nothing.
 setStonePickBlock(() => session !== null);
+
+// In the pavilion phase the stone is seen upside down (PHASE_POSES), so a sideways drag spins it
+// the other way, to match what the hand sees (viewport.js's setReverseDragSpin).
+setReverseDragSpin(() => session !== null && session.phase === PAVILION);
 
 /** Undo and Redo while open: nothing to step, ever -- the mode changes nothing. */
 const INERT_HISTORY = {
