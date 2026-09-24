@@ -11,7 +11,7 @@ import {
 import {
   clearFacetAndTierHighlight, highlightFacetAndItsTier,
 } from './selection.js';
-import { getDesign, tierBeingEdited } from './tier_controller.js';
+import { getDesign, tierBeingEdited, stonePickBlocked } from './tier_controller.js';
 import { designFacetForNormal } from './edit_geometry.js';
 import { enterEditMode } from './edit_mode.js';
 import { budgetedTask } from './work_budget.js';
@@ -585,6 +585,13 @@ function animateTurnTo(spinDeg, tiltDeg) {
  */
 function handleStoneClick(clientX, clientY, alsoTurn) {
   const app = engine.app;
+
+  // The cutting assistant's rough is not the design's stone (T-0234): nothing on it to select,
+  // and no turn to one of its facets either. Dragging to orbit still works.
+  if (stonePickBlocked()) {
+    return;
+  }
+
   const pose = pickFacetAt(clientX, clientY);
 
   if (pose === null) {

@@ -53,8 +53,11 @@ leaves none.) So nothing is left to load:
 Size. The wasm binary was about 70% of the page, and base64 adds a third again, so
 compressing it is the largest saving available: gzip takes it to about a third of its size.
 gzip rather than brotli, because every current browser's DecompressionStream supports gzip.
-The skybox is embedded as is, because a PNG or JPEG is already compressed. The release
-profile in Cargo.toml shrinks the binary before any of this.
+The gzip is written by Zopfli (src/scripts/zopfli_gzip.js), which finds a shorter encoding of
+the same format than zlib does. The skybox is embedded as is, because a PNG or JPEG is already
+compressed. The release profile in Cargo.toml shrinks the binary before any of this, and the
+shaders compiled into it are stripped of their comments (glsl_without_comments! in
+src/renderer/lib.rs).
 
 Minified. Vite minifies the app (esbuild: whitespace collapsed, every comment stripped, CSS
 minified, every name mangled). The GemCad scripts and the wasm-bindgen glue are minified
@@ -78,7 +81,6 @@ Usage:  python3 src/scripts/make_page.py [--output build/www/studio.html] [--ski
 import argparse
 import base64
 import gzip
-import io
 import json
 import pathlib
 import re
@@ -150,7 +152,9 @@ DEFAULT_OUTPUT = BUILD / "www" / "studio.html"
 # The landing page's source, and its settings: `url`, the site's absolute address with a
 # trailing slash (empty until there is a domain), and `docs`, where the documentation link
 # goes. Every absolute URL on the page, in the sitemap and in robots.txt comes from `url`,
-# so a domain is set in one place.
+# so a domain is set in one place. `docs` is also the app's Help > Documentation link (T-0236):
+# src/web/src/components/TopBar.svelte imports it from this same file and the Vite build
+# bundles it, so this script never has to pass it to the app.
 SITE_DIR = SRC / "site"
 SITE_CONFIG = SITE_DIR / "site.json"
 SITE_OUTPUT_DIR = BUILD / "www"
@@ -161,6 +165,10 @@ SITE_URL_PLACEHOLDER = "@@SITE_URL@@"
 # uses read their environment and their own files; it reads stdin and writes stdout.
 MINIFIER = SRC / "scripts" / "minify_page.js"
 DENO_RUN = ["deno", "run", "--quiet", "--allow-env", "--allow-read", str(MINIFIER)]
+
+# The gzip compressor for the inlined parts (Zopfli; see gzip_bytes). Reads stdin, writes stdout,
+# and needs no permissions.
+ZOPFLI = SRC / "scripts" / "zopfli_gzip.js"
 
 # The comment at the top of the template (src/web/index.html, which Vite passes through) that
 # says it is the source. Replaced by a notice saying the output is generated, so neither file
@@ -422,17 +430,29 @@ def inline_script_text(text, description):
 
 
 def gzip_bytes(data):
-    """`data` gzip-compressed at the highest level, with a zero timestamp in the header.
+    """`data` gzip-compressed with Zopfli (src/scripts/zopfli_gzip.js, under Deno), with a zero
+    timestamp in the header, so unchanged inputs build a byte-identical page.
 
-    The zero timestamp means unchanged inputs build a byte-identical page. Written with
-    GzipFile rather than gzip.compress(mtime=...), which needs Python 3.8.
+    Zopfli rather than zlib's level 9 (T-0238): it writes the same gzip format, which the page
+    inflates the same way and as fast, but searches far harder for a short encoding. That made
+    the wasm module's gzip 5.8% smaller for a couple of seconds of build time. The result is
+    checked by inflating it here, so a broken compressor fails the build instead of the page.
     """
-    buffer = io.BytesIO()
+    if shutil.which("deno") is None:
+        fail("deno is not on PATH, and the page's inlined parts are compressed with it. Install Deno (https://deno.com).")
 
-    with gzip.GzipFile(fileobj=buffer, mode="wb", compresslevel=9, mtime=0) as stream:
-        stream.write(data)
+    # Not native_command: Deno here is an x86_64 build, which `arch -arm64` cannot start.
+    result = subprocess.run(
+        ["deno", "run", "--quiet", str(ZOPFLI)], input=data, capture_output=True, cwd=PROJECT_ROOT
+    )
 
-    return buffer.getvalue()
+    if result.returncode != 0 or not result.stdout:
+        fail(f"compressing with {ZOPFLI.relative_to(PROJECT_ROOT)} failed:\n{result.stderr.decode(errors='replace')}")
+
+    if gzip.decompress(result.stdout) != data:
+        fail(f"{ZOPFLI.relative_to(PROJECT_ROOT)} wrote gzip that does not inflate to its input.")
+
+    return result.stdout
 
 
 def base64_literal(data):

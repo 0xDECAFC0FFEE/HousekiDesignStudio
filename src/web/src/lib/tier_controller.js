@@ -162,6 +162,15 @@ export function highlightTier(tier, { scroll = true } = {}) {
   syncToolbar();
 }
 
+/**
+ * Scrolls `tier`'s row into view, if it is out of it, without selecting it (T-0234: the cutting
+ * assistant's current tier, which is highlighted but is not the selection). 'nearest', as
+ * `highlightTier` scrolls: a row already on screen stays where it is.
+ */
+export function scrollTierIntoView(tier) {
+  rowsByTier.get(tier)?.scrollIntoView({ block: 'nearest' });
+}
+
 /** The design on show, for the gear dialog and the stone rebuild. */
 export function getDesign() {
   return currentDesign;
@@ -182,6 +191,11 @@ export function refresh(options) {
 
 /** A row was clicked or activated from the keyboard. */
 export function rowClicked(tier) {
+  if (rowClickOverride) {
+    rowClickOverride(tier);
+    return;
+  }
+
   currentOnRowClick?.(tier);
 }
 
@@ -220,15 +234,53 @@ export function tierBeingEdited() {
 // whole design is held, the way edit mode holds its one tier: every toolbar button goes inactive
 // and says why, and a reorder or a description edit is refused. Registered by
 // scale_height_mode.js rather than imported, for the reason `setEditedTier` gives above.
-let designLock = () => false;
+//
+// The cutting assistant (T-0234) holds the design too, for a different reason: it walks through a
+// cut sequence built from the design as it stood when the mode opened, and never changes it. So
+// there can be more than one lock, each a reader and the words added to every toolbar tip while it
+// holds (`tip`, which defaults to scale height's). Resize girdle (T-0237) registers a third. Every
+// one of these modes, and edit mode, refuses to open while `designLocked()`, which is what keeps
+// them one at a time.
+const designLocks = [];
 
-export function setDesignLock(reader) {
-  designLock = reader;
+export function setDesignLock(reader, tip = undefined) {
+  designLocks.push({ reader, tip });
 }
 
-/** True while a whole-design mode (scale height) holds the design. */
+/** True while a whole-design mode (scale height, the cutting assistant) holds the design. */
 export function designLocked() {
-  return designLock();
+  return designLocks.some(lock => lock.reader());
+}
+
+/** What the toolbar's tips add while the design is held: the holding mode's own words. */
+function designLockTip() {
+  const lock = designLocks.find(each => each.reader());
+
+  return lock?.tip ?? FINISH_SCALING_TIP;
+}
+
+// A mode that takes the rows' clicks over (T-0234: in the cutting assistant a click on a tier row
+// scrubs to that tier's first facet instead of selecting it), or null. Handed in like the lock.
+let rowClickOverride = null;
+
+/** Routes row clicks to `handler(tier)` instead of the loading code's, or back for null. */
+export function setRowClickOverride(handler) {
+  rowClickOverride = handler;
+}
+
+// Whether a click on the stone may pick a facet (T-0234). Not while the cutting assistant shows a
+// rough of its own: its facets are not the design's, and the facet <-> tier map belongs to the
+// design's stone, so a pick would light facets that are not there. viewport.js asks; the mode
+// registers the reader, as with the lock.
+let stonePickBlock = () => false;
+
+export function setStonePickBlock(reader) {
+  stonePickBlock = reader;
+}
+
+/** True while clicks on the stone must not select anything. */
+export function stonePickBlocked() {
+  return stonePickBlock();
 }
 
 export function setStoneHooks(hooks) {
@@ -617,7 +669,8 @@ const FINISH_EDITING_TIP = ' Finish editing this tier first: Done, or Cancel.';
 
 /**
  * Added to every button's tooltip while scale height holds the whole design, which is why they
- * are all inactive (T-0231; see `setDesignLock`).
+ * are all inactive (T-0231; see `setDesignLock`, which takes each mode's own suffix: resize
+ * girdle's is in resize_girdle_mode.js).
  */
 const FINISH_SCALING_TIP = ' Finish scaling the height first: Done, or Cancel.';
 
@@ -654,10 +707,12 @@ function toolbarState(tier) {
   // Comments is about the design's own header and footer rather than any tier.
   const editing = tierBeingEdited() !== null;
 
-  // Scale height holds the whole design (T-0231): every button off, each saying why, with the
-  // labels and pressed states still those of the selected tier so nothing on the bar jumps.
+  // Scale height holds the whole design (T-0231), and so does the cutting assistant (T-0234): every
+  // button off, each saying why, with the labels and pressed states still those of the selected
+  // tier so nothing on the bar jumps.
   if (designLocked()) {
-    const held = tip => ({ active: false, tip: tip + FINISH_SCALING_TIP });
+    const why = designLockTip();
+    const held = tip => ({ active: false, tip: tip + why });
 
     return {
       new: held(TOOL_TIPS.new),

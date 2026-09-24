@@ -12,9 +12,10 @@
  *
  * HOW TO RUN (from web/): deno test --allow-read --allow-env tests/   (also `deno task test`)
  *
- * The panel itself -- the two gauges, the lock switch, Done and Cancel, and Undo and Redo acting on
- * the mode's own stack -- is checked against the built page over CDP, since it needs a browser and
- * the wasm module.
+ * The panel itself -- the two gauges, Reset (T-0235), the lock switch, Done and Cancel, and Undo and
+ * Redo acting on the mode's own stack -- is checked against the built page over CDP, since it needs
+ * a browser and the wasm module. So is the turn to the side profile on opening and back on closing:
+ * here there is no renderer (`engine.app` is null), and the mode leaves the view alone.
  *
  * `window` is stubbed because the mode asks the page for a redraw (`window.gemRequestRender?.()`)
  * and Deno has no such global. ES modules hoist their imports, so this actually runs after the
@@ -28,12 +29,12 @@ import { get } from "svelte/store";
 import {
   RATIO_MIN, RATIO_MAX, RATIO_STEP, RATIO_TICK, RATIO_MAJOR_EVERY, RATIO_PX_PER_UNIT, INITIAL_GAUGES,
   moveGauge, setGaugeLock, sameGauges, createGaugeHistory, gaugeOf, scaledTier, heightPivots,
-  scaledValues,
+  scaledValues, resetGauges, gaugesAtOne,
 } from "../src/lib/scale_height.js";
 import { visibleValueTicks } from "../src/lib/facet_edit.js";
 import {
   enterScaleHeightMode, exitScaleHeightMode, cancelScaleHeightMode, changeGauge, changeLock,
-  scaleHeightOpen, scaleGauges,
+  resetScaleGauges, scaleHeightOpen, scaleGauges,
 } from "../src/lib/scale_height_mode.js";
 import { enterEditMode, exitEditMode, editing } from "../src/lib/edit_mode.js";
 import {
@@ -354,6 +355,31 @@ Deno.test("moving a gauge moves only that one, unless the lock is on", () => {
   assertEqual(INITIAL_GAUGES, { pavilion: 1, crown: 1, lock: false }, "the starting gauges were not mutated");
 });
 
+Deno.test("Reset puts both gauges at 1x and leaves the lock alone", () => {
+  // Setup: gauge states Reset can be pressed on (T-0235, the user: "add a reset button below them
+  // that snaps them to 1x"): both moved and unlocked, both moved together with the lock on, only
+  // one moved, and the untouched 1x/1x a session starts with.
+  // Test: resetGauges on each, and gaugesAtOne (what greys the button out) before and after.
+  // Verifies: Reset always lands on pavilion 1, crown 1; it keeps the lock exactly as it was (the
+  // lock is its own switch, and Reset is about the ratios -- with it on, 1x/1x is a state the lock
+  // allows, since the two are equal); it never mutates the state it was given, so the undo stack's
+  // earlier entries stay intact; and gaugesAtOne is true only when BOTH read 1x, so the button is
+  // live whenever either gauge has moved and inert only when pressing it would change nothing.
+  const unlocked = { pavilion: 1.3, crown: 0.7, lock: false };
+  const locked = { pavilion: 2.5, crown: 2.5, lock: true };
+  const oneMoved = { pavilion: 1, crown: 0.9, lock: false };
+
+  assertEqual(resetGauges(unlocked), { pavilion: 1, crown: 1, lock: false }, "unlocked: both to 1x");
+  assertEqual(resetGauges(locked), { pavilion: 1, crown: 1, lock: true }, "locked: both to 1x, still locked");
+  assertEqual(resetGauges(oneMoved), { pavilion: 1, crown: 1, lock: false }, "one moved: back to 1x");
+  assertEqual(unlocked, { pavilion: 1.3, crown: 0.7, lock: false }, "the state given was not mutated");
+
+  assertEqual([gaugesAtOne(unlocked), gaugesAtOne(locked), gaugesAtOne(oneMoved)], [false, false, false],
+    "Reset is live whenever either gauge has moved");
+  assertEqual(gaugesAtOne(INITIAL_GAUGES), true, "and inert on the gauges a session starts with");
+  assertEqual(gaugesAtOne(resetGauges(unlocked)), true, "and inert once it has been pressed");
+});
+
 Deno.test("the local undo stack steps back and forward through finished changes", () => {
   // Setup: a stack starting at 1x/1x.
   // Test: commit three changes (a pavilion drag, a crown drag, the lock), undo twice, redo once,
@@ -517,6 +543,60 @@ Deno.test("Undo and Redo step the gauges while the mode is open, not the edit hi
 
   cancelScaleHeightMode();
   assertEqual(history.undoLabel(), 'Earlier edit', "the edit history below the mode was never touched");
+
+  render(null, null);
+});
+
+Deno.test("Reset in the mode is one step of the local undo, and does nothing at 1x", async () => {
+  // Setup: the startup stone loaded, the mode opened (both gauges at 1x, nothing to undo).
+  // Test: press Reset straight away; move the pavilion to 1.4 and the crown to 0.6 and turn the
+  // lock on (three finished changes); press Reset; then Edit > Undo once and Redo once, through
+  // session.js's own `undo`/`redo` (where the menu and Cmd/Ctrl+Z go); finally Cancel.
+  // Verifies:
+  //   * at 1x Reset records nothing -- the menu's Undo stays greyed -- matching the button being
+  //     inert there, so a stray click can never leave an empty step to undo;
+  //   * Reset puts both gauges at 1x with the lock still on, and the DESIGN back exactly as it
+  //     opened (every angle and distance, bit for bit: 1x is the snapshot itself);
+  //   * one Undo brings back the gauges as they were before Reset (1.4/1.4 locked -- the lock had
+  //     brought the crown to the pavilion) and the scaled design with them; one Redo resets again;
+  //   * a second Reset at 1x after that adds no step (Redo side untouched, nothing to redo);
+  //   * Cancel still puts everything back and leaves the edit history empty.
+  const { design, history } = await loadWithHistory();
+  const original = snapshot(design);
+
+  enterScaleHeightMode();
+  resetScaleGauges();
+  assertEqual(get(canUndo), false, "Reset at 1x records nothing");
+
+  changeGauge('pavilion', 1.4, true);
+  changeGauge('crown', 0.6, true);
+  changeLock(true);
+
+  const beforeReset = get(scaleGauges);
+  const scaledDesign = snapshot(design);
+
+  assertEqual(beforeReset, { pavilion: 1.4, crown: 1.4, lock: true }, "the gauges before Reset");
+
+  resetScaleGauges();
+  assertEqual(get(scaleGauges), { pavilion: 1, crown: 1, lock: true }, "Reset: both at 1x, still locked");
+  assertEqual(snapshot(design), original, "and the design is exactly as the mode opened on it");
+
+  undo();
+  assertEqual(get(scaleGauges), beforeReset, "Undo: the gauges as they were before Reset");
+  assertEqual(snapshot(design), scaledDesign, "and the scaled design with them");
+
+  redo();
+  assertEqual(get(scaleGauges), { pavilion: 1, crown: 1, lock: true }, "Redo: reset again");
+  assertEqual(get(canRedo), false, "nothing further to redo");
+
+  resetScaleGauges();
+  assertEqual(get(canRedo), false, "a second Reset at 1x changed nothing");
+  undo();
+  assertEqual(get(scaleGauges), beforeReset, "and one Undo still steps back over the one Reset");
+
+  cancelScaleHeightMode();
+  assertEqual(snapshot(design), original, "Cancel put every tier back");
+  assertEqual([history.canUndo(), history.canRedo()], [false, false], "nothing reached the edit history");
 
   render(null, null);
 });

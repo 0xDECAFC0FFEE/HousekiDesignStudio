@@ -554,19 +554,58 @@
      * load.
      */
     function buildFaces(design, options) {
-        options = options || {};
-
         var planes = meshPlanes(design);
 
         if (planes.length === 0) {
             throw new Error("design has no rendered (non-hidden) facet planes to build a mesh from");
         }
 
+        return buildFacesFromPlanes(planes, options);
+    }
+
+    /**
+     * `buildFaces` for an explicit plane list rather than a design (T-0234, the cutting
+     * assistant: "the stone at position k" is a rough cube's six planes plus the first k
+     * planes of the cutting sequence, a solid no design describes). Each plane is
+     * `{ normal, offset }` in `planesOf`'s half-space form -- inside is `dot(normal, p) <=
+     * offset` -- and may carry `tier`/`facet`, which come back on its face unchanged
+     * (`undefined` when it has none, as the cube's planes do). Same algorithm, same
+     * tolerances, same failures: it IS `buildFaces`, which only picks the planes first.
+     */
+    /**
+     * The length every tolerance of a build from `planes` is scaled by: 1 plus
+     * their largest offset (or 2, for planes all through the origin), so the
+     * tolerances follow the design's own size in model units.
+     */
+    function scaleOf(planes) {
         var maxOffset = planes.reduce(function (m, p) {
             return Math.max(m, Math.abs(p.offset));
         }, 0) || 1;
 
-        var scale = 1 + maxOffset;
+        return 1 + maxOffset;
+    }
+
+    /**
+     * `options.scale`, when given, is the length every tolerance is scaled by
+     * in place of `scaleOf(planes)`; see below.
+     */
+    function buildFacesFromPlanes(planes, options) {
+        options = options || {};
+
+        if (planes.length === 0) {
+            throw new Error("no facet planes to build a mesh from");
+        }
+
+        /* Every tolerance below is scaled by this. `options.scale` fixes it
+         * from outside (T-0234): the cutting assistant's planes include a
+         * rough cube larger than the stone, whose offsets would otherwise
+         * raise the scale, and with it every tolerance, so its fully cut rough
+         * would not be the design's own build. Passing the design's own scale
+         * (`scaleOf` its planes) -- and the design's planes in their own order,
+         * with the cube's after them -- builds it byte for byte (checked on
+         * The_Arkenstone_of_Thrain.gem, whose freewheel slivers made the two
+         * differ by 15 of 997 facets once Rust had conditioned them). */
+        var scale = options.scale !== undefined ? options.scale : scaleOf(planes);
         var planeEps = options.planeEpsilon !== undefined
             ? options.planeEpsilon : PLANE_EPSILON_SCALE * scale;
         var dedupeTol = options.dedupeTolerance !== undefined
@@ -714,6 +753,20 @@
      * T-0168.
      */
     function toObjText(design, options) {
+        return objTextFromBuilt(buildFaces(design, options), design.tiers.length, options);
+    }
+
+    /**
+     * `toObjText` for an explicit plane list (see `buildFacesFromPlanes`): the OBJ text the
+     * cutting assistant loads for the rough at each step. The header's tier count is 0, since
+     * a plane list has no design behind it.
+     */
+    function toObjTextFromPlanes(planes, options) {
+        return objTextFromBuilt(buildFacesFromPlanes(planes, options), 0, options);
+    }
+
+    /** The OBJ text for an already built set of faces; the shared tail of the two above. */
+    function objTextFromBuilt(built, tierCount, options) {
         options = options || {};
 
         var weldTolerance = options.weldTolerance !== undefined
@@ -721,7 +774,6 @@
         var decimals = options.decimals === undefined ? DEFAULT_DECIMALS : options.decimals;
         var name = GemCadObj.sanitiseName(options.name);
 
-        var built = buildFaces(design, options);
         var welded = weldFaces(built, weldTolerance);
 
         if (welded.loops.length === 0) {
@@ -733,7 +785,7 @@
             "# One face per surviving plane; coordinates are the design's model units, optical axis +Z.",
             "# facets: " + welded.loops.length +
                 ", vertices: " + welded.positions.length +
-                ", tiers: " + design.tiers.length +
+                ", tiers: " + tierCount +
                 ", candidate planes: " + built.planes.length +
                 ", dropped: " + built.droppedDegenerate,
             "o " + name
@@ -761,7 +813,10 @@
 
     globalThis.DesignMesh = {
         toObjText: toObjText,
+        toObjTextFromPlanes: toObjTextFromPlanes,
         buildFaces: buildFaces,
+        buildFacesFromPlanes: buildFacesFromPlanes,
+        scaleOf: scaleOf,
         weldFaces: weldFaces,
         meshPlanes: meshPlanes,
         dropCoincidentPlanes: dropCoincidentPlanes,

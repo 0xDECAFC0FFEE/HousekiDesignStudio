@@ -15,6 +15,7 @@
   import { toolbar, toolbarActions } from '../lib/tier_controller.js';
   import { openComments } from '../lib/comments.js';
   import { enterEditMode } from '../lib/edit_mode.js';
+  import { cutting } from '../lib/cutting_assistant_mode.js';
   import { Button } from '$lib/components/ui/button/index.js';
   import { Toggle } from '$lib/components/ui/toggle/index.js';
 
@@ -57,7 +58,13 @@
   }
 </script>
 
-<div id="tier-toolbar" role="toolbar" aria-label="Tier tools" aria-controls="tier-tables">
+<!-- Gone altogether while the cutting assistant is open (T-0234, the user: "we leave the cutting
+     instructions on the screen without the buttons at the bottom"): that mode changes nothing, so
+     there is nothing for them to do. `display: none` rather than unmounting, so the pane's
+     ResizeObserver on this bar (InstructionsPane) sees it go to no height and gives the rows the
+     room back. -->
+<div id="tier-toolbar" role="toolbar" aria-label="Tier tools" aria-controls="tier-tables"
+  style:display={$cutting.open ? 'none' : null}>
   <!-- New copies the selected tier and Edit edits it; both then enter edit mode (T-0181,
        T-0193). -->
   <Button variant="outline" size="xs" class={TOOL} id="tier-tool-new"

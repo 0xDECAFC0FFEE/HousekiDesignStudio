@@ -82,5 +82,12 @@ lto = true
 # message and location through console_error_panic_hook, but stack frames show as
 # wasm-function[N] rather than Rust names. opt-level "z" saved only a further 4 KB gzipped
 # and trades speed for size in mesh, BVH and environment generation, so it is not used.
+#
+# Re-measured 2026-09-23 (T-0238, kb/wasm-size-and-speed.md) in headless Chrome: opt-level "s"
+# and "z" make loading a stone 2-3x slower and the BVH build 3-4x slower, for 3-11 KiB of page.
+# `panic = "abort"` changes nothing, because wasm32-unknown-unknown already aborts on panic.
+# binaryen's wasm-opt -O3/-O4 after wasm-bindgen saves under 2 KiB of page and slows
+# environment generation by 8%, so it is not run either. What did shrink the module was the
+# shader text it embeds; see glsl_without_comments! in src/renderer/lib.rs.
 codegen-units = 1
 strip = true

@@ -37,6 +37,10 @@
   import { tierView } from '../lib/tier_controller.js';
   import { editing } from '../lib/edit_mode.js';
   import { scaleHeightOpen, enterScaleHeightMode } from '../lib/scale_height_mode.js';
+  // Tools > Cutting assistant (T-0234): the mode it opens, and whether it is open.
+  import { cutting, enterCuttingAssistant } from '../lib/cutting_assistant_mode.js';
+  // Edit > Resize girdle (T-0237), likewise.
+  import { resizeGirdleOpen, enterResizeGirdleMode } from '../lib/resize_girdle_mode.js';
   // T-0204/T-0205/T-0207 originally wired these three through onSelect={() => import(...)},
   // a dynamic import, each deliberately avoiding this file's own top-level import lines so three
   // concurrent agents' edits could never collide on the same line. That safely built and tested
@@ -56,6 +60,13 @@
   // The logo, directly left of the title (2026-09-19): the same file the landing and docs pages
   // inline (site/logo.svg), bundled as text by Vite so the page still loads nothing at runtime.
   import logoSvg from '../../../site/logo.svg?raw';
+  // Help > Documentation's target (T-0236): `docs` from the site's own settings, the one value
+  // the landing page's documentation link is built from too (make_page.py's @@DOCS_URL@@). Vite
+  // bundles the JSON, so nothing is fetched at runtime.
+  import { docs as docsUrl } from '../../../site/site.json';
+
+  // Help > Bug report's target: the project's issue tracker.
+  const ISSUES_URL = 'https://github.com/0xDECAFC0FFEE/HousekiDesignStudio/issues';
 
   const isMac = isMacPlatform();
 
@@ -207,12 +218,37 @@
   // already open -- one session at a time, as edit mode has it. A greyed item that cannot say
   // why is exactly what T-0208's tips were written against.
   const SCALE_HEIGHT_TIP = 'Makes the crown or the pavilion taller or flatter, each by its own ratio: every facet turns so the tangent of its angle is multiplied by the ratio, and moves so its meets still meet. The girdle stays where it is.';
-  const scaleHeightInert = $derived(!$tierView.hasDesign || $editing !== null || $scaleHeightOpen);
+  const scaleHeightInert = $derived(!$tierView.hasDesign || $editing !== null || $scaleHeightOpen || $cutting.open || $resizeGirdleOpen);
   const scaleHeightTip = $derived(
     !$tierView.hasDesign ? `${SCALE_HEIGHT_TIP} There is no design loaded to scale.`
       : $editing !== null ? `${SCALE_HEIGHT_TIP} Finish editing the tier first: Done, or Cancel.`
         : $scaleHeightOpen ? `${SCALE_HEIGHT_TIP} It is already open.`
-          : SCALE_HEIGHT_TIP);
+          : $cutting.open ? `${SCALE_HEIGHT_TIP} Close the cutting assistant first: Done, or Escape.`
+            : $resizeGirdleOpen ? `${SCALE_HEIGHT_TIP} Finish resizing the girdle first: Done, or Cancel.`
+              : SCALE_HEIGHT_TIP);
+
+  // Tools > Cutting assistant (T-0234): live, and inert, saying why, in the same cases as scale
+  // height -- no design to walk through, or another mode open -- or while it is already open.
+  const CUTTING_TIP = 'Walks you through cutting the stone from a rough, one facet at a time: each step shows the angle and tooth to set and the rock as it will look once that facet is cut, on its dop. The design is not changed.';
+  const cuttingInert = $derived(!$tierView.hasDesign || $editing !== null || $scaleHeightOpen || $cutting.open || $resizeGirdleOpen);
+  const cuttingTip = $derived(
+    !$tierView.hasDesign ? `${CUTTING_TIP} There is no design loaded to cut.`
+      : $editing !== null ? `${CUTTING_TIP} Finish editing the tier first: Done, or Cancel.`
+        : $scaleHeightOpen ? `${CUTTING_TIP} Finish scaling the height first: Done, or Cancel.`
+          : $cutting.open ? `${CUTTING_TIP} It is already open.`
+            : $resizeGirdleOpen ? `${CUTTING_TIP} Finish resizing the girdle first: Done, or Cancel.`
+              : CUTTING_TIP);
+
+  // Edit > Resize girdle (T-0237), the same way: what it does, then why it is inert when it is.
+  const RESIZE_GIRDLE_TIP = 'Cuts every facet deeper or shallower by the same ratio while the girdle facets stay where they are, so the girdle band grows or shrinks against the rest of the stone. Every angle stays as cut.';
+  const resizeGirdleInert = $derived(!$tierView.hasDesign || $editing !== null || $scaleHeightOpen || $cutting.open || $resizeGirdleOpen);
+  const resizeGirdleTip = $derived(
+    !$tierView.hasDesign ? `${RESIZE_GIRDLE_TIP} There is no design loaded to resize.`
+      : $editing !== null ? `${RESIZE_GIRDLE_TIP} Finish editing the tier first: Done, or Cancel.`
+        : $scaleHeightOpen ? `${RESIZE_GIRDLE_TIP} Finish scaling the height first: Done, or Cancel.`
+          : $cutting.open ? `${RESIZE_GIRDLE_TIP} Close the cutting assistant first: Done, or Escape.`
+            : $resizeGirdleOpen ? `${RESIZE_GIRDLE_TIP} It is already open.`
+              : RESIZE_GIRDLE_TIP);
 </script>
 
 <svelte:document onkeydown={onDocumentKeydown} />
@@ -313,9 +349,11 @@
           class="{ITEM} {INERT}"
           data-tip="Mirrors the design around the index gear, reflecting every facet's index, so a cut made one way round becomes the same cut made the other way. {PLACEHOLDER_TIP}"
           >Reverse index order</Menubar.Item>
-        <Menubar.Item id="menu-item-resize-girdle" {@attach ariaDisabled(() => true)}
-          class="{ITEM} {INERT}"
-          data-tip="Moves the girdle facets in or out, changing how wide the stone finishes while every angle stays as cut. {PLACEHOLDER_TIP}"
+        <!-- Resize girdle (T-0237): live, it opens resize_girdle_mode.js. Inert with no design
+             loaded, and while edit mode, scale height or this mode is open. -->
+        <Menubar.Item id="menu-item-resize-girdle" {@attach ariaDisabled(() => resizeGirdleInert)}
+          class="{ITEM} {INERT}" data-tip={resizeGirdleTip}
+          onSelect={() => { if (!resizeGirdleInert) enterResizeGirdleMode(); }}
           >Resize girdle</Menubar.Item>
         <Menubar.Item id="menu-item-flip-crown-pavilion" {@attach ariaDisabled(() => true)}
           class="{ITEM} {INERT}"
@@ -330,6 +368,13 @@
           class="{ITEM} {INERT}" data-tip={scaleHeightTip}
           onSelect={() => { if (!scaleHeightInert) enterScaleHeightMode(); }}
           >Scale height</Menubar.Item>
+        <!-- Manual optimizer (T-0208), moved here from Tools on 2026-09-23 (the user: "can you
+             move the manual optimizer to the edit menu"): it changes the design's angles, which
+             makes it an edit rather than a window onto the design. Inert for now. -->
+        <Menubar.Item id="menu-item-manual-optimizer" {@attach ariaDisabled(() => true)}
+          class="{ITEM} {INERT}"
+          data-tip="Adjust the angles by hand and watch what it does to the stone's light return, keeping the changes that help. {PLACEHOLDER_TIP}"
+          >Manual optimizer</Menubar.Item>
       </Menubar.Content>
     </Menubar.Menu>
 
@@ -337,10 +382,9 @@
       <Menubar.Trigger id="menu-button-tools" data-menu="tools" class={TRIGGER}>Tools</Menubar.Trigger>
       <Menubar.Content id="menu-dropdown-tools" aria-label="Tools" class={MENU} align="start"
         sideOffset={4} alignOffset={0}>
-        <!-- T-0208, the user's list, plus Record rendering added later. These five are inert
-             for now, but the menu reads as "things are coming" rather than "nothing here yet"
-             (that empty state is still Help's, and .menu-empty is still used, so the rule
-             stays). Each is a WINDOW onto the design rather than a change to it, which is why
+        <!-- T-0208, the user's list, plus Record rendering added later, less Manual optimizer, which
+             moved to Edit (2026-09-23). All but the Cutting assistant (live since T-0234) are
+             inert for now, but the menu reads as "things are coming". Each is a WINDOW onto the design rather than a change to it, which is why
              none of them is in Edit above. Each of these, like Edit's six transforms, is
              planned to become its own mode once it is built (see
              kb/application-modes-current-and-planned.md). -->
@@ -348,17 +392,16 @@
           class="{ITEM} {INERT}"
           data-tip="How much light the stone returns as it is tilted away from face-up, so a cut can be judged the way it is actually looked at rather than only straight on. {PLACEHOLDER_TIP}"
           >Tilt performance</Menubar.Item>
-        <Menubar.Item id="menu-item-manual-optimizer" {@attach ariaDisabled(() => true)}
-          class="{ITEM} {INERT}"
-          data-tip="Adjust the angles by hand and watch what it does to the stone's light return, keeping the changes that help. {PLACEHOLDER_TIP}"
-          >Manual optimizer</Menubar.Item>
         <Menubar.Item id="menu-item-size-yield" {@attach ariaDisabled(() => true)}
           class="{ITEM} {INERT}"
           data-tip="The finished stone's measurements and weight, and how much of a piece of rough this design would use. {PLACEHOLDER_TIP}"
           >Size/yield calculator</Menubar.Item>
-        <Menubar.Item id="menu-item-cutting-assistant" {@attach ariaDisabled(() => true)}
-          class="{ITEM} {INERT}"
-          data-tip="Walks through the cutting instructions one step at a time at the machine, keeping your place. {PLACEHOLDER_TIP}"
+        <!-- Live since T-0234 (2026-09-23, the user: "its purpose is to tell users the steps to
+             cut the rock and what the rock will look like at each step"): opens
+             cutting_assistant_mode.js. -->
+        <Menubar.Item id="menu-item-cutting-assistant" {@attach ariaDisabled(() => cuttingInert)}
+          class="{ITEM} {INERT}" data-tip={cuttingTip}
+          onSelect={() => { if (!cuttingInert) enterCuttingAssistant(); }}
           >Cutting assistant</Menubar.Item>
         <Menubar.Item id="menu-item-record-rendering" {@attach ariaDisabled(() => true)}
           class="{ITEM} {INERT}"
@@ -371,7 +414,25 @@
       <Menubar.Trigger id="menu-button-help" data-menu="help" class={TRIGGER}>Help</Menubar.Trigger>
       <Menubar.Content id="menu-dropdown-help" aria-label="Help" class={MENU} align="start"
         sideOffset={4} alignOffset={0}>
-        <div class="menu-empty">Nothing here yet</div>
+        <!-- Documentation (T-0236): the site's docs page, in a new tab so the design in this one
+             is not navigated away from. A real link (Bits UI's `child` snippet renders the item
+             as the <a>), so a click, Enter (the item clicks itself), a middle-click and "copy
+             link" all behave as a link does. The target is `docs` in src/site/site.json, the
+             same value make_page.py substitutes for the landing page's @@DOCS_URL@@, so the two
+             cannot drift apart. It is relative (docs.html, today) and the app is written beside the
+             docs page in build/www, so it resolves both on the deployed site and from file://. -->
+        <Menubar.Item id="menu-item-documentation" class={ITEM}>
+          {#snippet child({ props })}
+            <a {...props} href={docsUrl} target="_blank" rel="noopener">Documentation</a>
+          {/snippet}
+        </Menubar.Item>
+        <!-- Bug report (2026-09-23): the project's GitHub issues, in a new tab, a real link like
+             Documentation above. Only the app links it, so the URL lives here, not in site.json. -->
+        <Menubar.Item id="menu-item-bug-report" class={ITEM}>
+          {#snippet child({ props })}
+            <a {...props} href={ISSUES_URL} target="_blank" rel="noopener">bug report 💀</a>
+          {/snippet}
+        </Menubar.Item>
       </Menubar.Content>
     </Menubar.Menu>
   </Menubar.Root>

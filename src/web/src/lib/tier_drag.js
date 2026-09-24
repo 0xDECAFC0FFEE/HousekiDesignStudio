@@ -29,6 +29,7 @@
 //   dropBefore(x)         where the bar goes: a tier (before its row), END (after the last), or
 //                         null (no bar)
 //   onReorder(order)      called once, on drop, with the section's tiers in their new order
+//   enabled()             optional: false while no drag may start (a mode holding the design)
 //
 // **A drag must not also select the row it moved.** Because `setPointerCapture` keeps the
 // dragged row as the pointer's target throughout, the browser still fires an ordinary
@@ -78,6 +79,12 @@ export function tierRowDragging(container, options) {
     // Ignore a second finger/button while one press is already being tracked, and any
     // button but the primary one.
     if (event.button !== 0 || pressRow !== null) {
+      return;
+    }
+
+    // Nor while the rows may not be moved at all (`enabled`, T-0234): the press stays a plain
+    // click on the row.
+    if (options.enabled && !options.enabled()) {
       return;
     }
 

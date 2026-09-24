@@ -10,7 +10,7 @@
   // Every render rebuilds every row from scratch (`{#key}` on the view's `key`), as the page
   // always did: that drops a stale open editor or focus, and is how an in-place edit to a tier
   // reaches the screen.
-  import { tierView, applyReorder } from '../lib/tier_controller.js';
+  import { tierView, applyReorder, designLocked } from '../lib/tier_controller.js';
   import { tierRowDragging, END } from '../lib/tier_drag.js';
   import TierRow from './TierRow.svelte';
 
@@ -33,6 +33,10 @@
   /** Wires the drag on this section's container. */
   function dragAction(node) {
     return tierRowDragging(node, {
+      // No drag at all while a mode holds the whole design (scale height, the cutting assistant):
+      // the drop would be refused anyway (applyReorder), and a drag that shows where a row would
+      // land and then does nothing says the rows can be moved when they cannot.
+      enabled: () => !designLocked(),
       getTier: row => row.__gemTier,
       dragging: tier => { draggedTier = tier; },
       dropBefore: where => { dropBefore = where; },

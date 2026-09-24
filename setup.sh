@@ -87,6 +87,12 @@ if command -v deno >/dev/null 2>&1; then
     echo "==> caching the page minifier's npm packages"
     arch -x86_64 deno cache src/scripts/minify_page.js 2>/dev/null \
         || deno cache src/scripts/minify_page.js
+
+    # Zopfli, which make_page.py gzips the inlined wasm module, its glue and the GemCad
+    # scripts with (a smaller gzip than zlib's; the page inflates it the same way).
+    echo "==> caching the page compressor's npm package"
+    arch -x86_64 deno cache src/scripts/zopfli_gzip.js 2>/dev/null \
+        || deno cache src/scripts/zopfli_gzip.js
 else
     echo "error: deno not found. ./build.sh builds the page (Vite) and minifies it with Deno;" >&2
     echo "       install it from https://deno.com." >&2

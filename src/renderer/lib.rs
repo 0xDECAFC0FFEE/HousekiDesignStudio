@@ -57,7 +57,128 @@ use web_sys::{
     WebGlUniformLocation, WebGlVertexArrayObject,
 };
 
-const VERTEX_SHADER: &str = include_str!("shaders/gem.vert");
+/// The number of bytes `glsl_code` leaves of `source`: every line with its `//` comment and
+/// then its trailing whitespace removed, each line's `\n` kept.
+///
+/// A compile-time helper of `glsl_without_comments!`, which says why the shaders are shipped
+/// without their comments.
+const fn glsl_code_length(source: &[u8]) -> usize {
+    let mut length = 0;
+    let mut line_start = 0;
+
+    while line_start < source.len() {
+        let (code_end, next_line) = glsl_line_code(source, line_start);
+
+        length += code_end - line_start;
+
+        if next_line <= source.len() && source[next_line - 1] == b'\n' {
+            length += 1;
+        }
+
+        line_start = next_line;
+    }
+
+    length
+}
+
+/// `source` with every `//` comment and every line's trailing whitespace removed, as
+/// `LENGTH` bytes; `LENGTH` must be `glsl_code_length(source)`.
+const fn glsl_code<const LENGTH: usize>(source: &[u8]) -> [u8; LENGTH] {
+    let mut code = [0u8; LENGTH];
+    let written = glsl_code_into(source, &mut code);
+
+    assert!(written == LENGTH, "LENGTH is not glsl_code_length(source)");
+    code
+}
+
+/// Writes `source` with every `//` comment and every line's trailing whitespace removed to
+/// the start of `code`, which must hold at least `glsl_code_length(source)` bytes, and
+/// returns how many it wrote. Every line keeps its place and its indentation, so line numbers
+/// in a driver's compile error still match the files.
+const fn glsl_code_into(source: &[u8], code: &mut [u8]) -> usize {
+    let mut written = 0;
+    let mut line_start = 0;
+
+    while line_start < source.len() {
+        let (code_end, next_line) = glsl_line_code(source, line_start);
+        let mut i = line_start;
+
+        while i < code_end {
+            code[written] = source[i];
+            written += 1;
+            i += 1;
+        }
+
+        if next_line <= source.len() && source[next_line - 1] == b'\n' {
+            code[written] = b'\n';
+            written += 1;
+        }
+
+        line_start = next_line;
+    }
+
+    written
+}
+
+/// For the line of `source` starting at `line_start`: where its code ends (before any `//`
+/// comment, with trailing spaces, tabs and a CRLF file's `\r` dropped) and where the next line
+/// starts (just past this line's `\n`, or the end of `source`).
+///
+/// The same naive rule `strip_glsl_comments` uses, and safe for the same reason: GLSL ES 3.00
+/// has no string literals, and no shader here continues a line with a backslash, so a `//`
+/// always starts a comment that runs to the end of its line.
+const fn glsl_line_code(source: &[u8], line_start: usize) -> (usize, usize) {
+    let mut i = line_start;
+    let mut comment = source.len();
+
+    while i < source.len() && source[i] != b'\n' {
+        if comment == source.len() && source[i] == b'/' && i + 1 < source.len() && source[i + 1] == b'/' {
+            comment = i;
+        }
+
+        i += 1;
+    }
+
+    let line_end = i;
+    let next_line = if i < source.len() { i + 1 } else { i };
+    let mut code_end = if comment < line_end { comment } else { line_end };
+
+    while code_end > line_start
+        && matches!(source[code_end - 1], b' ' | b'\t' | b'\r')
+    {
+        code_end -= 1;
+    }
+
+    (code_end, next_line)
+}
+
+/// `$source` (a `&'static str` constant expression, such as `include_str!`) with its `//`
+/// comments removed, at compile time.
+///
+/// **Why (T-0238): the comments were three quarters of the page's download.** The shaders
+/// are documented at length -- 324 KB of source, of which 78 KB is code -- and every byte of
+/// `include_str!` lands in the wasm module's data section, which the page inlines. Stripping
+/// them here, rather than in a build script or by hand, keeps the `.glsl` files as the one
+/// source and costs nothing at run time: the constant is computed by the compiler, and the
+/// raw text, used only in constant evaluation, never reaches the binary. Only comments and
+/// trailing whitespace go; every line and its indentation stays, so a driver's error line
+/// numbers still match the files and `glsl_function_signatures`' column-zero rule still sees
+/// what it sees in the files. `shipped_shader_is_the_source_without_its_comments` checks the
+/// result against an independent, line-by-line implementation.
+macro_rules! glsl_without_comments {
+    ($source:expr) => {{
+        const SOURCE: &[u8] = $source.as_bytes();
+        const LENGTH: usize = glsl_code_length(SOURCE);
+        const CODE: [u8; LENGTH] = glsl_code::<LENGTH>(SOURCE);
+
+        match core::str::from_utf8(&CODE) {
+            Ok(code) => code,
+            Err(_) => panic!("stripping comments split a UTF-8 character"),
+        }
+    }};
+}
+
+const VERTEX_SHADER: &str = glsl_without_comments!(include_str!("shaders/gem.vert"));
 
 /// The fragment shader: the deterministic path tracer and the ported LuxCore one (T-0120),
 /// as one source that is compiled into a separate program per renderer -- see `ProgramKind`
@@ -91,7 +212,9 @@ const VERTEX_SHADER: &str = include_str!("shaders/gem.vert");
 /// `shader_source_files_are_concatenated_in_the_documented_order` pins this list, and
 /// `src/shaders/gem.frag`'s own header gives the `tools/glsl_check.sh` command that
 /// compiles the same unit outside the browser.
-const FRAGMENT_SHADER: &str = concat!(
+///
+/// Shipped without its comments: see `glsl_without_comments!`.
+const FRAGMENT_SHADER: &str = glsl_without_comments!(concat!(
     include_str!("shaders/gem.frag"),
     include_str!("shaders/lux/prelude.glsl"),
     include_str!("shaders/lux/host.glsl"),
@@ -103,7 +226,7 @@ const FRAGMENT_SHADER: &str = concat!(
     include_str!("shaders/lux/pathtracer.glsl"),
     include_str!("shaders/lux/lights.glsl"),
     include_str!("shaders/lux/entry.glsl"),
-);
+));
 
 /// Which of the fragment shader's programs a frame draws with (2026-09-23).
 ///
@@ -183,27 +306,32 @@ fn fragment_source(kind: ProgramKind) -> String {
     format!("{}#define {} 1\n#line 2\n{}", version, kind.define(), body)
 }
 
-/// `gem.frag`'s own source, isolated from the ported files it is concatenated with in
-/// `FRAGMENT_SHADER`. `include_str!` embeds the file again rather than slicing
-/// `FRAGMENT_SHADER` apart, the same duplication the test module's own
-/// `SHADER_SOURCE_FILES` already makes for the same reason: a few more KB in the binary
-/// buys a piece of the shader that can be inspected on its own. See `lux_ignored_uniforms`.
-const GEM_FRAG_SOURCE: &str = include_str!("shaders/gem.frag");
+/// How many bytes of `FRAGMENT_SHADER` are `gem.frag`'s. Stripping works line by line, so
+/// `gem.frag` stripped on its own is exactly the start of the stripped whole -- provided the
+/// file ends with a newline, so that its last line is not joined to the next file's first.
+const GEM_FRAG_LENGTH: usize = {
+    let source = include_str!("shaders/gem.frag").as_bytes();
 
-/// Every ported LuxCore file, concatenated in the same order as `FRAGMENT_SHADER`, isolated
-/// for the same reason as `GEM_FRAG_SOURCE`.
-const LUX_SOURCE: &str = concat!(
-    include_str!("shaders/lux/prelude.glsl"),
-    include_str!("shaders/lux/host.glsl"),
-    include_str!("shaders/lux/math.glsl"),
-    include_str!("shaders/lux/glass.glsl"),
-    include_str!("shaders/lux/roughglass.glsl"),
-    include_str!("shaders/lux/volume.glsl"),
-    include_str!("shaders/lux/sampler.glsl"),
-    include_str!("shaders/lux/pathtracer.glsl"),
-    include_str!("shaders/lux/lights.glsl"),
-    include_str!("shaders/lux/entry.glsl"),
-);
+    assert!(
+        !source.is_empty() && source[source.len() - 1] == b'\n',
+        "gem.frag must end with a newline"
+    );
+
+    glsl_code_length(source)
+};
+
+/// `gem.frag`'s own code, isolated from the ported files it is concatenated with in
+/// `FRAGMENT_SHADER`, so it can be inspected on its own; see `lux_ignored_uniforms`.
+///
+/// A slice of `FRAGMENT_SHADER`, not a second `include_str!`. Until T-0238 it and
+/// `LUX_SOURCE` embedded the files again, which put every shader in the binary twice:
+/// 324 KB of duplicate text, which gzip cannot fold away because the copies lie further
+/// apart than its 32 KB window.
+const GEM_FRAG_SOURCE: &str = FRAGMENT_SHADER.split_at(GEM_FRAG_LENGTH).0;
+
+/// Every ported LuxCore file, in the same order as `FRAGMENT_SHADER`: the rest of it after
+/// `GEM_FRAG_SOURCE`.
+const LUX_SOURCE: &str = FRAGMENT_SHADER.split_at(GEM_FRAG_LENGTH).1;
 
 /// Whether `name` occurs in `source` as a whole identifier, not merely as a substring of a
 /// longer one.
@@ -824,6 +952,9 @@ pub struct GemApp {
     /// One texel per facet id, mirroring `frosted_facets` for the shader (`uFrostedTexture`),
     /// sized to the loaded model's facet count exactly as `highlight_texture` is.
     frosted_texture: WebGlTexture,
+    /// The dop the cutting assistant glues the rough to (T-0234), in the model file's own
+    /// coordinates, or `None` whenever that mode is closed. See `set_dop`.
+    dop: Option<Dop>,
 
     // ---- progressive accumulation for the ported LuxCore path (T-0122)
     /// The float ping-pong pair the ported path sums radiance into, or `None` when the
@@ -916,7 +1047,7 @@ impl GemApp {
 
         let model_axis = ModelAxis::PlusZ;
         let (model, model_name) =
-            build_model(&gl, obj_text, model_axis).map_err(|e| js_error(&e))?;
+            build_model(&gl, obj_text, model_axis, None).map_err(|e| js_error(&e))?;
 
         // Sized to the freshly built model's own facet count, all zero (nothing selected yet)
         // -- never a fixed 1x1 placeholder, which would make `texelFetch(uHighlightTexture,
@@ -995,6 +1126,7 @@ impl GemApp {
             highlight_texture,
             frosted_facets: std::collections::BTreeSet::new(),
             frosted_texture,
+            dop: None,
             accumulation,
             accumulation_status,
             accumulation_state: params::AccumulationState::new(),
@@ -1006,24 +1138,125 @@ impl GemApp {
 
     /// Replaces the loaded model.
     pub fn load_obj(&mut self, obj_text: &str) -> Result<(), JsValue> {
-        let (model, model_name) =
-            build_model(&self.gl, obj_text, self.model_axis).map_err(|e| js_error(&e))?;
+        self.load_obj_pinned(obj_text, None)
+    }
 
-        // Only release the old textures once the new ones exist, so a failed load
-        // leaves the previous stone on screen rather than a blank canvas.
-        self.release_model_textures();
+    /// Replaces the loaded model like `load_obj`, but in a frame the caller fixes instead of
+    /// one measured from the model: the point `(center_x, center_y, center_z)` of the file's
+    /// own coordinates goes to the centre of the view, and `radius` of the file's units to the
+    /// unit radius the camera frames.
+    ///
+    /// For the cutting assistant (T-0234), which loads the rough once per cut. `load_obj`
+    /// centres and scales every model so its furthest corner sits at radius 1, so each cut that
+    /// took a corner off would have made the rock jump and grow on screen; pinning the frame
+    /// once, for the whole walkthrough, keeps the rock still while it is cut. The caller must
+    /// keep every vertex within `radius` of the centre, or the stone reaches past the sphere
+    /// primary rays start on (`PRIMARY_RAY_START_RADIUS`) and is clipped.
+    pub fn load_obj_framed(
+        &mut self,
+        obj_text: &str,
+        center_x: f32,
+        center_y: f32,
+        center_z: f32,
+        radius: f32,
+    ) -> Result<(), JsValue> {
+        if !(radius.is_finite() && radius > 0.0)
+            || !(center_x.is_finite() && center_y.is_finite() && center_z.is_finite())
+        {
+            return Err(js_error(&format!(
+                "load_obj_framed needs a finite centre and a positive radius, got ({}, {}, {}) \
+                 and {}",
+                center_x, center_y, center_z, radius
+            )));
+        }
 
-        self.model = model;
-        self.model_name = model_name;
-        self.source_text = obj_text.to_string();
-        self.model_generation += 1;
-        self.set_highlighted_facet(-1);
-        // Facet ids belong to one mesh: the old mask would frost arbitrary facets of the new
-        // stone, and its texture is the old stone's size. The page re-sends the mask after
-        // every rebuild (T-0183).
-        self.set_frosted_facets(&[]);
+        self.load_obj_pinned(
+            obj_text,
+            Some((Vector3::new(center_x, center_y, center_z), 1.0 / radius)),
+        )
+    }
+
+    /// Places the dop (T-0234, the cutting assistant): a bronze cylinder from `(x0, y0, z0)`,
+    /// the centre of the end glued to the rock, to `(x1, y1, z1)`, the far end, of radius
+    /// `radius`, all in the model FILE's own coordinates, as `project_file_points` takes them.
+    /// `capped` draws the glued end as a flat disk; without it that end is open, for a rod whose
+    /// end is buried inside the stone (the crown phase, T-0239), where it is never seen. It is
+    /// drawn opaque by the deterministic and flat renderers, and hides and is seen in whatever
+    /// lies behind it or reflects it (`gem.frag`'s `dopDistance`); the Monte Carlo renderer does
+    /// not draw it (T-0239). It stays where it is put, in the file's coordinates, across later
+    /// loads, until `clear_dop`.
+    ///
+    /// Moving it still counts as a new scene for the Monte Carlo accumulation, like a new stone;
+    /// harmless, as the page never shows that renderer with a dop out.
+    #[allow(clippy::too_many_arguments)]
+    pub fn set_dop(
+        &mut self,
+        x0: f32,
+        y0: f32,
+        z0: f32,
+        x1: f32,
+        y1: f32,
+        z1: f32,
+        radius: f32,
+        capped: bool,
+    ) -> Result<(), JsValue> {
+        let values = [x0, y0, z0, x1, y1, z1, radius];
+
+        if values.iter().any(|v| !v.is_finite()) || radius <= 0.0 {
+            return Err(js_error(&format!(
+                "set_dop needs finite ends and a positive radius, got {:?}",
+                values
+            )));
+        }
+
+        let dop = Dop {
+            start: nalgebra::Point3::new(x0, y0, z0),
+            end: nalgebra::Point3::new(x1, y1, z1),
+            radius,
+            capped,
+        };
+
+        if self.dop != Some(dop) {
+            self.dop = Some(dop);
+            self.model_generation += 1;
+        }
 
         Ok(())
+    }
+
+    /// The OBJ text the loaded model was built from, exactly as `load_obj` or
+    /// `load_obj_framed` was given it. For the cutting assistant (T-0234), which loads its own
+    /// stones over the design's and puts the design's back, byte for byte, when it closes --
+    /// so the stone afterwards is the one before, not a rebuild that could differ in its name
+    /// or its numbers.
+    pub fn model_obj_text(&self) -> String {
+        self.source_text.clone()
+    }
+
+    /// Takes the dop away (the cutting assistant closing).
+    pub fn clear_dop(&mut self) {
+        if self.dop.take().is_some() {
+            self.model_generation += 1;
+        }
+    }
+
+    /// The dop as `[x0, y0, z0, x1, y1, z1, radius, capped]` in the file's coordinates, `capped`
+    /// 1 or 0, or an empty array when there is none. For the page's tests to read back what
+    /// `set_dop` stored.
+    pub fn dop(&self) -> Vec<f32> {
+        match self.dop {
+            Some(dop) => vec![
+                dop.start.x,
+                dop.start.y,
+                dop.start.z,
+                dop.end.x,
+                dop.end.y,
+                dop.end.z,
+                dop.radius,
+                if dop.capped { 1.0 } else { 0.0 },
+            ],
+            None => Vec::new(),
+        }
     }
 
     /// Sets which model-space axis is the stone's optical axis, and reloads.
@@ -1052,7 +1285,7 @@ impl GemApp {
         // (The axis used to be stored first, so a failure left it describing geometry that
         // was never built, and the next load_obj would silently use it.)
         let (model, model_name) =
-            build_model(&self.gl, &self.source_text, parsed).map_err(|e| js_error(&e))?;
+            build_model(&self.gl, &self.source_text, parsed, None).map_err(|e| js_error(&e))?;
 
         self.release_model_textures();
 
@@ -2025,6 +2258,33 @@ impl GemApp {
 }
 
 impl GemApp {
+    /// `load_obj` and `load_obj_framed`: builds the model, in `pinned`'s frame when given
+    /// (see `conditioned_mesh_in_pinned_frame`), and swaps it in.
+    fn load_obj_pinned(
+        &mut self,
+        obj_text: &str,
+        pinned: Option<(Vector3<f32>, f32)>,
+    ) -> Result<(), JsValue> {
+        let (model, model_name) = build_model(&self.gl, obj_text, self.model_axis, pinned)
+            .map_err(|e| js_error(&e))?;
+
+        // Only release the old textures once the new ones exist, so a failed load
+        // leaves the previous stone on screen rather than a blank canvas.
+        self.release_model_textures();
+
+        self.model = model;
+        self.model_name = model_name;
+        self.source_text = obj_text.to_string();
+        self.model_generation += 1;
+        self.set_highlighted_facet(-1);
+        // Facet ids belong to one mesh: the old mask would frost arbitrary facets of the new
+        // stone, and its texture is the old stone's size. The page re-sends the mask after
+        // every rebuild (T-0183).
+        self.set_frosted_facets(&[]);
+
+        Ok(())
+    }
+
     /// Drops a fence into the command stream after the frame just submitted, replacing
     /// any fence still outstanding, so `frame_settled` can tell when the GPU has caught
     /// up (T-0197).
@@ -2371,6 +2631,12 @@ impl GemApp {
         self.uniform1i("uToneMapMode", effective.tone_map_mode.as_u32() as i32);
         self.uniform1i("uLightingModel", effective.lighting_model.as_u32() as i32);
 
+        // The cutting assistant's dop (T-0234), through the frame of the stone loaded now.
+        let (dop_start, dop_end) = dop_uniforms(self.dop.as_ref(), &self.model.file_frame);
+
+        self.uniform4f("uDopStart", dop_start[0], dop_start[1], dop_start[2], dop_start[3]);
+        self.uniform4f("uDopEnd", dop_end[0], dop_end[1], dop_end[2], dop_end[3]);
+
         self.set_lux_uniforms(effective, width, height, pass, seed, pass_count);
     }
 
@@ -2514,6 +2780,12 @@ impl GemApp {
         }
     }
 
+    fn uniform4f(&self, name: &str, x: f32, y: f32, z: f32, w: f32) {
+        if let Some(location) = self.uniform_location(name) {
+            self.gl.uniform4f(Some(location), x, y, z, w);
+        }
+    }
+
     fn release_model_textures(&self) {
         self.gl
             .delete_texture(Some(&self.model.triangle_texture));
@@ -2620,6 +2892,18 @@ pub fn conditioned_mesh_in_frame(
     obj_text: &str,
     model_axis: ModelAxis,
 ) -> Result<(Mesh, MeshDiagnostics, Vec<String>, FileFrame), String> {
+    conditioned_mesh_in_pinned_frame(obj_text, model_axis, None)
+}
+
+/// `conditioned_mesh_in_frame`, but centred and scaled by `pinned` -- `(center, scale)` in the
+/// file's own coordinates, each point `p` landing at `(p - center) * scale` -- instead of by
+/// numbers measured from this mesh, when given (T-0234; see `GemApp::load_obj_framed`). `None`
+/// measures them, which is what every ordinary load does.
+pub fn conditioned_mesh_in_pinned_frame(
+    obj_text: &str,
+    model_axis: ModelAxis,
+    pinned: Option<(Vector3<f32>, f32)>,
+) -> Result<(Mesh, MeshDiagnostics, Vec<String>, FileFrame), String> {
     let geometry = loader::load_obj_text(obj_text)?;
 
     let (mut mesh, diagnostics) =
@@ -2627,7 +2911,13 @@ pub fn conditioned_mesh_in_frame(
 
     // Normalise first, then rotate. Rotation is about the origin, so centring
     // survives it.
-    let (center, scale) = mesh.center_and_scale(1.0);
+    let (center, scale) = match pinned {
+        Some((center, scale)) => {
+            mesh.apply_center_and_scale(center, scale);
+            (center, scale)
+        }
+        None => mesh.center_and_scale(1.0),
+    };
     mesh.reorient_axis_to_y(model_axis);
 
     let frame = FileFrame {
@@ -2652,6 +2942,44 @@ pub struct FileFrame {
 impl FileFrame {
     pub fn to_world(&self, point: nalgebra::Point3<f32>) -> nalgebra::Point3<f32> {
         self.rotation * nalgebra::Point3::from((point.coords - self.center) * self.scale)
+    }
+}
+
+/// The dop (T-0234, the cutting assistant): the bronze rod the rough is glued to, a cylinder
+/// given in the model FILE's own coordinates (a design's frame, optical axis +Z, like
+/// `project_file_points`). `start` is the centre of the end glued to the rock, `end` the centre
+/// of the far end, `radius` its radius, all in the file's units. `capped` is whether the glued
+/// end is drawn as a flat disk: it is not when that end is buried inside the stone (T-0239).
+///
+/// Kept in file coordinates rather than world ones because the stone it is glued to is reloaded
+/// at every step of the walkthrough, and each load owns its own `FileFrame`; the world position
+/// is worked out from the current one at every draw (`dop_uniforms`), so the two can never
+/// disagree about where the rock is.
+#[derive(Debug, Clone, Copy, PartialEq)]
+pub struct Dop {
+    pub start: nalgebra::Point3<f32>,
+    pub end: nalgebra::Point3<f32>,
+    pub radius: f32,
+    pub capped: bool,
+}
+
+/// What `gem.frag` is told about the dop: `(uDopStart, uDopEnd)`, the glued end's centre with
+/// the radius in `w`, and the far end's centre with `capped` in `w` (1 or 0), both in the
+/// renderer's world, through `frame`. No dop is a radius of 0, which the shader reads as "there
+/// is none" and tests for before any other work, so a page that never opens the cutting
+/// assistant pays one uniform compare.
+fn dop_uniforms(dop: Option<&Dop>, frame: &FileFrame) -> ([f32; 4], [f32; 4]) {
+    match dop {
+        Some(dop) => {
+            let start = frame.to_world(dop.start);
+            let end = frame.to_world(dop.end);
+
+            (
+                [start.x, start.y, start.z, dop.radius * frame.scale],
+                [end.x, end.y, end.z, if dop.capped { 1.0 } else { 0.0 }],
+            )
+        }
+        None => ([0.0; 4], [0.0; 4]),
     }
 }
 
@@ -2713,8 +3041,10 @@ fn build_model(
     gl: &Gl,
     obj_text: &str,
     model_axis: ModelAxis,
+    pinned: Option<(Vector3<f32>, f32)>,
 ) -> Result<(ModelResources, String), String> {
-    let (mesh, diagnostics, object_names, file_frame) = conditioned_mesh_in_frame(obj_text, model_axis)?;
+    let (mesh, diagnostics, object_names, file_frame) =
+        conditioned_mesh_in_pinned_frame(obj_text, model_axis, pinned)?;
 
     // In the file's own frame (optical axis +Z), not the world frame `conditioned_mesh` just
     // turned the mesh into -- see the doc comment on `ModelResources::facet_normals`.
@@ -2908,11 +3238,27 @@ mod tests {
             .unwrap_or_else(|| panic!("{} is not one of the concatenated shader files", path))
     }
 
+    /// `source` with each line's `//` comment and trailing whitespace removed and every line
+    /// kept: what `glsl_without_comments!` should produce, written independently of it.
+    ///
+    /// The macro works byte by byte in `const fn`s, because it runs in the compiler; this is
+    /// the obvious line-by-line version, so the two can check each other.
+    fn without_comments(source: &str) -> String {
+        // `split('\n')`, not `lines()`: a final "\n" leaves one empty last piece, which
+        // `join` turns back into that "\n", and a source without one does not gain it.
+        source
+            .split('\n')
+            .map(|line| line.split("//").next().unwrap_or("").trim_end_matches([' ', '\t', '\r']))
+            .collect::<Vec<_>>()
+            .join("\n")
+    }
+
     /// The shader's file list must be exactly what `FRAGMENT_SHADER` compiles, in the same
     /// order.
     ///
-    /// Setup: the per-file sources listed above, joined. Test: compare against
-    /// `FRAGMENT_SHADER`. Verifies two things at once. First, that the contract tests below
+    /// Setup: the per-file sources listed above, joined, with their comments removed by
+    /// `without_comments` (the shipped shader has none; see `glsl_without_comments!`). Test:
+    /// compare against `FRAGMENT_SHADER`. Verifies two things at once. First, that the contract tests below
     /// really cover every file the browser compiles -- a new `lux/*.glsl` added to
     /// `FRAGMENT_SHADER` but not to this list would otherwise be exempt from the uniform and
     /// `refract` checks without anything saying so, which is the exact failure mode T-0120's
@@ -2928,10 +3274,111 @@ mod tests {
             .collect();
 
         assert_eq!(
-            joined,
+            without_comments(&joined),
             super::FRAGMENT_SHADER,
             "the shader file list in this test module no longer matches FRAGMENT_SHADER"
         );
+    }
+
+    /// What the browser compiles is the shader files with their `//` comments taken out and
+    /// nothing else changed (T-0238).
+    ///
+    /// Setup: every file of `SHADER_SOURCE_FILES`, plus `gem.vert`, and the shipped
+    /// constants, which `glsl_without_comments!` stripped at compile time. Test, line by line
+    /// against the source: the shipped text has exactly as many lines; each shipped line is
+    /// a prefix of its source line; whatever the prefix leaves off starts with `//` once
+    /// trailing whitespace is set aside, so only a comment or trailing blanks were removed;
+    /// and no `//` survives. Verifies that stripping cannot have changed a line of code or
+    /// moved one -- a moved line would make a driver's compile error point at the wrong line
+    /// of the file -- and, through the `gem.vert` case, that the vertex shader is stripped the
+    /// same way.
+    #[test]
+    fn shipped_shader_is_the_source_without_its_comments() {
+        let joined: String = SHADER_SOURCE_FILES
+            .iter()
+            .map(|(_, source)| *source)
+            .collect();
+        let cases = [
+            ("fragment shader", joined.as_str(), super::FRAGMENT_SHADER),
+            ("vertex shader", include_str!("shaders/gem.vert"), super::VERTEX_SHADER),
+        ];
+
+        for (what, source, shipped) in cases {
+            let source_lines: Vec<&str> = source.split('\n').collect();
+            let shipped_lines: Vec<&str> = shipped.split('\n').collect();
+
+            assert_eq!(
+                shipped_lines.len(),
+                source_lines.len(),
+                "the shipped {} has a different number of lines from its source",
+                what
+            );
+
+            for (number, (code, original)) in shipped_lines.iter().zip(&source_lines).enumerate() {
+                let removed = original
+                    .strip_prefix(code)
+                    .unwrap_or_else(|| panic!("{} line {}: {:?} is not a prefix of {:?}", what, number + 1, code, original));
+                let removed = removed.trim_start_matches([' ', '\t']);
+
+                assert!(
+                    removed.trim_end_matches('\r').is_empty() || removed.starts_with("//"),
+                    "{} line {}: stripping removed {:?}, which is not a comment",
+                    what,
+                    number + 1,
+                    removed
+                );
+                assert!(!code.contains("//"), "{} line {} still has a comment: {:?}", what, number + 1, code);
+            }
+        }
+
+        // The comments were most of the text; if this ever fails, stripping has stopped
+        // working, not merely become less useful.
+        assert!(
+            super::FRAGMENT_SHADER.len() * 2 < joined.len(),
+            "the shipped fragment shader ({} bytes) is not much smaller than its source ({} bytes)",
+            super::FRAGMENT_SHADER.len(),
+            joined.len()
+        );
+    }
+
+    /// The compile-time stripper and `without_comments` agree on the awkward cases.
+    ///
+    /// Setup: small hand-written sources. Test: `glsl_code_length` and `glsl_code_into`,
+    /// called at run time (they are ordinary `const fn`s), against `without_comments`.
+    /// Verifies the edges the real shaders happen not to exercise: an empty file, a line
+    /// that is only a comment, a comment after code, `//` twice on one line, trailing tabs,
+    /// a CRLF line, a lone `/` that does not start a comment, blank lines, and a last line
+    /// with no newline (which must not gain one). Also that `glsl_code_into` writes exactly
+    /// the `glsl_code_length` bytes it promised.
+    #[test]
+    fn comment_stripping_handles_the_edge_cases() {
+        fn stripped(source: &str) -> String {
+            let length = super::glsl_code_length(source.as_bytes());
+            let mut code = vec![0u8; length];
+
+            assert_eq!(super::glsl_code_into(source.as_bytes(), &mut code), length);
+            String::from_utf8(code).unwrap()
+        }
+
+        let cases = [
+            "",
+            "// only a comment\n",
+            "float x = 1.0; // trailing comment\n",
+            "a // one // two\n",
+            "    indented;\t\t\n",
+            "crlf line; // comment\r\n",
+            "x = y / z;\n",
+            "#endif // GUARD\n\nvoid main() {}\n",
+            "last line; // no newline",
+        ];
+
+        for case in cases {
+            assert_eq!(stripped(case), without_comments(case), "case {:?}", case);
+        }
+
+        assert_eq!(stripped("last line; // no newline"), "last line;");
+        // The const-generic wrapper the macro uses gives the same bytes.
+        assert_eq!(super::glsl_code::<2>(b"a; // c"), *b"a;");
     }
 
     /// Names declared as `uniform <type> <name>;` anywhere in the concatenated shader.
@@ -3481,6 +3928,12 @@ mod tests {
             // uniform to a per-facet texture; still no page control, so nothing is hidden
             // for it.
             "uHighlightTexture",
+            // The cutting assistant's dop (T-0234). The ported path drew it too until T-0239,
+            // when the user asked for it to go ("get rid of the dop from monte carlo"): the
+            // assistant switches that renderer to the deterministic one while it is open. No
+            // page control sets these, so nothing is hidden for them.
+            "uDopStart",
+            "uDopEnd",
             // The debug view. Since the shader was split into one program per renderer
             // (2026-09-23) the choice between a debug view and the ported path is made in
             // Rust, by `ProgramKind::for_params`, which sends every debug view to the
@@ -4427,5 +4880,185 @@ mod tests {
             "side = (dot(sampledDir, bsdf.geometryN) > 0.0) ? LUX_RAY_FROM_OUTSIDE : LUX_RAY_FROM_INSIDE;"
         ));
         assert!(!pathtracer.contains("side = -side;"));
+    }
+
+    // ---- the cutting assistant (T-0234): the pinned frame and the dop
+
+    /// OBJ text for the box from -1 to 1 in x and y and from -1 to `top` in z: the whole
+    /// 2 x 2 x 2 rough at `top` 1, and that rough with its top cut away by a horizontal facet
+    /// below it. Wound outward, as `design_mesh.js` writes its faces.
+    fn box_obj(top: f32) -> String {
+        format!(
+            "v -1 -1 -1\nv 1 -1 -1\nv 1 1 -1\nv -1 1 -1\n\
+             v -1 -1 {t}\nv 1 -1 {t}\nv 1 1 {t}\nv -1 1 {t}\n\
+             f 1 4 3 2\nf 5 6 7 8\nf 1 2 6 5\nf 2 3 7 6\nf 3 4 8 7\nf 4 1 5 8\n",
+            t = top
+        )
+    }
+
+    /// The position of the vertex nearest `target` in a conditioned mesh.
+    fn nearest_vertex(mesh: &crate::mesh::Mesh, target: nalgebra::Point3<f32>) -> nalgebra::Point3<f32> {
+        *mesh
+            .positions
+            .iter()
+            .min_by(|a, b| (**a - target).norm().total_cmp(&(**b - target).norm()))
+            .expect("the mesh has vertices")
+    }
+
+    /// A pinned frame must keep the rough still while it is cut (T-0234).
+    ///
+    /// Setup: a 2 x 2 x 2 box, and the same box with its top half cut away (a horizontal cut at
+    /// z = 0) -- the rough before and after one cut. Test: condition both the ordinary way,
+    /// measuring each one's own frame, and the cut one in a pinned frame (the whole box's
+    /// centre, and 1 / its corner radius sqrt(3) as the scale), then find where the untouched
+    /// bottom corner (-1, -1, -1) lands in each. Verifies the reason `load_obj_framed` exists:
+    /// measured afresh, the cut box is re-centred and re-scaled, so that corner moves on screen
+    /// although the rock did not (by more than a hundredth of the view); pinned, it stays
+    /// exactly where it was in the uncut box. Also checks the pinned frame is reported back as
+    /// `FileFrame`, so the dop and `project_file_points` go through the same numbers as the mesh.
+    #[test]
+    fn a_pinned_frame_keeps_the_rough_where_it_was_as_it_is_cut() {
+        use crate::mesh::ModelAxis;
+
+        let whole = box_obj(1.0);
+        let cut = box_obj(0.0);
+        let untouched = nalgebra::Point3::new(-1.0f32, -1.0, -1.0);
+        // Where that corner goes in the world: centred on the origin, scaled by 1 / sqrt(3),
+        // then turned so +Z is +Y -- (x, y, z) to (x, z, -y).
+        let s = 1.0 / 3.0f32.sqrt();
+        let expected = nalgebra::Point3::new(-s, -s, s);
+        let pinned = Some((nalgebra::Vector3::new(0.0f32, 0.0, 0.0), s));
+
+        let (measured_whole, ..) =
+            super::conditioned_mesh_in_frame(&whole, ModelAxis::PlusZ).expect("the box loads");
+        let (measured_cut, ..) =
+            super::conditioned_mesh_in_frame(&cut, ModelAxis::PlusZ).expect("the cut box loads");
+        let (pinned_cut, _, _, frame) =
+            super::conditioned_mesh_in_pinned_frame(&cut, ModelAxis::PlusZ, pinned)
+                .expect("the cut box loads in a pinned frame");
+
+        let moved = (nearest_vertex(&measured_cut, expected) - nearest_vertex(&measured_whole, expected)).norm();
+
+        assert!(
+            moved > 0.01,
+            "setup: measured afresh, the cut rough should shift on screen, moved only {}",
+            moved
+        );
+        assert!(
+            (nearest_vertex(&pinned_cut, expected) - expected).norm() < 1e-5,
+            "pinned, the untouched corner must stay at {:?}, got {:?}",
+            expected,
+            nearest_vertex(&pinned_cut, expected)
+        );
+        assert!((frame.scale - s).abs() < 1e-7 && frame.center.norm() == 0.0);
+        assert!((frame.to_world(untouched) - expected).norm() < 1e-5);
+    }
+
+    /// The dop must be drawn where the stone's own frame puts the design's coordinates.
+    ///
+    /// Setup: a `FileFrame` like a pinned load's -- centre (1, 2, 3), scale 0.5, optical axis +Z
+    /// turned onto +Y -- and a dop on the optical axis above that centre, from z = 4 to z = 6,
+    /// radius 0.4, once with its glued end capped (the pavilion phase) and once open (the crown
+    /// phase, T-0239). Test: `dop_uniforms`. Verifies both ends go through the frame exactly as
+    /// the mesh's vertices do (so the rod stays glued to the rock), the radius is scaled by the
+    /// same factor, the cap flag reaches the shader as uDopEnd.w, 1 capped and 0 open, and no
+    /// dop is all zeros: a zero radius is the shader's "there is none".
+    #[test]
+    fn dop_uniforms_put_the_rod_in_the_loaded_stones_frame() {
+        let frame = super::FileFrame {
+            center: nalgebra::Vector3::new(1.0, 2.0, 3.0),
+            scale: 0.5,
+            rotation: crate::mesh::axis_to_y_rotation(crate::mesh::ModelAxis::PlusZ),
+        };
+
+        for (capped, flag) in [(true, 1.0f32), (false, 0.0)] {
+            let dop = super::Dop {
+                start: nalgebra::Point3::new(1.0, 2.0, 4.0),
+                end: nalgebra::Point3::new(1.0, 2.0, 6.0),
+                radius: 0.4,
+                capped,
+            };
+
+            let (start, end) = super::dop_uniforms(Some(&dop), &frame);
+
+            // The glued end: (1, 2, 4) less the centre is (0, 0, 1), halved to (0, 0, 0.5), and
+            // +Z turned onto +Y gives (0, 0.5, 0); the radius 0.4 halved is 0.2.
+            for (actual, expected) in start.iter().zip([0.0f32, 0.5, 0.0, 0.2]) {
+                assert!((actual - expected).abs() < 1e-6, "uDopStart {:?}", start);
+            }
+
+            // The far end the same way, (0, 0, 3) to (0, 1.5, 0), and the cap flag in w.
+            for (actual, expected) in end.iter().zip([0.0f32, 1.5, 0.0, flag]) {
+                assert!((actual - expected).abs() < 1e-6, "uDopEnd {:?} (capped {})", end, capped);
+            }
+        }
+
+        assert_eq!(super::dop_uniforms(None, &frame), ([0.0; 4], [0.0; 4]));
+    }
+
+    /// The dop must be seen by the deterministic and flat renderers, never by Monte Carlo, and
+    /// cost nothing when it is not there.
+    ///
+    /// Setup: the text of every shader file, comments stripped, and the bodies of the functions
+    /// that decide what a ray shows.
+    ///
+    /// Test: `dopDistance` is called by `renderHandWritten` and `renderFlat` (the primary ray,
+    /// through `dopInFront`) and by `arrivingLight` (light leaving the stone and light reflected
+    /// off it, in the deterministic renderer); the primary ray starts through
+    /// `dopAwareRayStart`; `dopDistance` returns before any arithmetic when the radius is 0; only
+    /// the glued end's cap is gated on uDopEnd.w, the far end's never is; no ported file
+    /// (`LUX_SOURCE`) mentions the dop at all, in code; and the uniforms are read by the flat
+    /// renderer and ignored by the ported one.
+    ///
+    /// Verifies T-0239's "remove every piece of dop code from the LuxCore/Monte Carlo shaders"
+    /// (its cost sat inside the ported path's unrolled loop), and that the two renderers the
+    /// cutting assistant does use cannot quietly lose the rod: each link fails silently at
+    /// runtime (the rod would just be missing from one renderer's picture, or be seen through
+    /// the stone in one and not the other). The cap gate is what lets the crown phase bury the
+    /// rod's end in the pavilion; gating the far end too would open the rod's visible bottom.
+    #[test]
+    fn the_dop_is_seen_by_the_deterministic_and_flat_renderers_and_not_by_monte_carlo() {
+        let functions = super::gem_frag_functions();
+        let body = |name: &str| {
+            super::strip_glsl_comments(
+                functions
+                    .iter()
+                    .find(|(n, _)| *n == name)
+                    .unwrap_or_else(|| panic!("gem.frag defines no {}", name))
+                    .1,
+            )
+        };
+
+        assert!(super::calls(&body("dopInFront"), "dopDistance"));
+        assert!(super::calls(&body("renderHandWritten"), "dopInFront"));
+        assert!(super::calls(&body("renderFlat"), "dopInFront"));
+        assert!(super::calls(&body("primaryRay"), "dopAwareRayStart"));
+
+        let distance = body("dopDistance");
+        let early = distance.find("return FAR_DISTANCE;").expect("dopDistance returns early");
+        assert!(
+            early < distance.find("length(axis)").expect("dopDistance measures the axis"),
+            "with no dop, dopDistance must return before doing any geometry"
+        );
+
+        // The glued end's cap, and only it, is drawn only when uDopEnd.w says so (T-0239).
+        assert!(distance.contains("if (uDopEnd.w > 0.5 && glued > tMin"));
+        assert!(!distance.contains("uDopEnd.w > 0.5 && distal"));
+
+        // The rod is never seen through the stone or in its facets (2026-09-24): light leaving
+        // the stone does not test it, so the deterministic renderer's unrolled bounce march
+        // carries no dop code at all.
+        assert!(!super::calls(&body("arrivingLight"), "dopDistance"));
+        assert!(!super::calls(&body("arrivingLight"), "dopRadiance"));
+
+        // Not a trace of it in the ported path: no call, no global, no macro, in any case.
+        let lux = super::strip_glsl_comments(super::LUX_SOURCE).to_ascii_lowercase();
+
+        assert!(!lux.contains("dop"), "a ported (Monte Carlo) file still has dop code");
+
+        for uniform in ["uDopStart", "uDopEnd"] {
+            assert!(super::lux_ignored_uniforms().contains(&uniform), "Monte Carlo must not read {}", uniform);
+            assert!(!super::flat_ignored_uniforms().contains(&uniform), "Flat must read {}", uniform);
+        }
     }
 }

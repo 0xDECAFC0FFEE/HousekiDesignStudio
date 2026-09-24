@@ -29,13 +29,15 @@ import { writable, get } from 'svelte/store';
 import { editing } from './edit_mode.js';
 import {
   getDesign, tierView, beginHistoryFrame, commitHistoryFrame, cancelHistoryFrame, recordEditEntry,
-  setTierValues, setDesignLock, syncToolbar,
+  setTierValues, setDesignLock, syncToolbar, designLocked,
 } from './tier_controller.js';
-import { setLocalHistory, syncUndoMenu } from './session.js';
+import { setLocalHistory, syncUndoMenu, applyParam } from './session.js';
+import { engine, bumpParams } from './stores.js';
 import { rockShape } from './edit_geometry.js';
 import { budgetedTask } from './work_budget.js';
 import {
-  INITIAL_GAUGES, moveGauge, setGaugeLock, createGaugeHistory, heightPivots, scaledValues,
+  INITIAL_GAUGES, moveGauge, setGaugeLock, resetGauges, gaugesAtOne, createGaugeHistory, heightPivots,
+  scaledValues,
 } from './scale_height.js';
 
 /** True while scale height mode is open. */
@@ -56,6 +58,39 @@ setDesignLock(() => session !== null);
 // The toolbar follows the mode opening and closing, as it follows edit mode's.
 scaleHeightOpen.subscribe(() => syncToolbar());
 
+// ---- the view (T-0235, the user: "can you rotate the stone to the side profile?")
+//
+// A height change shows side-on, so the mode opens there: the optical axis upright on screen, the
+// crown up and the girdle edge-on. That is exactly the renderer pane's own Side button
+// (Viewport.svelte's `setView(90)`: spin 0, tilt 90) -- at tilt 90 camera.rs puts the eye on world
+// +Z with screen up along world +Y, the optical axis, towards the crown. The user can still orbit
+// while the mode is open; Done, Cancel, Escape, and a design loaded under the mode all put back the
+// pose the mode opened on (spin and tilt, the only two things this moves; zoom is untouched).
+// Exported (not just module-local) so resize girdle mode (T-0241) can open on the same pose
+// through the same save/restore mechanism, rather than a second copy of it.
+export const SIDE_PROFILE = Object.freeze({ spin: 0, tilt: 90 });
+
+/** The current pose as `{ spin, tilt }` in degrees, or null with no renderer (Deno's tests). */
+export function currentPose() {
+  const app = engine.app;
+
+  return app ? { spin: app.get_param('spin'), tilt: app.get_param('tilt') } : null;
+}
+
+/**
+ * Turns the view to `pose` the way the Side button does -- through `applyParam`, so a facet turn
+ * in flight stops and the frame is redrawn -- and has the X/Y rotation sliders read it back.
+ */
+export function showPose(pose) {
+  if (pose === null || !engine.app) {
+    return;
+  }
+
+  if (applyParam('spin', pose.spin) && applyParam('tilt', pose.tilt)) {
+    bumpParams();
+  }
+}
+
 /** The local stack as session.js's Undo and Redo see it while the mode is open. */
 const localStack = {
   canUndo: () => session?.history.canUndo() ?? false,
@@ -72,7 +107,9 @@ const localStack = {
 export function enterScaleHeightMode() {
   const design = getDesign();
 
-  if (session !== null || get(editing) !== null || !design) {
+  // Nor while another whole-design mode holds the design (T-0234, the cutting assistant): with
+  // this mode's own session closed, a held design can only be another mode's.
+  if (session !== null || get(editing) !== null || designLocked() || !design) {
     return false;
   }
 
@@ -94,7 +131,10 @@ export function enterScaleHeightMode() {
     pristine: design.tiers.map(tier => ({ tier, angle: tier.angle, distance: tier.distance })),
     pivots,
     history: createGaugeHistory(INITIAL_GAUGES),
+    // The view the mode opened on, which every way out of it puts back (T-0235).
+    pose: currentPose(),
   };
+  showPose(SIDE_PROFILE);
   scaleGauges.set(INITIAL_GAUGES);
   scaleHeightOpen.set(true);
   setLocalHistory(localStack);
@@ -154,9 +194,12 @@ export function cancelScaleHeightMode() {
   setTierValues(pristine, { force: true });
 }
 
-/** Ends the session, whichever way it ends. */
+/** Ends the session, whichever way it ends, and puts the view back as it was when it opened. */
 function close() {
+  const { pose } = session;
+
   session = null;
+  showPose(pose);
   quickOnScreen = false;
   setLocalHistory(null);
   scaleHeightOpen.set(false);
@@ -186,6 +229,26 @@ export function changeGauge(which, value, done) {
     }
   } else {
     writer.request();
+  }
+}
+
+/**
+ * Reset (T-0235): both gauges back to 1x, the lock as it was, as one step of the mode's own undo.
+ * Does nothing when both already read 1x (the button is inert then).
+ */
+export function resetScaleGauges() {
+  if (session === null || gaugesAtOne(get(scaleGauges))) {
+    return;
+  }
+
+  const next = resetGauges(get(scaleGauges));
+
+  scaleGauges.set(next);
+  writer.cancel();
+  writeDesign(false);
+
+  if (session.history.commit(next)) {
+    syncUndoMenu();
   }
 }
 

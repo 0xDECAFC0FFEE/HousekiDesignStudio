@@ -192,6 +192,23 @@
    looking the same is also not good"). */
 .tier-rows { display: flex; flex-direction: column; }
 
+/* The Pavilion and Crown title bars are highlighted (2026-09-23, the user: "can you highlight
+   the crown and pavilion bars in the cutting instructions", then "highlight it with the same
+   color as the menu bar"): a band of the menu bar's own --topbar across the card's top, the
+   title in --text rather than --muted, so the pane's two sections stand out from the rows under
+   them. --topbar follows the theme (base.css, site/theme.css). Only these two -- the render
+   settings' groups keep the plain title. Hovered, the title turns --accent as every group's
+   does. Folded, a card is the bar alone: the 12px an ordinary folded group keeps below its
+   title would show as an empty strip under a filled bar. */
+#tier-tables .panel-section-title {
+  background: var(--topbar);
+  color: var(--text);
+}
+
+#tier-tables .panel-section-title:hover { color: var(--accent); }
+
+#tier-tables .panel-section-flush[data-state="closed"] { padding-bottom: 0; }
+
 /* The empty state sits in the card like a row would. */
 .tier-rows > p { padding: 0 12px 12px; }
 

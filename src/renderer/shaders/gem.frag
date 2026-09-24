@@ -156,6 +156,14 @@ uniform int uWireframe;
 // GemApp::upload_highlight_texture.
 uniform highp sampler2D uHighlightTexture;
 
+// The cutting assistant's dop (T-0234): the bronze rod the rough is glued to, a cylinder from the
+// glued end's centre (uDopStart.xyz) to the far end's (uDopEnd.xyz), of radius uDopStart.w, in
+// world units. A radius of 0 means there is no dop, which is every frame outside that mode.
+// uDopEnd.w is 1 when the glued end is drawn as a flat cap and 0 when it is not, because it lies
+// inside the stone (the crown phase, T-0239). See dopDistance().
+uniform vec4 uDopStart;
+uniform vec4 uDopEnd;
+
 // ---------------------------------------------------------------- constants
 
 // Compile-time loop bound. Must match `params::MAX_BOUNCES` on the Rust side, which
@@ -600,11 +608,20 @@ vec3 analyticalRadiance(vec3 direction) {
     return rings * RING_LEVEL;
 }
 
-// Mirrors env_map::direction_to_equirect_uv, plus a rotation about the vertical axis
-// so the rig can be spun without regenerating the texture.
+// The lighting's radiance along a lighting-frame direction, before the head shadow: the
+// analytical models exactly, and the texture (studio rig or skybox) otherwise, times
+// uEnvIntensity. Mirrors env_map::direction_to_equirect_uv, plus a rotation about the vertical
+// axis so the rig can be spun without regenerating the texture.
 //
-// `direction` is in the lighting frame; see toLightingFrame().
-vec3 sampleEnvironment(vec3 direction) {
+// Split out of sampleEnvironment (T-0234) for the dop, which is lit by the environment but is
+// not the stone the head shadow is about: the observer's head shades light arriving at the
+// stone from behind the viewer, and a rod held under the stone does not see that head.
+vec3 environmentRadiance(vec3 direction) {
+    // The analytical models are computed exactly; see analyticalRadiance().
+    if (uLightingModel >= LIGHTING_ANGLE_RINGS && uLightingModel <= LIGHTING_COSINE) {
+        return analyticalRadiance(direction) * uEnvIntensity;
+    }
+
     float cosine = cos(uEnvRotation);
     float sine = sin(uEnvRotation);
 
@@ -617,6 +634,14 @@ vec3 sampleEnvironment(vec3 direction) {
     float u = atan(rotated.z, rotated.x) / TAU + 0.5;
     float v = acos(clamp(rotated.y, -1.0, 1.0)) / PI;
 
+    return texture(uEnvironment, vec2(u, v)).rgb * uEnvIntensity;
+}
+
+// The lighting along a lighting-frame direction, as the stone sees it: environmentRadiance()
+// with the head shadow applied.
+//
+// `direction` is in the lighting frame; see toLightingFrame().
+vec3 sampleEnvironment(vec3 direction) {
     // Head shadow, applied here as a post-process on the lookup rather than baked into
     // the texture. Two reasons: the half angle can then be changed without regenerating
     // and re-uploading the map, and it keeps the environment definition independent of
@@ -634,12 +659,136 @@ vec3 sampleEnvironment(vec3 direction) {
         return displayToRadiance(uHeadShadowColor);
     }
 
-    // The analytical models are computed exactly; see analyticalRadiance().
-    if (uLightingModel >= LIGHTING_ANGLE_RINGS && uLightingModel <= LIGHTING_COSINE) {
-        return analyticalRadiance(direction) * uEnvIntensity;
+    return environmentRadiance(direction);
+}
+
+// ---------------------------------------------------------------- the dop (T-0234)
+//
+// The cutting assistant walks a cutter through the design from a rough cube, "at the bottom of the
+// cube, our dop (a medium sized rod rendered in bronze) sticks out" (the user, 2026-09-23). It is
+// drawn here as an analytic capped cylinder rather than as triangles in the stone's mesh: the mesh
+// is what every renderer refracts through, and a rod in it would be traced as glass. The
+// deterministic and flat renderers draw it for the primary ray only (renderHandWritten,
+// renderFlat, through dopInFront): dopDistance() says where the rod is, and dopRadiance() shades
+// it where it is the nearest thing.
+//
+// It is NOT seen through the stone or in its facets (2026-09-24, the user: "showing the bronze
+// through the crown is good but not necessary - if its faster if we remove the bronze or if theres
+// any benefit at all to not showing it just make it not visible"). Testing the rod in arrivingLight
+// cost a cylinder test on every ray leaving the stone, inside the deterministic renderer's bounce
+// march, which the compiler unrolls, so it was paid in compile time too (T-0218). Light leaving
+// the stone towards the rod picks up the lighting as if the rod were not there.
+// The ported LuxCore (Monte Carlo) path does not draw it either (T-0239, the user: "get rid of the
+// dop from monte carlo"): the cutting assistant switches that renderer to the deterministic one
+// while it is open.
+//
+// Only camera rays test the rod. That is what lets the crown phase sink the rod's glued end into
+// the pavilion with no cap (uDopEnd.w 0): the stone is convex, so a camera ray meets the stone's
+// surface before any part of the rod inside it, and the buried end is never seen.
+//
+// The rod is opaque and is not path traced: it is lit by the lighting model directly (a diffuse
+// term along its normal and a metal's Fresnel reflection along the mirror direction), which is
+// all a prop needs. Kept small on purpose, with no loops: T-0218 is about how long this shader
+// takes to compile on Windows.
+
+// Bronze, the ticket's sRGB (176, 141, 87), as a display value.
+const vec3 DOP_BRONZE = vec3(176.0, 141.0, 87.0) / 255.0;
+
+// How the rod's light divides between the lighting along its normal (a rough, diffuse share) and
+// the mirror reflection a polished metal gives, and the floor under the diffuse share so a side
+// facing the dark half of a lighting model still reads as bronze rather than black.
+const float DOP_DIFFUSE = 0.55;
+const float DOP_SPECULAR = 0.6;
+const float DOP_AMBIENT = 0.12;
+
+// Where along the ray the dop's surface is first crossed, beyond tMin and before tMax, with the
+// surface's outward normal there; FAR_DISTANCE when the ray misses it, or there is no dop.
+//
+// A capped cylinder is the round side, |p - axis| = radius between the two ends, plus the two flat
+// ends. In the frame of the axis w, the side is a quadratic in t in the ray's components across
+// the axis; each end is a plane, hit where it is crossed within the radius. The glued end is left
+// open when uDopEnd.w is 0 (the crown phase, where it is buried in the pavilion; see above).
+float dopDistance(vec3 origin, vec3 direction, float tMin, float tMax, out vec3 normal) {
+    normal = vec3(0.0, 1.0, 0.0);
+
+    float radius = uDopStart.w;
+
+    if (radius <= 0.0) {
+        return FAR_DISTANCE;
     }
 
-    return texture(uEnvironment, vec2(u, v)).rgb * uEnvIntensity;
+    vec3 axis = uDopEnd.xyz - uDopStart.xyz;
+    float len = length(axis);
+    vec3 w = axis / len;
+    vec3 offset = origin - uDopStart.xyz;
+    float offsetAlong = dot(offset, w);
+    float directionAlong = dot(direction, w);
+    vec3 offsetAcross = offset - w * offsetAlong;
+    vec3 directionAcross = direction - w * directionAlong;
+
+    float best = tMax;
+
+    // The round side. Both roots are tried, the nearer first, since a ray can meet the side
+    // outside the rod's length first and inside it second.
+    float a = dot(directionAcross, directionAcross);
+
+    if (a > 1e-12) {
+        float b = dot(offsetAcross, directionAcross);
+        float c = dot(offsetAcross, offsetAcross) - radius * radius;
+        float discriminant = b * b - a * c;
+
+        if (discriminant >= 0.0) {
+            float root = sqrt(discriminant);
+            float near = (-b - root) / a;
+            float far = (-b + root) / a;
+            float nearAlong = offsetAlong + near * directionAlong;
+            float farAlong = offsetAlong + far * directionAlong;
+
+            if (near > tMin && near < best && nearAlong >= 0.0 && nearAlong <= len) {
+                best = near;
+                normal = normalize(offsetAcross + directionAcross * near);
+            } else if (far > tMin && far < best && farAlong >= 0.0 && farAlong <= len) {
+                best = far;
+                normal = normalize(offsetAcross + directionAcross * far);
+            }
+        }
+    }
+
+    // The two flat ends: the glued one (along 0, facing -w), when it is drawn at all, and the far
+    // one (along len, +w).
+    if (abs(directionAlong) > 1e-12) {
+        float glued = -offsetAlong / directionAlong;
+        float distal = (len - offsetAlong) / directionAlong;
+
+        if (uDopEnd.w > 0.5 && glued > tMin && glued < best
+                && length(offsetAcross + directionAcross * glued) <= radius) {
+            best = glued;
+            normal = -w;
+        }
+
+        if (distal > tMin && distal < best
+                && length(offsetAcross + directionAcross * distal) <= radius) {
+            best = distal;
+            normal = w;
+        }
+    }
+
+    return best < tMax ? best : FAR_DISTANCE;
+}
+
+// The radiance leaving the dop's surface towards a ray travelling along `direction` that met it
+// where its outward normal is `normal`: bronze lit by the lighting model, as a rough share along the
+// normal plus a polished metal's reflection (Schlick's Fresnel, with the metal's own colour as its
+// reflectance at normal incidence).
+vec3 dopRadiance(vec3 direction, vec3 normal) {
+    vec3 base = pow(DOP_BRONZE, vec3(DISPLAY_GAMMA));
+    vec3 facing = dot(normal, direction) > 0.0 ? -normal : normal;
+    float cosView = clamp(-dot(direction, facing), 0.0, 1.0);
+    vec3 fresnel = base + (vec3(1.0) - base) * pow(1.0 - cosView, 5.0);
+    vec3 diffuse = base * (vec3(DOP_AMBIENT) + environmentRadiance(toLightingFrame(facing)));
+    vec3 mirror = environmentRadiance(toLightingFrame(reflect(direction, facing)));
+
+    return DOP_DIFFUSE * diffuse + DOP_SPECULAR * fresnel * mirror;
 }
 
 // Largest sine of the angle between a ray and the view axis that still counts as heading
@@ -1173,6 +1322,23 @@ const float PRIMARY_RAY_START_RADIUS = 1.05;
 // Studio's camera with its eye 52 world units away (camera::GEM_CUT_STUDIO_EYE_DISTANCE),
 // and a lens set with the fov parameter takes the same path.
 //
+// Where a primary ray from `eye` along `direction` starts when the cutting assistant's dop is out
+// (T-0234), given `start`, where it starts otherwise. The assistant lets the rod reach past the
+// stone's unit sphere (cutting_assistant.js's DOP_VIEW_REACH) rather than shrink the rough to make
+// room for it, and a ray starting at PRIMARY_RAY_START_RADIUS would begin inside the rod's far end
+// and miss it. So with a dop the start moves out to beyond the rod's furthest point; without one
+// this returns `start` untouched, and the ray is exactly the one camera::CameraBasis::ray_start
+// mirrors. Only the renderers that draw the rod use it (not the ported path's luxEyeRay).
+vec3 dopAwareRayStart(vec3 eye, vec3 direction, vec3 start) {
+    if (uDopStart.w <= 0.0) {
+        return start;
+    }
+
+    float reach = max(length(uDopStart.xyz), length(uDopEnd.xyz)) + uDopStart.w + 0.05;
+
+    return eye + direction * max(dot(-eye, direction) - max(reach, PRIMARY_RAY_START_RADIUS), 0.0);
+}
+
 // Orthographic: every ray travels along the view axis, and the origins tile a
 // plane through the eye. The plane sits at least camera::MIN_DISTANCE from the target,
 // outside the unit-radius stone, so no ray starts inside the solid.
@@ -1196,7 +1362,31 @@ void primaryRay(out vec3 origin, out vec3 direction) {
     // test then works with numbers near 1. From Gem Cut Studio's eye, 52 units away, f32 cancellation
     // put hits on small triangles up to 2e-3 off the surface, twenty times SURFACE_EPSILON, so the
     // interior march could start outside the stone (T-0032).
+    vec3 eye = origin;
+
     origin += direction * max(dot(-origin, direction) - PRIMARY_RAY_START_RADIUS, 0.0);
+    origin = dopAwareRayStart(eye, direction, origin);
+}
+
+// The primary ray's meeting with the cutting assistant's dop (T-0234): the display value to show
+// when the rod is nearer than the stone -- `stoneT`, or FAR_DISTANCE when the ray missed the stone
+// -- and whether it is. `unlit` gives the flat renderer's plain bronze, with no light, as it gives
+// the stone its plain colour.
+bool dopInFront(vec3 origin, vec3 direction, float stoneT, bool unlit, out vec3 display) {
+    vec3 normal;
+    float t = dopDistance(origin, direction, SURFACE_EPSILON, stoneT, normal);
+
+    display = DOP_BRONZE;
+
+    if (t >= FAR_DISTANCE) {
+        return false;
+    }
+
+    if (!unlit) {
+        display = tonemap(dopRadiance(direction, normal));
+    }
+
+    return true;
 }
 
 // What a primary ray that misses the stone shows, as a display value.
@@ -1258,6 +1448,14 @@ void renderHandWritten() {
     if (uDebugMode == DEBUG_TRAVERSAL_COST) {
         // Normalised against a budget that a healthy hierarchy stays well under.
         fragColor = vec4(heatmap(float(entry.nodesVisited) / 96.0), 1.0);
+        return;
+    }
+
+    // The cutting assistant's dop, when it is nearer than the stone (T-0234).
+    vec3 dopDisplay;
+
+    if (dopInFront(origin, direction, struckStone ? entry.t : FAR_DISTANCE, false, dopDisplay)) {
+        fragColor = vec4(dopDisplay, 1.0);
         return;
     }
 
@@ -1376,8 +1574,17 @@ void renderFlat() {
     primaryRay(origin, direction);
 
     Hit entry;
+    bool struckStone = traceScene(origin, direction, SURFACE_EPSILON, FAR_DISTANCE, RAY_FROM_OUTSIDE, entry);
 
-    if (!traceScene(origin, direction, SURFACE_EPSILON, FAR_DISTANCE, RAY_FROM_OUTSIDE, entry)) {
+    // The cutting assistant's dop (T-0234), flat bronze as the stone is flat colour.
+    vec3 dopDisplay;
+
+    if (dopInFront(origin, direction, struckStone ? entry.t : FAR_DISTANCE, true, dopDisplay)) {
+        fragColor = vec4(dopDisplay, 1.0);
+        return;
+    }
+
+    if (!struckStone) {
         fragColor = vec4(missDisplay(direction), 1.0);
         return;
     }

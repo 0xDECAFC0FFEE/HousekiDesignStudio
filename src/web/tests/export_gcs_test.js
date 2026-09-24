@@ -83,6 +83,47 @@ function readGcs(text, name) {
   return { parsed, design: GemCadDesign.fromGemCad(parsed, { name }) };
 }
 
+/** The angle, in degrees, between two directions of any length. */
+function angleBetween(a, b) {
+  const la = Math.hypot(a.x, a.y, a.z);
+  const lb = Math.hypot(b.x, b.y, b.z);
+  const dot = (a.x * b.x + a.y * b.y + a.z * b.z) / (la * lb);
+
+  return Math.acos(Math.max(-1, Math.min(1, dot))) * 180 / Math.PI;
+}
+
+/**
+ * T-0240 (design.js's fromGemCad now sorts each tier's facets by index) means the WRITTEN
+ * .gcs's <facet> elements come out in ascending-index order, which is not necessarily the
+ * ORIGINAL file's own XML order (a design need not have been authored that way). So
+ * `original.parsed.tiers[t].indices` and `again.parsed.tiers[t].indices` -- the raw XML facet
+ * lists, read straight off two different files -- can legitimately disagree on ORDER while
+ * still describing the same stone. `design.tiers[t].facets` (post-sort, so identical order for
+ * `original` and `again`) is the reliable spine; this matches each of ITS facets back to the
+ * raw XML entry it came from, by nearest stored normal, exactly as design_test.js's own
+ * `matchFacetsToEntries` does for the same reason.
+ */
+function matchFacetsToEntries(design, tier, entries) {
+  const pool = entries.slice();
+
+  return tier.facets.map((facet) => {
+    const normal = GemCadDesign.normalOf(design, tier.angle, facet.index);
+    let bestIndex = -1;
+    let bestError = Infinity;
+
+    pool.forEach((entry, i) => {
+      const error = angleBetween(normal, entry.facetNormal);
+
+      if (error < bestError) {
+        bestError = error;
+        bestIndex = i;
+      }
+    });
+
+    return pool.splice(bestIndex, 1)[0];
+  });
+}
+
 /**
  * How far apart two corner lists are as the same polygon: the worst distance from a corner of
  * either to the nearest corner of the other, ignoring where the loop starts and which way it
@@ -132,6 +173,14 @@ function roundTrip(text, name, sameCount) {
     assertEquals(other.cuttingInstructions, tier.cuttingInstructions, `${name}: tier ${t} notes`);
     assertEquals(other.facets.length, tier.facets.length, `${name}: tier ${t} facet count`);
 
+    // `design.tiers[t].facets` is sorted by index for BOTH `original` and `again` (T-0240), so
+    // position f is the same physical facet in each -- but the WRITTEN file's own <facet> XML
+    // order need not match the ORIGINAL file's (a design need not have been authored in tooth
+    // order), so the raw parsed entries are matched back to that shared, sorted spine by
+    // geometry rather than read positionally off `.parsed.tiers[t].indices`.
+    const originalEntries = matchFacetsToEntries(original.design, tier, original.parsed.tiers[t].indices);
+    const againEntries = matchFacetsToEntries(again.design, other, again.parsed.tiers[t].indices);
+
     tier.facets.forEach((facet, f) => {
       // Circular: tooth 95.9999999 and tooth 0 are the same position on a 96-tooth wheel.
       const drift = Math.abs(other.facets[f].index - facet.index);
@@ -145,8 +194,8 @@ function roundTrip(text, name, sameCount) {
       worstCorner = Math.max(
         worstCorner,
         worstCornerDistance(
-          original.parsed.tiers[t].indices[f].points,
-          again.parsed.tiers[t].indices[f].points,
+          originalEntries[f].points,
+          againEntries[f].points,
           sameCount,
         ),
       );
@@ -243,10 +292,21 @@ Deno.test("designToGcs on a reversed wheel writes the same stone", async () => {
 
   assertEquals(again.design.tiers.length, design.tiers.length);
   design.tiers.forEach((tier, t) => {
+    // Matched by geometry against `design`'s own (forward-wheel, T-0240-sorted) facets, for
+    // BOTH the original file's raw entries and the round-tripped (reversed-then-back) ones: a
+    // facet's actual 3D normal is the same physical direction whichever wheel convention
+    // numbers it, so `design`/`tier` (never `reversed`'s own index labels, which mirror) is
+    // the one stable key to match both against. Needed because `reExpressOnGear` does not
+    // itself re-sort (T-0240 only sorts on LOAD, not on this re-expression), so `reversed`,
+    // and therefore the file `designToGcs` writes from it, lists facets in whatever mirrored
+    // order the re-expression produced -- not tooth order, and not the original file's order.
+    const originalEntries = matchFacetsToEntries(design, tier, parsed.tiers[t].indices);
+    const againEntries = matchFacetsToEntries(design, tier, again.parsed.tiers[t].indices);
+
     tier.facets.forEach((_, f) => {
       const drift = worstCornerDistance(
-        parsed.tiers[t].indices[f].points,
-        again.parsed.tiers[t].indices[f].points,
+        originalEntries[f].points,
+        againEntries[f].points,
         true,
       );
 

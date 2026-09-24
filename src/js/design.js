@@ -764,7 +764,24 @@
             worstNormalError: worstNormalError
         };
 
-        return design;
+        /* T-0240: a file (or the binary reader's own back-computation, or a solver) has no
+         * reason to list a tier's facets in tooth-index order, and this is the one point
+         * every .asc/.gem/.gcs load -- and the startup stone, which reads its own
+         * hex_cut_v2.gcs through this exact function -- shares, BEFORE the design's mesh is
+         * built from it (design_load.js's objTextFromBytes calls fromGemCad, then hands the
+         * SAME design to DesignMesh.toObjText a few lines later). Sorting here, rather than
+         * later in session.js's installLoadedDesign, is what this ticket's own tests caught:
+         * sorting AFTER the mesh text already existed left the design's facet order
+         * disagreeing with the text that had just been built from it, so the very next
+         * rebuild-from-design (any tier toolbar action, entering the cutting assistant, ...)
+         * produced a DIFFERENT byte-for-byte OBJ than the one just loaded, even though the
+         * stone's actual shape never changed -- see sortTierFacets's own comment for why
+         * that reordering is geometrically harmless in general; it is specifically NOT
+         * harmless to do it after this function's own caller has already used the
+         * unsorted order to build something. Sorting inside fromGemCad keeps every
+         * consumer -- the mesh built off this same parse, and any later rebuild -- looking
+         * at one consistent order from the start. */
+        return sortTierFacets(design);
     }
 
     /* ---------------------------------------------------------------- *
@@ -898,7 +915,14 @@
             copyTierExtras(tier, design.tiers[t]);
         });
 
-        return design;
+        /* T-0240: a restored URL-hash share goes through this function, then straight into
+         * DesignMesh.toObjText off the SAME design (share_state.js's restoreFromHash), so --
+         * for the identical reason fromGemCad sorts before returning, see its own comment --
+         * this has to sort before the mesh is built too, not afterwards. A document written
+         * before this ticket (every share made until now) was never guaranteed to list a
+         * tier's facets in index order, and one written by a newer build already IS sorted,
+         * so this is a no-op for it (sortTierFacets is idempotent). */
+        return sortTierFacets(design);
     }
 
     /* ---------------------------------------------------------------- *
@@ -1040,6 +1064,58 @@
         }, 0);
     }
 
+    /* ---------------------------------------------------------------- *
+     * Tooth-index order (T-0240)
+     * ---------------------------------------------------------------- */
+
+    /**
+     * Sorts each tier's `facets` array into ascending tooth-index order, in place.
+     *
+     * The user's request, verbatim: "when loading a file can you sort all the facet
+     * indices." A file (or a file reader's own back-computation, or a solver) has no reason
+     * to list a tier's facets in index order -- GemCad's own binary reader, for one, writes
+     * them however its index list happened to walk the facets -- so this is purely a
+     * presentation fix for the cutting-instructions pane and for anything that iterates
+     * `tier.facets` expecting a walkable order (T-0234's cutting assistant steps a tier's
+     * teeth in array order, for instance).
+     *
+     * THIS SORTS THE FACET OBJECTS, NOT A BARE ARRAY OF INDEX NUMBERS. A facet can carry
+     * other per-facet data alongside its index -- `name`, `frosting` (see `makeFacet` above)
+     * -- and that data has to move WITH its facet when the order changes, or a frosted facet
+     * would silently become a different, unfrosted one after loading. Comparing and
+     * reordering the `{index, name, frosting}` objects themselves, never their `.index`
+     * fields in isolation, is what keeps them attached.
+     *
+     * Nothing here touches the STONE. `planesOf`/`renderedPlanesOf` turn into a mesh through
+     * `DesignMesh`, which intersects half-spaces -- an order-independent construction -- and
+     * `buildFacetTierMap` (facet_map.js) matches a mesh facet back to its tier GEOMETRICALLY,
+     * by nearest normal, never by array position (see that function's own comment on why a
+     * reorder is safe). So this is free to run once, right after a design is built, with no
+     * knock-on effect on the rendered geometry.
+     *
+     * Does not touch `design.tiers`' own order (tier order is a separate, meaningful thing --
+     * cutting sequence -- and the user did not ask to change it), and does not record
+     * anything on an edit history: `fromGemCad` and `fromJSON` (below) both call this once,
+     * right before they return a freshly built design -- covering an opened .asc/.gem/.gcs,
+     * the startup stone (which reads its own hex_cut_v2.gcs through `fromGemCad`), and a
+     * restored URL-hash share (`fromJSON`) alike -- and no design exists yet at that point for
+     * any edit history to be recording against, so there is nothing for Undo to see.
+     *
+     * `Array.prototype.sort` is used directly (V8's sort has been stable since Chrome 70 /
+     * Node 11, and every browser this project targets), so two facets that are already equal
+     * on their index (a design with a genuine duplicate, or two on-axis facets both
+     * canonicalised to 0) keep their prior relative order rather than being shuffled.
+     */
+    function sortTierFacets(design) {
+        design.tiers.forEach(function (tier) {
+            tier.facets.sort(function (a, b) {
+                return a.index - b.index;
+            });
+        });
+
+        return design;
+    }
+
     globalThis.GemCadDesign = {
         SCHEMA_VERSION: SCHEMA_VERSION,
         fromGemCad: fromGemCad,
@@ -1057,6 +1133,7 @@
         stepAngle: stepAngle,
         facetCount: facetCount,
         reExpressOnGear: reExpressOnGear,
+        sortTierFacets: sortTierFacets,
         tolerances: {
             indexSnap: INDEX_SNAP_TOLERANCE,
             normalAgreement: NORMAL_AGREEMENT_TOLERANCE

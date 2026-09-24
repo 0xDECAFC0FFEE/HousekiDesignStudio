@@ -25,9 +25,12 @@
   // one without the other (numbers but no typing, or vice versa) can already ask for that; a
   // single combined flag would have to be split apart again to allow it, and would leave a
   // reader guessing what it silently bundled.
+  // `mark` (T-0237) is one value the tape singles out with a longer, brighter tick -- for a tape
+  // with no numbers at all (resize girdle's depth gauge, the user: "a depth gauge with no
+  // numbers"), where it is the only way to see where 1x is. Null draws no mark.
   let {
     label, value, min, max, step, tick, majorEvery, pxPerUnit, decimals, unit = '', flip = false,
-    tickLabels = true, readout = true, onchange,
+    tickLabels = true, readout = true, mark = null, onchange,
   } = $props();
 
   /** How far the tape moves per pixel of pointer travel, in fine mode. */
@@ -88,6 +91,10 @@
   const smallTickLeft = $derived(tickRight - Math.round(SMALL_TICK_LEN * tickScale));
   const majorTickLeft = $derived(tickRight - Math.round(MAJOR_TICK_LEN * tickScale));
   const labelRight = $derived(majorTickLeft - LABEL_GAP);
+  // The mark's tick is half as long again as a major one (T-0237), so it reads as special even
+  // where it lands on a major tick, and it never runs past the tape's left edge.
+  const MARK_LEN_SCALE = 1.5;
+  const markLeft = $derived(Math.max(0, tickRight - Math.round(MAJOR_TICK_LEN * MARK_LEN_SCALE * tickScale)));
 
   // The drag session, and whether one is in progress -- `$state` (not a plain `let`) so the
   // template's `class:dragging` below follows it, for the stronger highlight while actually
@@ -298,6 +305,12 @@
           <text class="tick-label" x={labelRight} y={y}>{mark.value.toFixed(majorEvery * tick < 1 ? decimals : 0)}</text>
         {/if}
       {/each}
+      <!-- The mark (T-0237), drawn over the ordinary tick at the same value and under the centre
+           line, only while it is on the visible stretch of the tape. -->
+      {#if mark !== null && Math.abs(mark - shown) * pxPerUnit <= HEIGHT / 2}
+        {@const y = Math.round(centre - direction * (mark - shown) * pxPerUnit)}
+        <line class="tick mark" x1={markLeft} x2={tickRight} y1={y} y2={y} />
+      {/if}
       <!-- The centre line: what the reading above the tape is taken at. Spans the tape's whole
            measured width (2026-09-22), not just the fixed tick gutter, so it reads as one line
            across a stretched column rather than a short dash left over in the middle of one. -->
@@ -432,6 +445,10 @@
      The template puts a major tick's y on a whole pixel, and a 1px minor one's on a half
      pixel, so each covers whole device pixels and draws crisp. */
   .tick.major { stroke: var(--muted); stroke-width: 2; }
+  /* The one marked value (T-0237): longer than a major tick and in the text colour, so it stands
+     out from the muted ticks and from the accent centre line alike. 2px on a whole-pixel y, like a
+     major tick, so it draws crisp. */
+  .tick.mark { stroke: var(--text); stroke-width: 2; }
 
   .centre { stroke: var(--accent); stroke-width: 2; }
 

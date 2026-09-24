@@ -579,6 +579,77 @@ Deno.test("buildFaces throws for a design whose planes do not bound a closed sol
     assert(threw, "a single unbounded half-space must not silently produce a mesh");
 });
 
+/*
+ * THE PLANE-LIST ENTRY POINT IS THE DESIGN ONE, WITH THE PLANES PICKED BY THE
+ * CALLER (T-0234: the cutting assistant builds "a rough cube plus the first k
+ * cuts", which no design describes).
+ *
+ * Setup: the hand-made cube, and the same cube's planes as the design path
+ * would pick them (meshPlanes), handed to toObjTextFromPlanes directly.
+ * Test: build both.
+ * Verifies: the two OBJ texts are identical apart from the comment line that
+ * counts the design's tiers (a plane list has none, so it says 0) -- same
+ * vertices, same faces, same order -- so the cutting assistant's stones are
+ * built by exactly the algorithm the page's own stone is, not a second one.
+ * And buildFacesFromPlanes hands each plane's `tier`/`facet` back on its face.
+ */
+Deno.test("toObjTextFromPlanes builds exactly what toObjText builds from the same planes", () => {
+    const design = makeCubeDesign();
+    const planes = DesignMesh.meshPlanes(design);
+    const stripCounts = text => text.split("\n").filter(line => !line.startsWith("# facets:")).join("\n");
+
+    assertEquals(stripCounts(DesignMesh.toObjTextFromPlanes(planes, { name: "cube" })),
+        stripCounts(DesignMesh.toObjText(design, { name: "cube" })),
+        "the same stone, byte for byte");
+
+    const built = DesignMesh.buildFacesFromPlanes(planes);
+
+    assertEquals(built.faces.map(face => [face.tier, face.facet]),
+        planes.map(plane => [plane.tier, plane.facet]),
+        "each face carries its own plane's tier and facet back");
+});
+
+/*
+ * A PLANE WITH NO TIER BUILDS A FACE WITH NO TIER.
+ *
+ * Setup: six bare `{ normal, offset }` planes -- the cutting assistant's rough
+ * cube, which belongs to no tier -- for the box from (0, 0, 0) to (2, 4, 6),
+ * deliberately off the origin and not a cube, so a wrong offset or axis shows.
+ * Plus a seventh plane slicing the top corner off, carrying a tier and facet.
+ * Test: build it and read it back with this suite's own OBJ parser.
+ * Verifies: a closed, manifold, outward-wound solid with 7 faces and the
+ * volume the box minus the corner must have (48 minus the corner tetrahedron,
+ * legs 1 along each axis: 1/6), the six box faces coming back with no tier and
+ * the corner face with its own -- which is what lets the cutting assistant
+ * tell a cut face from the rough's.
+ */
+Deno.test("buildFacesFromPlanes builds a box off the origin from bare planes, and keeps a cut's tier", () => {
+    const box = [
+        { normal: { x: 1, y: 0, z: 0 }, offset: 2 },
+        { normal: { x: -1, y: 0, z: 0 }, offset: 0 },
+        { normal: { x: 0, y: 1, z: 0 }, offset: 4 },
+        { normal: { x: 0, y: -1, z: 0 }, offset: 0 },
+        { normal: { x: 0, y: 0, z: 1 }, offset: 6 },
+        { normal: { x: 0, y: 0, z: -1 }, offset: 0 }
+    ];
+    const s = 1 / Math.sqrt(3);
+    // Through (1, 4, 6), (2, 3, 6) and (2, 4, 5): x + y + z = 11, i.e. offset 11 / sqrt(3).
+    const corner = { normal: { x: s, y: s, z: s }, offset: 11 * s, tier: 4, facet: 2 };
+
+    const built = DesignMesh.buildFacesFromPlanes(box.concat([corner]));
+    assertEquals(built.faces.length, 7, "six box faces and the corner");
+    assertEquals(built.faces.filter(face => face.tier === undefined).length, 6, "the box's faces have no tier");
+    assertEquals(built.faces.filter(face => face.tier === 4 && face.facet === 2).length, 1,
+        "the corner's face keeps its tier and facet");
+
+    const parsed = parseObj(DesignMesh.toObjTextFromPlanes(box.concat([corner]), { name: "box" }));
+    const stats = edgeStatistics(parsed.faces);
+
+    assertEquals([stats.boundary, stats.nonManifold], [0, 0], "closed and manifold");
+    assertClose(signedVolumeTimesSix(parsed.positions, parsed.faces) / 6, 48 - 1 / 6, 1e-9,
+        "the 2 x 4 x 6 box less the corner tetrahedron, outward wound");
+});
+
 // ===========================================================================
 // 3. The whole pipeline: real designs
 // ===========================================================================

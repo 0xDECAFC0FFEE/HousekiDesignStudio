@@ -45,7 +45,7 @@
 
 .panel-layer-off { visibility: hidden; }
 
-#panel, #edit-panel, #scale-height-panel {
+#panel, #edit-panel, #scale-height-panel, #cutting-panel, #resize-girdle-panel {
   background: var(--panel);
   /* One hairline, matching #instructions-pane's own border where it meets the renderer. Both
      were 3px double borders (2026-09-18) until T-0226's design language (base.css) made every
@@ -62,8 +62,8 @@
    the bar" (2026-09-22), and its rulers measure their own width (ValueRuler's bind:clientWidth),
    so they follow a drag too. Not max-content: the tier's list of teeth is one long line and
    must wrap, not widen the pane. Scale height's panel (T-0231) is edit mode's twin, so it shares
-   both rules. */
-#panel, #edit-panel, #scale-height-panel { width: 100%; min-width: 0; }
+   both rules, and so do the cutting assistant's bar (T-0234) and resize girdle's (T-0237). */
+#panel, #edit-panel, #scale-height-panel, #cutting-panel, #resize-girdle-panel { width: 100%; min-width: 0; }
 
 /* A titled group of settings (PanelSection: a shadcn-svelte Collapsible; it was a fieldset and
    its legend). The title is the trigger that folds the group. The design language's CARD and

@@ -83,6 +83,21 @@ export function setGaugeLock(gauges, on) {
   return on ? { ...gauges, lock: true, crown: gauges.pavilion } : { ...gauges, lock: false };
 }
 
+/**
+ * The gauges after Reset (T-0235, the user: "add a reset button below them that snaps them to
+ * 1x"): both at 1x, the lock as it was -- Reset is about the ratios, and the lock is a separate
+ * choice the user made with its own switch. Recorded as one step of the mode's own undo like any
+ * other finished change, so Undo brings the gauges back from 1x.
+ */
+export function resetGauges(gauges) {
+  return { ...gauges, pavilion: 1, crown: 1 };
+}
+
+/** Whether both gauges already read 1x, which is when Reset has nothing to do and is inert. */
+export function gaugesAtOne(gauges) {
+  return gauges.pavilion === 1 && gauges.crown === 1;
+}
+
 /** Whether two gauge states are the same. */
 export function sameGauges(a, b) {
   return a.pavilion === b.pavilion && a.crown === b.crown && a.lock === b.lock;
@@ -98,8 +113,11 @@ export function sameGauges(a, b) {
  * step, a lock toggle) and clears the redo side; a state equal to the current one is not a
  * change and records nothing. `undo()` and `redo()` return the state to show, or null when there
  * is none.
+ *
+ * `same` says whether two states are equal; resize girdle mode (T-0237), whose state is a single
+ * ratio, passes its own.
  */
-export function createGaugeHistory(initial) {
+export function createGaugeHistory(initial, same = sameGauges) {
   const states = [initial];
   let at = 0;
 
@@ -107,7 +125,7 @@ export function createGaugeHistory(initial) {
     current: () => states[at],
 
     commit(state) {
-      if (sameGauges(state, states[at])) {
+      if (same(state, states[at])) {
         return false;
       }
 

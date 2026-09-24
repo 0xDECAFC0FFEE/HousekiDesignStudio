@@ -18,15 +18,26 @@
   import { Label } from '$lib/components/ui/label/index.js';
   import { error } from '../lib/stores.js';
   import {
-    scaleHeightOpen, scaleGauges, changeGauge, changeLock, exitScaleHeightMode, cancelScaleHeightMode,
+    scaleHeightOpen, scaleGauges, changeGauge, changeLock, resetScaleGauges, exitScaleHeightMode,
+    cancelScaleHeightMode,
   } from '../lib/scale_height_mode.js';
   import {
     RATIO_MIN, RATIO_MAX, RATIO_STEP, RATIO_TICK, RATIO_MAJOR_EVERY, RATIO_PX_PER_UNIT, RATIO_DECIMALS,
+    gaugesAtOne,
   } from '../lib/scale_height.js';
   import ValueRuler from './ValueRuler.svelte';
 
   // EditPanel's own two buttons, verbatim: the modes' ways out look and sit alike.
   const ACTION = 'h-8 flex-1 border-[var(--panel-edge)] bg-[var(--raised)] px-3 text-[13px] text-[var(--text)] shadow-none hover:border-[var(--accent)] hover:bg-[var(--hover)] hover:text-[var(--text)] dark:border-[var(--panel-edge)] dark:bg-[var(--raised)] dark:hover:border-[var(--accent)] dark:hover:bg-[var(--hover)]';
+
+  // Reset (T-0235): the same control as the two actions, one size down (the view pane's Top/Side
+  // buttons' height and type), full width under the gauges. Inert at 1x the way the tier toolbar's
+  // buttons are: aria-disabled rather than `disabled`, so its tooltip still says what it would do,
+  // faded, and with no hover (the `!` wins over the Button's own dark-mode hover; see
+  // TierToolbar.svelte for the measurement behind it).
+  const RESET = 'h-7 w-full border-[var(--panel-edge)] bg-[var(--raised)] px-3 text-[12px] font-normal text-[var(--text)] shadow-none hover:border-[var(--accent)] hover:bg-[var(--hover)] hover:text-[var(--text)] dark:border-[var(--panel-edge)] dark:bg-[var(--raised)] dark:hover:border-[var(--accent)] dark:hover:bg-[var(--hover)] aria-disabled:cursor-default aria-disabled:opacity-45 aria-disabled:hover:border-[var(--panel-edge)]! aria-disabled:hover:bg-[var(--raised)]!';
+
+  const atOne = $derived(gaugesAtOne($scaleGauges));
 </script>
 
 <div id="scale-height-panel">
@@ -52,6 +63,16 @@
           step={RATIO_STEP} tick={RATIO_TICK} majorEvery={RATIO_MAJOR_EVERY}
           pxPerUnit={RATIO_PX_PER_UNIT} decimals={RATIO_DECIMALS} unit="×"
           onchange={(value, done) => changeGauge('crown', value, done)} />
+      </div>
+
+      <!-- Reset (T-0235, the user: "below the scale height gauges ... add a reset button below
+           them that snaps them to 1x"). Both gauges, not the lock; one step Undo can take back. -->
+      <div class="scale-panel-reset">
+        <Button variant="outline" size="sm" id="scale-reset" class={RESET}
+          aria-disabled={String(atOne)}
+          data-tip={atOne ? 'Both gauges are already at 1×.'
+            : 'Puts both gauges back to 1×, the stone as it was. Undo brings the gauges back.'}
+          onclick={resetScaleGauges}>Reset to 1×</Button>
       </div>
 
       <!-- The lock (the user: "add a toggle at the bottom that locks the crown to the pavilion
@@ -110,6 +131,10 @@
   .scale-panel-rulers {
     display: flex;
     gap: 18px;
+  }
+
+  .scale-panel-reset {
+    margin-top: 10px;
   }
 
   .scale-panel-lock {

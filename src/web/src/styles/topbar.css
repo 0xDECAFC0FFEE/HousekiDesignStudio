@@ -96,14 +96,6 @@
 }
 
 /* The menu itself is a shadcn-svelte Menubar (TopBar.svelte), styled by its own classes; the
-   hand-written .menu, .menu-button, .menu-dropdown and .menu-item rules are gone. */
-
-/* A deliberate empty state for Help -- and for Tools until T-0208 filled it with four greyed-out
-   placeholders -- so an empty dropdown reads as "nothing here yet" rather than a zero-height
-   rendering accident. */
-.menu-empty {
-  padding: 6px 10px;
-  color: var(--muted);
-  font-size: 12px;
-  font-style: italic;
-}
+   hand-written .menu, .menu-button, .menu-dropdown and .menu-item rules are gone. So is
+   .menu-empty, the "Nothing here yet" state an empty dropdown used to show: Tools was filled by
+   T-0208 and Help, the last, by T-0236's Documentation link. */

@@ -360,6 +360,21 @@ impl Mesh {
         (center.coords, 1.0)
     }
 
+    /// Moves and scales the mesh by a given `(center, scale)` rather than one measured from
+    /// it: each position `p` becomes `(p - center) * scale`, exactly what `center_and_scale`
+    /// does with its own numbers.
+    ///
+    /// For a caller that loads a series of stones that must share one frame (T-0234, the
+    /// cutting assistant: the rough is cut down one facet at a time, and measured afresh each
+    /// time it would grow and wander on screen as its corners went). The caller is then
+    /// responsible for the frame keeping every vertex inside the unit sphere the shader's
+    /// primary rays start outside of.
+    pub fn apply_center_and_scale(&mut self, center: Vector3<f32>, scale: f32) {
+        for p in &mut self.positions {
+            *p = Point3::from((p.coords - center) * scale);
+        }
+    }
+
     /// Rotates the mesh so the given model-space axis points along world +Y.
     ///
     /// Faceting software conventionally puts a stone's optical axis along +Z
@@ -1163,6 +1178,43 @@ mod tests {
             "farthest vertex should sit at radius 1, got {}",
             max_radius
         );
+    }
+
+    /// A given frame must do exactly what the measured one does (T-0234).
+    ///
+    /// Setup: two copies of the same off-origin, scaled-up cube. Test: normalise the first
+    /// with `center_and_scale(1.0)`, which measures its own centre and scale and returns
+    /// them, then hand those numbers to `apply_center_and_scale` on the second. Verifies the
+    /// two meshes end up bit-for-bit equal, vertex by vertex -- so a caller pinning one
+    /// stone's frame for a series of loads (the cutting assistant) gets exactly the transform
+    /// the renderer would otherwise have measured, not an approximation of it -- and that a
+    /// different frame really moves the mesh (half the scale halves every vertex's radius).
+    #[test]
+    fn apply_center_and_scale_reproduces_center_and_scale_and_follows_the_frame_given() {
+        let (positions, triangles) = outward_cube();
+        let shifted: Vec<Point3<f32>> = positions
+            .iter()
+            .map(|q| Point3::new(q.x * 100.0 + 7.0, q.y * 100.0 - 3.0, q.z * 100.0 + 42.0))
+            .collect();
+
+        let (mut measured, _) = Mesh::build(&shifted, &triangles, 1e-5);
+        let (mut given, _) = Mesh::build(&shifted, &triangles, 1e-5);
+        let (center, scale) = measured.center_and_scale(1.0);
+
+        given.apply_center_and_scale(center, scale);
+        assert_eq!(measured.positions, given.positions, "the same numbers must give the same mesh");
+
+        let (mut halved, _) = Mesh::build(&shifted, &triangles, 1e-5);
+
+        halved.apply_center_and_scale(center, scale * 0.5);
+
+        for q in &halved.positions {
+            assert!(
+                (q.coords.norm() - 0.5).abs() < 1e-5,
+                "at half the scale every cube corner sits at radius 0.5, got {}",
+                q.coords.norm()
+            );
+        }
     }
 
     /// Reorienting a +Z-axis model must send +Z to +Y. This is the transform

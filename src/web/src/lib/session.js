@@ -608,10 +608,20 @@ export function syncHiddenControls() {
   }
 }
 
-/** The renderer dropdown changed to `value`. */
-export function selectRenderer(value) {
+/**
+ * The renderer dropdown changed to `value`. `remember: false` is a switch that is not the user's
+ * choice and must not outlive the page: the cutting assistant's (T-0239), which moves Monte Carlo
+ * to the deterministic renderer while it is open and puts it back on closing. Such a switch is not
+ * written to the saved setting, so a reload with the assistant open still starts in the renderer
+ * the user picked.
+ */
+export function selectRenderer(value, { remember = true } = {}) {
   engine.app.set_renderer(value);
-  writeSetting(RENDERER_SETTING, String(value));
+
+  if (remember) {
+    writeSetting(RENDERER_SETTING, String(value));
+  }
+
   renderer.set(engine.app.renderer());
   syncHiddenControls();
   syncLuxProgress();
@@ -701,6 +711,14 @@ async function decodeSkybox(app) {
  */
 export function installLoadedDesign(app, { text, design, gear, title, author, date, warnings = [] }) {
   hideError();
+
+  // T-0240, the user: "when loading a file can you sort all the facet indices." Each tier's
+  // facets are already in ascending tooth-index order by the time `design` reaches here --
+  // GemCadDesign.fromGemCad and .fromJSON (design.js) both sort before returning, which is
+  // BEFORE `text` (the mesh) is built from the same design, not after: sorting here, once the
+  // mesh already existed, left the two disagreeing, so the next rebuild-from-design (any tier
+  // toolbar action, say) produced a different-order OBJ than the one just loaded. See
+  // fromGemCad's own comment.
   showStoneStats(app, text);
 
   setGearTeeth(gear !== null ? Math.abs(gear) : DEFAULT_GEAR_TEETH);

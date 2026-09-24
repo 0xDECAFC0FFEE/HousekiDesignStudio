@@ -18,13 +18,22 @@
   // event's target without a second, separate id-keyed lookup that a renumber would
   // invalidate -- the same reason the rows are keyed by the tier object, not its display id.
   import { get } from 'svelte/store';
-  import { selectedTier, rowClicked, moveTier, editNotes, registerRow, unregisterRow } from '../lib/tier_controller.js';
+  import {
+    selectedTier, rowClicked, moveTier, editNotes, registerRow, unregisterRow, designLocked,
+  } from '../lib/tier_controller.js';
   import { formatTierAngle, formatTierIndex } from '../lib/tiers.js';
   import { angleDecimals } from '../lib/preferences.js';
   import { enterEditMode } from '../lib/edit_mode.js';
+  import { cuttingRows } from '../lib/cutting_assistant_mode.js';
   import EditableText from './EditableText.svelte';
 
   let { tier, id, clickable, dragging = false } = $props();
+
+  // The cutting assistant's state for this tier (T-0234): 'uncut' greys the row ("all tiers that
+  // haven't been cut yet are greyed out"), 'current' highlights it ("the current tier is
+  // highlighted in the cutting instructions"), 'cut' leaves it as it always looks. Null while the
+  // mode is closed, and for a tier it does not cut (a hidden one, already greyed as hidden).
+  const cutState = $derived($cuttingRows?.get(tier) ?? null);
 
   // The description is kept on the loaded design's own tier (by OBJECT reference, so it survives
   // a reorder too, and lasts until another stone loads); the row shows a copy it updates as the
@@ -83,6 +92,8 @@
      not brighten the text); the stone does not show the frosting yet (T-0183). -->
 <div class="tier-row" class:tier-row-hidden={tier.hidden} class:tier-row-frosted={tier.frosted}
   class:tier-row-selected={$selectedTier === tier} class:tier-row-dragging={dragging}
+  class:tier-row-current={cutState === 'current'} class:tier-row-uncut={cutState === 'uncut'}
+  data-cut-state={cutState}
   role={clickable ? 'button' : undefined} tabindex={clickable ? 0 : undefined}
   aria-description={tier.hidden ? 'Hidden: not cut into the stone' : undefined}
   use:tierRowElement onclick={clickable ? () => rowClicked(tier) : undefined}
@@ -106,6 +117,20 @@
        is selected: the first click on a row selects its tier, and a click on the description
        of the selected row then opens the editor. -->
   <EditableText cls="tier-notes" inputClass="tier-notes-entry text-[11px] md:text-[11px]" value={notes} emptyText="description"
-    canEdit={() => get(selectedTier) === tier}
+    canEdit={() => get(selectedTier) === tier && !designLocked()}
     onwrite={value => { editNotes(tier, value); notes = value; }} />
 </div>
+
+<style>
+  /* The cutting assistant's rows (T-0234). The tier being cut has the selected row's own look
+     (instructions.css's .tier-row-selected: the stronger tint and the accent bar), without being
+     the selection -- a selected row also shows its description's editor, which this mode does
+     not offer. A tier not cut yet is faded the way the page greys anything that cannot be used
+     (kb/greyed-out-placeholders-in-the-menus-and-settings.md), every cell at 45%. */
+  .tier-row.tier-row-current {
+    background: rgba(143, 188, 187, 0.22);
+    box-shadow: inset 2px 0 0 var(--accent);
+  }
+
+  .tier-row.tier-row-uncut > :global(*) { opacity: 0.45; }
+</style>

@@ -133,6 +133,82 @@ function angleBetween(a, b) {
     return Math.acos(Math.max(-1, Math.min(1, dot))) * 180 / Math.PI;
 }
 
+/*
+ * T-0240 (sort each tier's facets into ascending tooth-index order on load) means
+ * `design.tiers[t].facets[f]` and `parsed.tiers[t].indices[f]` are generally no longer the
+ * SAME facet at the SAME position f: `fromGemCad` sorts by index before returning, and a
+ * parsed file has no reason to list a tier's facets in that order (GemCad's own binary
+ * reader, for one, does not). Several tests below need to compare a design facet against the
+ * exact parsed entry it was built from -- never by array position any more, the same lesson
+ * this whole representation already applies to matching a mesh facet to its tier
+ * (`matchNormalToPlanes` in design.js): match by GEOMETRY.
+ */
+
+/**
+ * `tier.facets`, each paired with the `entries` (a parsed file's `tier.indices`, e.g.) element
+ * whose stored normal is nearest its own rebuilt one -- greedy nearest-neighbour, consuming
+ * each entry once. Safe for every design this suite uses: real facets are geometrically well
+ * separated (see kb/the-polar-internal-representation.md's own measured match margins), so
+ * there is never a genuine ambiguity about which parsed entry a given facet came from.
+ */
+function matchFacetsToEntries(design, tier, entries) {
+    const pool = entries.slice();
+
+    return tier.facets.map(function (facet) {
+        const normal = GemCadDesign.normalOf(design, tier.angle, facet.index);
+        let bestIndex = -1;
+        let bestError = Infinity;
+
+        pool.forEach(function (entry, i) {
+            const error = angleBetween(normal, entry.facetNormal);
+
+            if (error < bestError) {
+                bestError = error;
+                bestIndex = i;
+            }
+        });
+
+        return pool.splice(bestIndex, 1)[0];
+    });
+}
+
+/**
+ * Which one of `design`'s facets in tier `t` is NOT also in `reference`'s tier `t` -- i.e.
+ * the one facet a test perturbed before re-deriving `design` from a (separately re-parsed)
+ * copy of the same file `reference` came from. Found as the facet whose index sits furthest
+ * (by shortest distance around the wheel) from every one of `reference`'s indices: every
+ * OTHER facet is untouched and so lands within float noise of some reference index, while the
+ * perturbed one was deliberately moved by a real fraction of a tooth. This is what makes
+ * these tests immune to T-0240's sort reordering WHERE the perturbed facet lands within its
+ * tier: they no longer assume it is still at array position 0.
+ */
+function perturbedFacet(design, reference, t) {
+    const teeth = design.gear.teeth;
+    const refIndices = reference.tiers[t].facets.map(function (f) { return f.index; });
+
+    function circularDistance(a, b) {
+        const diff = Math.abs(a - b) % teeth;
+
+        return Math.min(diff, teeth - diff);
+    }
+
+    let best = null;
+    let bestDistance = -1;
+
+    design.tiers[t].facets.forEach(function (facet) {
+        const distance = Math.min.apply(null, refIndices.map(function (r) {
+            return circularDistance(facet.index, r);
+        }));
+
+        if (distance > bestDistance) {
+            bestDistance = distance;
+            best = facet;
+        }
+    });
+
+    return best;
+}
+
 // ---------------------------------------------------------------------------
 // The angle convention
 // ---------------------------------------------------------------------------
@@ -201,7 +277,9 @@ Deno.test("rebuilds every facet normal from polar values", { ignore: !SAMPLES_PR
 
             for (let t = 0; t < design.tiers.length; t++) {
                 const tier = design.tiers[t];
-                const stored = parsed.tiers[t].indices;
+                // Matched by geometry, not position: T-0240 sorts tier.facets by index,
+                // which is not the order parsed.tiers[t].indices lists them in.
+                const stored = matchFacetsToEntries(design, tier, parsed.tiers[t].indices);
 
                 for (let f = 0; f < tier.facets.length; f++) {
                     const normal = GemCadDesign.normalOf(design, tier.angle, tier.facets[f].index);
@@ -240,16 +318,24 @@ Deno.test("facet corners lie on the plane the polar values describe", { ignore: 
             const design = GemCadDesign.fromGemCad(parsed, { name });
             const planes = GemCadDesign.planesOf(design);
 
+            // `planesOf` walks design.tiers[t].facets in array order, so `planes` is already
+            // grouped and ordered exactly like `design.tiers` -- but T-0240 sorted that array
+            // by index, so it is no longer parsed.tiers[t].indices's own order. Match each
+            // plane's facet back to its parsed entry (for the entry's own corner points) by
+            // geometry, per tier, rather than assuming the two walks stay in step.
             let p = 0;
 
-            for (let t = 0; t < parsed.tiers.length; t++) {
-                for (let f = 0; f < parsed.tiers[t].indices.length; f++) {
+            for (let t = 0; t < design.tiers.length; t++) {
+                const tier = design.tiers[t];
+                const stored = matchFacetsToEntries(design, tier, parsed.tiers[t].indices);
+
+                for (let f = 0; f < tier.facets.length; f++) {
                     const plane = planes[p++];
                     const length = Math.hypot(plane.normal.x, plane.normal.y, plane.normal.z);
 
                     assertClose(length, 1, 1e-12, "plane normals must be unit vectors");
 
-                    for (const corner of parsed.tiers[t].indices[f].points) {
+                    for (const corner of stored[f].points) {
                         const distance = plane.normal.x * corner.x +
                             plane.normal.y * corner.y +
                             plane.normal.z * corner.z;
@@ -299,9 +385,12 @@ Deno.test("reader and geometry agree on every index, on reversed gears too", { i
 
         for (let t = 0; t < design.tiers.length; t++) {
             const tier = design.tiers[t];
+            // Matched by geometry: T-0240 sorts tier.facets by index, so array position no
+            // longer lines up with parsed.tiers[t].indices's own (file) order.
+            const matched = matchFacetsToEntries(design, tier, parsed.tiers[t].indices);
 
             for (let f = 0; f < tier.facets.length; f++) {
-                const stored = parsed.tiers[t].indices[f];
+                const stored = matched[f];
 
                 // Each route's index turned back into a normal, and compared
                 // with the normal the file actually carries.
@@ -480,14 +569,18 @@ Deno.test("Kyle's_Tablet.gem: the pavilion table no longer fails the normal-agre
 
     // Every facet, including both on-axis tables, rebuilds the geometry the
     // file actually stores -- the load-bearing check, run over a real file.
+    // Matched to its parsed entry by geometry: T-0240 sorts tier.facets by index, so array
+    // position no longer lines up with parsed.tiers[t].indices's own (file) order.
     for (const [t, tier] of design.tiers.entries()) {
-        for (const [f, facet] of tier.facets.entries()) {
-            const stored = parsed.tiers[t].indices[f].facetNormal;
+        const matched = matchFacetsToEntries(design, tier, parsed.tiers[t].indices);
+
+        tier.facets.forEach((facet, f) => {
+            const entry = matched[f];
             const rebuilt = GemCadDesign.normalOf(design, tier.angle, facet.index);
 
-            assert(angleBetween(rebuilt, stored) < GemCadDesign.tolerances.normalAgreement,
-                `tier ${t} facet ${f} (${parsed.tiers[t].indices[f].name || "unnamed"}) rebuilds its normal`);
-        }
+            assert(angleBetween(rebuilt, entry.facetNormal) < GemCadDesign.tolerances.normalAgreement,
+                `tier ${t} facet ${f} (${entry.name || "unnamed"}) rebuilds its normal`);
+        });
     }
 
     const pavilionTable = design.tiers.find((tier, t) =>
@@ -570,7 +663,7 @@ Deno.test("a facet 0.006 of a tooth off is kept fractional, not snapped or refus
     const FRACTION = 0.006; // outside the 0.005 snap tolerance
     const turn = FRACTION * 3.75 * Math.PI / 180;
     const facet = parsed.tiers[1].indices[0];
-    const { x, y } = facet.facetNormal;
+    const { x, y, z } = facet.facetNormal; // captured before the turn, to recover the ORIGINAL tooth below
 
     facet.facetNormal = {
         x: x * Math.cos(turn) - y * Math.sin(turn),
@@ -579,9 +672,17 @@ Deno.test("a facet 0.006 of a tooth off is kept fractional, not snapped or refus
     };
 
     const design = GemCadDesign.fromGemCad(parsed, { name: "SRB" });
-    const index = design.tiers[1].facets[0].index;
     const teeth = design.gear.teeth;
-    const moved = Math.abs(index - reference.tiers[1].facets[0].index);
+
+    // T-0240 sorts tier.facets by index, so the perturbed facet is not necessarily at array
+    // position 0 any more, and neither is its ORIGINAL tooth still at reference.tiers[1
+    // ].facets[0] -- find the perturbed design facet by which one has no match in
+    // `reference` (every other facet in the tier is untouched), and its original tooth by
+    // recovering the pre-turn normal's own index directly, rather than assuming either sits
+    // at array position 0.
+    const index = perturbedFacet(design, reference, 1).index;
+    const originalIndex = GemCadDesign.polarOf(reference, { x, y, z }).index;
+    const moved = Math.abs(index - originalIndex);
 
     assert(!Number.isInteger(index), `expected a fractional index, got ${index}`);
     assertClose(Math.min(moved, teeth - moved), FRACTION, 1e-8,
@@ -620,7 +721,7 @@ Deno.test("a facet halfway between two teeth is a fractional index, not refused 
 
     const facet = parsed.tiers[1].indices[0];
     const half = 1.875 * Math.PI / 180;
-    const { x, y } = facet.facetNormal;
+    const { x, y, z } = facet.facetNormal; // captured before the turn, to recover the ORIGINAL tooth below
 
     facet.facetNormal = {
         x: x * Math.cos(half) - y * Math.sin(half),
@@ -629,9 +730,13 @@ Deno.test("a facet halfway between two teeth is a fractional index, not refused 
     };
 
     const design = GemCadDesign.fromGemCad(parsed, { name: "SRB" });
-    const index = design.tiers[1].facets[0].index;
     const teeth = design.gear.teeth;
-    const moved = Math.abs(index - reference.tiers[1].facets[0].index);
+
+    // See the 0.006-tooth test just above for why neither the perturbed facet nor its
+    // original tooth can be assumed to sit at array position 0 any more (T-0240).
+    const index = perturbedFacet(design, reference, 1).index;
+    const originalIndex = GemCadDesign.polarOf(reference, { x, y, z }).index;
+    const moved = Math.abs(index - originalIndex);
 
     assert(!Number.isInteger(index), `expected a fractional index, got ${index}`);
     assertClose(index % 1, 0.5, 1e-9, `the fractional part is a half tooth, got ${index}`);
@@ -690,14 +795,17 @@ Deno.test("2013_Minimalist_4.gem is described with fractional indices, not refus
     p1Indices.forEach((index, i) =>
         assertClose(index, expected[i], 1e-6, `P1 facet ${i} is the expected half-tooth position`));
 
+    // Matched to its parsed entry by geometry: T-0240 sorts tier.facets by index, so array
+    // position no longer lines up with parsed.tiers[t].indices's own (file) order.
     for (const [t, tier] of design.tiers.entries()) {
-        for (const [f, facet] of tier.facets.entries()) {
-            const stored = parsed.tiers[t].indices[f].facetNormal;
+        const matched = matchFacetsToEntries(design, tier, parsed.tiers[t].indices);
+
+        tier.facets.forEach((facet, f) => {
             const rebuilt = GemCadDesign.normalOf(design, tier.angle, facet.index);
 
-            assert(angleBetween(rebuilt, stored) < GemCadDesign.tolerances.normalAgreement,
+            assert(angleBetween(rebuilt, matched[f].facetNormal) < GemCadDesign.tolerances.normalAgreement,
                 `tier ${t} facet ${f} rebuilds its normal`);
-        }
+        });
     }
 });
 
@@ -1307,4 +1415,120 @@ Deno.test("a table a hair off the axis is a table at index 0 and is never fracti
     assertEquals(tables[0].facets.map(facet => facet.index), [0], "a flat facet's index is 0");
     assertEquals(design.gear.fractional, false,
         "the table's meaningless azimuth no longer makes the design fractional");
+});
+
+/*
+ * T-0240: "when loading a file can you sort all the facet indices."
+ *
+ * SETUP. A hand-built, two-tier design -- no sample or corpus file needed, since
+ * `sortTierFacets` only ever looks at `tier.facets`, never at the geometry those facets
+ * describe. The first tier is deliberately listed out of tooth-index order (5, 1, 3, 1) --
+ * including a REPEATED index (two facets both at tooth 1), to check stability -- and each
+ * facet carries its own distinguishing per-facet data (`name`, and `frosting` on some of
+ * them) so a test can tell whether that data moved WITH its facet or got left behind by a
+ * sort that only looked at the bare numbers. The second tier is already in order, to check
+ * that sorting a sorted tier is a no-op, and a third, empty tier checks the function does not
+ * choke on a tier with nothing to sort.
+ *
+ * TEST. Call `GemCadDesign.sortTierFacets` on the design, once.
+ *
+ * VERIFIES.
+ *   - Tier 0's facets come back in ascending index order: 1, 1, 3, 5.
+ *   - Every facet's OWN `name` (and `frosting`, where it had one) is still attached to the
+ *     same index it started on -- i.e. the facet OBJECTS moved, not a parallel array of bare
+ *     index numbers that would leave `name`/`frosting` pointing at the wrong facet.
+ *   - The two facets that both started at index 1 ("tooth1-first" pushed before
+ *     "tooth1-second") keep THEIR OWN relative order after the sort (a stable sort), rather
+ *     than being free to swap.
+ *   - Tier order itself (`design.tiers`) is untouched -- this is an index sort within a
+ *     tier, not a re-sequencing of the cut.
+ *   - An already-sorted tier, and an empty one, are unchanged.
+ *   - The function returns the same design object it was given (for a caller that wants to
+ *     chain it), not a copy.
+ */
+Deno.test("sortTierFacets puts a tier's facets in ascending tooth order, moving each facet's own data with it", () => {
+    const design = {
+        v: 1,
+        name: "synthetic",
+        gear: { teeth: 8, reversed: false, originIndex: 0, fractional: false },
+        symmetry: { folds: 1, mirror: false },
+        refractiveIndex: 0,
+        tiers: [
+            {
+                // Out of order on purpose, including a repeated index (two facets at tooth 1).
+                angle: -30,
+                distance: 1,
+                preform: false,
+                hidden: false,
+                frosted: false,
+                cuttingInstructions: "",
+                facets: [
+                    { index: 5, name: "tooth5" },
+                    { index: 1, name: "tooth1-first", frosting: 0.5 },
+                    { index: 3, name: "tooth3" },
+                    { index: 1, name: "tooth1-second" },
+                ],
+            },
+            {
+                // Already ascending: sorting this tier must be a no-op.
+                angle: 20,
+                distance: 2,
+                preform: false,
+                hidden: false,
+                frosted: false,
+                cuttingInstructions: "",
+                facets: [
+                    { index: 0, name: "a" },
+                    { index: 2, name: "b" },
+                    { index: 4, name: "c" },
+                ],
+            },
+            {
+                // No facets at all: must not throw.
+                angle: 90,
+                distance: 3,
+                preform: false,
+                hidden: false,
+                frosted: false,
+                cuttingInstructions: "",
+                facets: [],
+            },
+        ],
+        headers: [],
+        footnotes: [],
+    };
+
+    const before = design.tiers[1].facets;
+    const returned = GemCadDesign.sortTierFacets(design);
+
+    assert(returned === design, "sortTierFacets returns the same design object it was given");
+
+    assertEquals(design.tiers[0].facets.map(f => f.index), [1, 1, 3, 5],
+        "tier 0's indices are now ascending");
+
+    // Per-facet data (name, frosting) must have travelled WITH its own facet object, not
+    // stayed behind at its old array position. If the sort had reordered a bare array of
+    // index numbers while leaving {name, frosting} where they started, this would instead
+    // read, e.g., ["tooth1-first", "tooth5", ...] -- a facet's data attached to the WRONG
+    // index.
+    assertEquals(design.tiers[0].facets.map(f => f.name),
+        ["tooth1-first", "tooth1-second", "tooth3", "tooth5"],
+        "each facet's name is still the one that started on its own index");
+    assertEquals(design.tiers[0].facets[0].frosting, 0.5,
+        "the frosted tooth1 facet's frosting travelled with it to its sorted position");
+    assertEquals(design.tiers[0].facets[1].frosting, undefined,
+        "the OTHER tooth1 facet never had frosting, and still does not");
+
+    // Stability: the two facets that tied at index 1 keep their original relative order
+    // (tooth1-first was pushed before tooth1-second) rather than an unstable sort being free
+    // to swap them.
+    assertEquals([design.tiers[0].facets[0].name, design.tiers[0].facets[1].name],
+        ["tooth1-first", "tooth1-second"],
+        "a stable sort keeps equal-index facets in their original relative order");
+
+    assertEquals(design.tiers[1].facets, before, "an already-ascending tier is unchanged");
+    assertEquals(design.tiers[2].facets, [], "an empty tier stays empty and does not throw");
+
+    assertEquals(design.tiers.map(t => t.angle), [-30, 20, 90],
+        "tier order itself (the cutting sequence) is untouched -- only facets within a tier move");
 });

@@ -1,0 +1,6 @@
+# Sends Cargo's own output under build/ along with everything else this project generates
+# (build/web from Vite, build/www the deployable site), so a fresh clone has nothing under
+# ./target at all. See kb/repository-layout-src-in-build-out.md and
+# kb/architecture.md's own file listing, which document this file as part of the layout.
+[build]
+target-dir = "build/target"
