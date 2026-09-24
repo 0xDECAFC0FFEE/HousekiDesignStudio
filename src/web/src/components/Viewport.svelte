@@ -4,7 +4,7 @@
   // design file onto the pane, which shares the file picker's load path (loadModelFile) so the two
   // cannot drift.
   import { loadModelFile, applyParam } from '../lib/session.js';
-  import { stoneStatsStore, ready, bumpParams } from '../lib/stores.js';
+  import { stoneStatsStore, ready, bumpParams, programLinking } from '../lib/stores.js';
   import { fullscreen } from '../lib/fullscreen.js';
   import ParamSlider from './ParamSlider.svelte';
   import { Button } from '$lib/components/ui/button/index.js';
@@ -63,6 +63,12 @@
   <IndexDial />
   <EditOverlay />
   <div id="drop-hint">drop an .obj, .asc, .gem or .gcs file to load it</div>
+  <!-- A renderer's shader compiles the first time it is selected (viewport.js,
+       watchProgramLinks), and the deterministic render stands in for it meanwhile; this says so,
+       so the stand-in is not mistaken for the renderer that was picked. -->
+  {#if $programLinking}
+    <div id="program-linking" role="status">Compiling the shader for this renderer…</div>
+  {/if}
   <!-- The stone's pose (2026-09-19, the user: the View sliders moved here from the settings, "add
        a top button that sets x=0, y=0 and side button that sets x=0 y=90 under the sliders"). -->
   <!-- Both cards over the canvas are hidden by the fullscreen toggle too (2026-09-21, the user:

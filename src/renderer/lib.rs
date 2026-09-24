@@ -59,8 +59,9 @@ use web_sys::{
 
 const VERTEX_SHADER: &str = include_str!("shaders/gem.vert");
 
-/// The fragment shader: the deterministic path tracer and the ported LuxCore one, compiled
-/// as one program and selected at runtime by the `uRenderer` uniform (T-0120).
+/// The fragment shader: the deterministic path tracer and the ported LuxCore one (T-0120),
+/// as one source that is compiled into a separate program per renderer -- see `ProgramKind`
+/// and `fragment_source`.
 ///
 /// **The order is load-bearing and deliberately not order-independent.** Each ported file
 /// carries `#ifndef`-guarded stand-ins for helpers a file ahead of it defines for real, so
@@ -103,6 +104,84 @@ const FRAGMENT_SHADER: &str = concat!(
     include_str!("shaders/lux/lights.glsl"),
     include_str!("shaders/lux/entry.glsl"),
 );
+
+/// Which of the fragment shader's programs a frame draws with (2026-09-23).
+///
+/// `FRAGMENT_SHADER` holds every renderer, and used to be linked as ONE program that picked
+/// between them at runtime on `uRenderer`. Direct3D's shader compiler, which every Windows
+/// browser goes through, compiles every branch it can reach, so every page load paid for all
+/// three renderers -- 13-18 s on an RTX 2080 -- to draw with one. Each kind is now its own
+/// program, built from the same source by `fragment_source`, and `GemApp` links only the
+/// ones actually drawn with, the first time each is needed. See `lux/entry.glsl`'s `main()`.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub enum ProgramKind {
+    /// `renderHandWritten()`: the deterministic renderer, and every debug view whichever
+    /// renderer is selected. Linked at startup, and drawn in place of another kind while
+    /// that one is still linking.
+    Deterministic,
+    /// The ported LuxCore path integrator (the page's "Monte Carlo").
+    LuxCore,
+    /// `renderFlat()`: the stone as an opaque surface.
+    Flat,
+}
+
+impl ProgramKind {
+    /// Every kind, in `index` order.
+    pub const ALL: [ProgramKind; 3] =
+        [ProgramKind::Deterministic, ProgramKind::LuxCore, ProgramKind::Flat];
+
+    /// The program a frame with these settings draws with.
+    ///
+    /// Exactly the selection `lux/entry.glsl`'s `main()` made at runtime before the split:
+    /// Flat and LuxCore draw with their own programs only in the full (non-debug) view, and
+    /// every debug view is drawn by the deterministic renderer whichever is selected.
+    pub fn for_params(renderer: params::Renderer, debug_mode: DebugMode) -> ProgramKind {
+        match (renderer, debug_mode) {
+            (params::Renderer::Flat, DebugMode::Full) => ProgramKind::Flat,
+            (params::Renderer::LuxCore, DebugMode::Full) => ProgramKind::LuxCore,
+            _ => ProgramKind::Deterministic,
+        }
+    }
+
+    /// Position in `ALL`, and so in `GemApp`'s table of programs.
+    fn index(self) -> usize {
+        match self {
+            ProgramKind::Deterministic => 0,
+            ProgramKind::LuxCore => 1,
+            ProgramKind::Flat => 2,
+        }
+    }
+
+    /// The preprocessor symbol `lux/entry.glsl`'s `main()` tests to keep only this branch.
+    fn define(self) -> &'static str {
+        match self {
+            ProgramKind::Deterministic => "GEM_PROGRAM_DETERMINISTIC",
+            ProgramKind::LuxCore => "GEM_PROGRAM_LUXCORE",
+            ProgramKind::Flat => "GEM_PROGRAM_FLAT",
+        }
+    }
+
+    /// A name for messages.
+    fn label(self) -> &'static str {
+        match self {
+            ProgramKind::Deterministic => "deterministic",
+            ProgramKind::LuxCore => "Monte Carlo",
+            ProgramKind::Flat => "flat",
+        }
+    }
+}
+
+/// `FRAGMENT_SHADER` with `kind`'s `GEM_PROGRAM_*` define inserted after its `#version` line.
+///
+/// Inserted rather than prepended because `#version` is only legal as the first token. The
+/// `#line 2` after it restores the numbering, so a compile error still names the same line
+/// it would have in the plain concatenation.
+fn fragment_source(kind: ProgramKind) -> String {
+    let split = FRAGMENT_SHADER.find('\n').map_or(0, |newline| newline + 1);
+    let (version, body) = FRAGMENT_SHADER.split_at(split);
+
+    format!("{}#define {} 1\n#line 2\n{}", version, kind.define(), body)
+}
 
 /// `gem.frag`'s own source, isolated from the ported files it is concatenated with in
 /// `FRAGMENT_SHADER`. `include_str!` embeds the file again rather than slicing
@@ -575,6 +654,120 @@ struct ModelResources {
     file_frame: FileFrame,
 }
 
+/// A linked program and its uniform locations.
+struct LinkedProgram {
+    program: WebGlProgram,
+    uniforms: HashMap<String, WebGlUniformLocation>,
+}
+
+/// Where one `ProgramKind`'s program is. `GemApp` keeps one of these per kind.
+enum ProgramState {
+    /// Not needed yet, so not compiled: most sessions never draw with most kinds.
+    Unlinked,
+    /// Compiling and linking; see `gpu::PendingProgram`.
+    Linking(gpu::PendingProgram),
+    Ready(LinkedProgram),
+    /// The link failed, with the driver's log. Kept rather than retried every frame.
+    Failed(String),
+}
+
+/// Starts linking one kind's program.
+fn start_program_link(gl: &Gl, kind: ProgramKind) -> Result<gpu::PendingProgram, String> {
+    gpu::start_link(gl, VERTEX_SHADER, &fragment_source(kind))
+}
+
+/// Finishes a link and collects its uniforms, or explains the failure.
+fn finish_program_link(
+    gl: &Gl,
+    kind: ProgramKind,
+    pending: gpu::PendingProgram,
+) -> Result<LinkedProgram, String> {
+    let program = pending
+        .finish(gl)
+        .map_err(|error| format!("the {} program: {}", kind.label(), error))?;
+    let uniforms = gpu::collect_uniforms(gl, &program);
+
+    Ok(LinkedProgram { program, uniforms })
+}
+
+/// The gem shader's startup compile and link, started but not yet waited for.
+///
+/// The page starts one of these, polls `is_complete` once an animation frame, and only then
+/// hands it to `GemApp::from_shader_link`. Where the browser offers `KHR_parallel_shader_compile`
+/// that keeps it drawing through a compile that takes Direct3D several seconds; see
+/// `gpu::PendingProgram` for the measurement. `GemApp::new` still links in one blocking call,
+/// for callers that do not care.
+///
+/// Only the deterministic program is linked here, whatever renderer the page is about to
+/// restore: it is the one every debug view uses, and what `GemApp` draws while another
+/// kind is still linking, so it is needed first in every session. See `ProgramKind`.
+#[wasm_bindgen]
+pub struct ShaderLink {
+    canvas: HtmlCanvasElement,
+    gl: Gl,
+    pending: gpu::PendingProgram,
+}
+
+#[wasm_bindgen]
+impl ShaderLink {
+    /// Issues the compile and link against the canvas's WebGL2 context, and returns at once.
+    #[wasm_bindgen(constructor)]
+    pub fn new(canvas_id: &str) -> Result<ShaderLink, JsValue> {
+        let (canvas, gl) = webgl2_canvas(canvas_id)?;
+        let pending =
+            start_program_link(&gl, ProgramKind::Deterministic).map_err(|e| js_error(&e))?;
+
+        Ok(ShaderLink {
+            canvas,
+            gl,
+            pending,
+        })
+    }
+
+    /// Whether the link has finished, so `GemApp::from_shader_link` will not block on it.
+    pub fn is_complete(&self) -> bool {
+        self.pending.is_complete(&self.gl)
+    }
+
+    /// Whether this browser can report progress at all. When false, `is_complete` is always
+    /// true and the whole compile is paid, blocking, inside `GemApp::from_shader_link`.
+    pub fn parallel(&self) -> bool {
+        self.pending.parallel()
+    }
+}
+
+/// Finds the canvas and takes its WebGL2 context.
+///
+/// Asked for with no attributes, so a second call on the same canvas hands back the very
+/// context the first one created -- which is what lets the page probe the context in
+/// `shader_wait.js` before the renderer takes it.
+fn webgl2_canvas(canvas_id: &str) -> Result<(HtmlCanvasElement, Gl), JsValue> {
+    let window = web_sys::window().ok_or_else(|| js_error("no window object"))?;
+    let document = window
+        .document()
+        .ok_or_else(|| js_error("no document object"))?;
+
+    let canvas: HtmlCanvasElement = document
+        .get_element_by_id(canvas_id)
+        .ok_or_else(|| js_error(&format!("no element with id {:?}", canvas_id)))?
+        .dyn_into()
+        .map_err(|_| js_error(&format!("element {:?} is not a canvas", canvas_id)))?;
+
+    let gl: Gl = canvas
+        .get_context("webgl2")
+        .map_err(|error| js_error(&format!("could not get a WebGL2 context: {:?}", error)))?
+        .ok_or_else(|| {
+            js_error(
+                "WebGL2 is not available in this browser, which the renderer \
+                 requires for float textures and texelFetch",
+            )
+        })?
+        .dyn_into()
+        .map_err(|_| js_error("the returned context is not a WebGL2 context"))?;
+
+    Ok((canvas, gl))
+}
+
 /// The renderer, driven from JavaScript.
 ///
 /// JavaScript owns the animation loop and input events and calls in here; this keeps
@@ -585,8 +778,14 @@ struct ModelResources {
 pub struct GemApp {
     gl: Gl,
     canvas: HtmlCanvasElement,
-    program: WebGlProgram,
-    uniforms: HashMap<String, WebGlUniformLocation>,
+    /// One entry per `ProgramKind`, indexed by `ProgramKind::index`. The deterministic one is
+    /// always `Ready`: the constructor does not return until it is.
+    programs: [ProgramState; 3],
+    /// The kind the draw in progress uses, set by `render_pass` before it draws, so that
+    /// `uniform1f` and friends address that program's locations.
+    drawing: ProgramKind,
+    /// Whether links can be polled (`gpu::PendingProgram::parallel`). See `links_block`.
+    parallel_compile: bool,
     vertex_array: WebGlVertexArrayObject,
     environment_texture: WebGlTexture,
     /// The cube-map image supplied by the page, kept so the image environment can be
@@ -667,38 +866,37 @@ impl GemApp {
     /// The OBJ arrives as a string rather than a URL so the Rust side needs no async
     /// fetch machinery. The page passes in the text of the model inlined into it, or of a
     /// file opened with its file picker or dropped onto it.
+    ///
+    /// Links the shader in one blocking call. The page uses `from_shader_link` instead, so
+    /// that the browser keeps drawing while the shader compiles.
     #[wasm_bindgen(constructor)]
     pub fn new(canvas_id: &str, obj_text: &str) -> Result<GemApp, JsValue> {
+        GemApp::from_shader_link(ShaderLink::new(canvas_id)?, obj_text)
+    }
+
+    /// Creates the renderer from a shader link the page started earlier, as `new` does.
+    ///
+    /// Blocks only if the link has not finished yet: the page polls
+    /// `ShaderLink::is_complete` first wherever the browser can answer it.
+    pub fn from_shader_link(link: ShaderLink, obj_text: &str) -> Result<GemApp, JsValue> {
         // Turns a Rust panic into a readable browser console message instead of the
         // bare "unreachable executed" that wasm otherwise produces.
         console_error_panic_hook::set_once();
 
-        let window = web_sys::window().ok_or_else(|| js_error("no window object"))?;
-        let document = window
-            .document()
-            .ok_or_else(|| js_error("no document object"))?;
+        let ShaderLink {
+            canvas,
+            gl,
+            pending,
+        } = link;
 
-        let canvas: HtmlCanvasElement = document
-            .get_element_by_id(canvas_id)
-            .ok_or_else(|| js_error(&format!("no element with id {:?}", canvas_id)))?
-            .dyn_into()
-            .map_err(|_| js_error(&format!("element {:?} is not a canvas", canvas_id)))?;
-
-        let gl: Gl = canvas
-            .get_context("webgl2")
-            .map_err(|error| js_error(&format!("could not get a WebGL2 context: {:?}", error)))?
-            .ok_or_else(|| {
-                js_error(
-                    "WebGL2 is not available in this browser, which the renderer \
-                     requires for float textures and texelFetch",
-                )
-            })?
-            .dyn_into()
-            .map_err(|_| js_error("the returned context is not a WebGL2 context"))?;
-
-        let program =
-            gpu::link_program(&gl, VERTEX_SHADER, FRAGMENT_SHADER).map_err(|e| js_error(&e))?;
-        let uniforms = gpu::collect_uniforms(&gl, &program);
+        let parallel_compile = pending.parallel();
+        let deterministic = finish_program_link(&gl, ProgramKind::Deterministic, pending)
+            .map_err(|e| js_error(&e))?;
+        let programs = [
+            ProgramState::Ready(deterministic),
+            ProgramState::Unlinked,
+            ProgramState::Unlinked,
+        ];
 
         // A vertex array must be bound to draw, even though the vertex shader reads no
         // attributes and builds its triangle from gl_VertexID alone.
@@ -776,8 +974,9 @@ impl GemApp {
         Ok(GemApp {
             gl,
             canvas,
-            program,
-            uniforms,
+            programs,
+            drawing: ProgramKind::Deterministic,
+            parallel_compile,
             vertex_array,
             environment_texture,
             environment_image: None,
@@ -926,14 +1125,100 @@ impl GemApp {
         true
     }
 
+    /// Whether a program is still compiling, so the page should keep calling
+    /// `poll_program_links` until it says to draw again.
+    pub fn program_linking(&self) -> bool {
+        self.programs
+            .iter()
+            .any(|state| matches!(state, ProgramState::Linking(_)))
+    }
+
+    /// Checks every program still compiling, without waiting, and finishes those that are
+    /// done. True when one of them finished -- linked or failed -- since the last call, which
+    /// is when the page should render again: the frame it asked for earlier was drawn by the
+    /// deterministic stand-in. Cheap enough to call once an animation frame.
+    pub fn poll_program_links(&mut self) -> bool {
+        let mut changed = false;
+
+        for kind in ProgramKind::ALL {
+            if let ProgramState::Linking(_) = self.programs[kind.index()] {
+                self.prepare_program(kind, false);
+                changed |= !matches!(self.programs[kind.index()], ProgramState::Linking(_));
+            }
+        }
+
+        changed
+    }
+
+    /// Links the program the current settings draw with, blocking until it is done, and says
+    /// whether it is usable.
+    ///
+    /// For callers that need the real renderer on the very next `render()` rather than the
+    /// deterministic stand-in: the browser harness sets its parameters and captures within
+    /// one synchronous script, which leaves no animation frame for a polled link to finish in.
+    pub fn link_current_program(&mut self) -> bool {
+        let effective = self.effective_params();
+
+        self.prepare_program(
+            ProgramKind::for_params(effective.renderer, effective.debug_mode),
+            true,
+        )
+    }
+
+    /// Whether the program the current settings draw with can be used without a link: it is
+    /// linked, or its link has already failed (and `program_error` says why).
+    ///
+    /// With `links_block`, the page asks this before rendering so it can put the compile
+    /// notice up first -- the next `render()` would otherwise freeze the page for the whole
+    /// compile with nothing on screen to say why.
+    pub fn current_program_ready(&self) -> bool {
+        let effective = self.effective_params();
+        let kind = ProgramKind::for_params(effective.renderer, effective.debug_mode);
+
+        matches!(
+            self.programs[kind.index()],
+            ProgramState::Ready(_) | ProgramState::Failed(_)
+        )
+    }
+
+    /// True when this browser cannot poll a link (no `KHR_parallel_shader_compile`; Firefox
+    /// 156), so the first frame to need a program waits for its whole compile.
+    pub fn links_block(&self) -> bool {
+        !self.parallel_compile
+    }
+
+    /// Why a program failed to link, with the driver's log, or an empty string if none has.
+    pub fn program_error(&self) -> String {
+        self.programs
+            .iter()
+            .find_map(|state| match state {
+                ProgramState::Failed(error) => Some(error.clone()),
+                _ => None,
+            })
+            .unwrap_or_default()
+    }
+
     /// Renders one frame, without fencing it. See `render`.
     fn render_pass(&mut self, width: u32, height: u32) {
         let width = width.max(1);
         let height = height.max(1);
 
-        self.resize_canvas(width, height);
+        let mut effective = self.effective_params();
 
-        let effective = self.effective_params();
+        // The first frame to need a program starts its link. Until the link finishes the
+        // stone is drawn by the deterministic program, which is always ready, rather than not
+        // at all; `poll_program_links` tells the page when to ask again. Without
+        // KHR_parallel_shader_compile (Firefox) the link cannot be polled, so this call blocks
+        // until it is done and nothing is substituted.
+        let wanted = ProgramKind::for_params(effective.renderer, effective.debug_mode);
+
+        if !self.prepare_program(wanted, false) {
+            effective.renderer = params::Renderer::Deterministic;
+        }
+
+        self.drawing = ProgramKind::for_params(effective.renderer, effective.debug_mode);
+
+        self.resize_canvas(width, height);
 
         if !self.accumulates(&effective) {
             // The deterministic renderer, every debug view, and the fallback when no float
@@ -1783,10 +2068,70 @@ impl GemApp {
     /// shader whichever renderer is selected, so accumulating them would write
     /// facet-id colours into a radiance buffer and then divide them by a pass count.
     /// And without the float targets there is nowhere to accumulate into.
+    ///
+    /// And the ported path's program has to be linked: until it is, `render_pass` draws the
+    /// deterministic renderer in its place, which must not be summed into the average either.
+    /// Checking it here also stops the page's accumulation loop redrawing that stand-in over
+    /// and over while the link runs (`accumulating()` reads this).
     fn accumulates(&self, effective: &RenderParams) -> bool {
         effective.renderer == params::Renderer::LuxCore
             && effective.debug_mode == DebugMode::Full
             && self.accumulation.is_some()
+            && matches!(
+                self.programs[ProgramKind::LuxCore.index()],
+                ProgramState::Ready(_)
+            )
+    }
+
+    /// Moves `kind`'s program along, and says whether it is ready to draw with.
+    ///
+    /// Starts the link if nothing has asked for this kind before, and finishes it once the
+    /// driver says it is done -- or at once, whatever that costs, when `block` is set or the
+    /// browser cannot report progress (`gpu::PendingProgram::is_complete` is then always
+    /// true). A failed link is logged once and kept, so it is not retried every frame; the
+    /// page reads it from `program_error`.
+    fn prepare_program(&mut self, kind: ProgramKind, block: bool) -> bool {
+        let index = kind.index();
+
+        if let ProgramState::Unlinked = self.programs[index] {
+            self.programs[index] = match start_program_link(&self.gl, kind) {
+                Ok(pending) => ProgramState::Linking(pending),
+                Err(error) => ProgramState::Failed(error),
+            };
+        }
+
+        let finished = match &self.programs[index] {
+            ProgramState::Linking(pending) => block || pending.is_complete(&self.gl),
+            _ => false,
+        };
+
+        if finished {
+            let state = std::mem::replace(&mut self.programs[index], ProgramState::Unlinked);
+
+            if let ProgramState::Linking(pending) = state {
+                self.programs[index] = match finish_program_link(&self.gl, kind, pending) {
+                    Ok(linked) => ProgramState::Ready(linked),
+                    Err(error) => {
+                        web_sys::console::error_1(&JsValue::from_str(&format!(
+                            "gem renderer: {}",
+                            error
+                        )));
+
+                        ProgramState::Failed(error)
+                    }
+                };
+            }
+        }
+
+        matches!(self.programs[index], ProgramState::Ready(_))
+    }
+
+    /// The uniform's location in the program the draw in progress uses.
+    fn uniform_location(&self, name: &str) -> Option<&WebGlUniformLocation> {
+        match &self.programs[self.drawing.index()] {
+            ProgramState::Ready(linked) => linked.uniforms.get(name),
+            _ => None,
+        }
     }
 
     /// Sizes the accumulation targets to the frame and zeroes them.
@@ -1861,8 +2206,13 @@ impl GemApp {
     ) {
         let gl = &self.gl;
 
+        // `render_pass` only ever selects a ready program, so this is not expected to return.
+        let ProgramState::Ready(linked) = &self.programs[self.drawing.index()] else {
+            return;
+        };
+
         gl.viewport(0, 0, width as i32, height as i32);
-        gl.use_program(Some(&self.program));
+        gl.use_program(Some(&linked.program));
         gl.bind_vertex_array(Some(&self.vertex_array));
 
         gl.active_texture(Gl::TEXTURE0 + UNIT_TRIANGLES);
@@ -2138,26 +2488,28 @@ impl GemApp {
         Ok(())
     }
 
+    // Each program keeps only the uniforms its own renderer reads, so a name missing from
+    // the one in use is normal and is skipped, exactly as an unused uniform always was.
     fn uniform1f(&self, name: &str, value: f32) {
-        if let Some(location) = self.uniforms.get(name) {
+        if let Some(location) = self.uniform_location(name) {
             self.gl.uniform1f(Some(location), value);
         }
     }
 
     fn uniform1i(&self, name: &str, value: i32) {
-        if let Some(location) = self.uniforms.get(name) {
+        if let Some(location) = self.uniform_location(name) {
             self.gl.uniform1i(Some(location), value);
         }
     }
 
     fn uniform2f(&self, name: &str, x: f32, y: f32) {
-        if let Some(location) = self.uniforms.get(name) {
+        if let Some(location) = self.uniform_location(name) {
             self.gl.uniform2f(Some(location), x, y);
         }
     }
 
     fn uniform3f(&self, name: &str, x: f32, y: f32, z: f32) {
-        if let Some(location) = self.uniforms.get(name) {
+        if let Some(location) = self.uniform_location(name) {
             self.gl.uniform3f(Some(location), x, y, z);
         }
     }
@@ -2186,7 +2538,17 @@ impl Drop for GemApp {
         }
 
         self.gl.delete_vertex_array(Some(&self.vertex_array));
-        self.gl.delete_program(Some(&self.program));
+
+        for state in std::mem::replace(
+            &mut self.programs,
+            [ProgramState::Unlinked, ProgramState::Unlinked, ProgramState::Unlinked],
+        ) {
+            match state {
+                ProgramState::Ready(linked) => self.gl.delete_program(Some(&linked.program)),
+                ProgramState::Linking(pending) => pending.discard(&self.gl),
+                ProgramState::Unlinked | ProgramState::Failed(_) => {}
+            }
+        }
     }
 }
 
@@ -2741,6 +3103,77 @@ mod tests {
     /// `uRenderer` is an int, every value is legal, and picking the wrong one just renders
     /// the other tracer -- which, since the two are meant to converge on the same image, is
     /// the kind of wrong that survives a glance at the screen.
+    /// Which program each combination of renderer and debug view draws with.
+    ///
+    /// Setup: every `Renderer` crossed with every `DebugMode`.
+    /// Test: `ProgramKind::for_params` on each pair.
+    /// Verifies the selection `lux/entry.glsl`'s `main()` used to make at runtime before the
+    /// shader was split into one program per renderer: Flat and LuxCore get their own
+    /// programs only in the full view, and every debug view -- whichever renderer is selected
+    /// -- is drawn by the deterministic program, which is the only one that contains them. A
+    /// wrong answer here would draw a debug view with a program that ignores `uDebugMode`, and
+    /// the page would silently show the ordinary render instead.
+    #[test]
+    fn each_renderer_and_debug_view_draws_with_the_program_that_contains_it() {
+        for renderer in params::Renderer::all() {
+            for debug_mode in (0..5).map(params::DebugMode::from_u32) {
+                let expected = match (renderer, debug_mode) {
+                    (params::Renderer::Flat, params::DebugMode::Full) => super::ProgramKind::Flat,
+                    (params::Renderer::LuxCore, params::DebugMode::Full) => super::ProgramKind::LuxCore,
+                    _ => super::ProgramKind::Deterministic,
+                };
+
+                assert_eq!(
+                    super::ProgramKind::for_params(renderer, debug_mode),
+                    expected,
+                    "{:?} with {:?}",
+                    renderer,
+                    debug_mode
+                );
+            }
+        }
+    }
+
+    /// Each program's source is the whole shader with its own define, and nothing else.
+    ///
+    /// Setup: `fragment_source` for every `ProgramKind`.
+    /// Test: the first line is still `FRAGMENT_SHADER`'s `#version` line; the next two are the
+    /// kind's `#define` and a `#line 2`; everything after that is `FRAGMENT_SHADER` from its
+    /// second line on, byte for byte; and `lux/entry.glsl` tests exactly the defines Rust
+    /// inserts.
+    /// Verifies the three things that would break the split silently: `#version` must stay
+    /// the first token or no program compiles; the `#line` directive keeps compile errors
+    /// pointing at the same line numbers as the plain concatenation; and a define spelled
+    /// differently in Rust and GLSL would leave every program compiling the deterministic
+    /// branch, so Monte Carlo and Flat would quietly render as deterministic.
+    #[test]
+    fn each_program_is_the_whole_shader_with_its_own_define_after_the_version_line() {
+        let entry = shader_file("src/renderer/shaders/lux/entry.glsl");
+        let (version, rest) = super::FRAGMENT_SHADER.split_at(
+            super::FRAGMENT_SHADER.find('\n').expect("the shader has more than one line") + 1,
+        );
+
+        assert!(version.starts_with("#version 300 es"), "unexpected first line {:?}", version);
+
+        for kind in super::ProgramKind::ALL {
+            let source = super::fragment_source(kind);
+            let header = format!("{}#define {} 1\n#line 2\n", version, kind.define());
+
+            assert!(source.starts_with(&header), "{:?} source starts {:?}", kind, &source[..80]);
+            assert_eq!(&source[header.len()..], rest, "{:?} body differs from the shader", kind);
+        }
+
+        // The deterministic program is `main()`'s fallthrough branch, so only the other two
+        // defines need to be tested by name in the GLSL.
+        for kind in [super::ProgramKind::LuxCore, super::ProgramKind::Flat] {
+            assert!(
+                entry.contains(&format!("defined({})", kind.define())),
+                "lux/entry.glsl does not test {}",
+                kind.define()
+            );
+        }
+    }
+
     #[test]
     fn renderer_encoding_matches_the_shader_constants() {
         let host = shader_file("src/renderer/shaders/lux/host.glsl");
@@ -3048,6 +3481,13 @@ mod tests {
             // uniform to a per-facet texture; still no page control, so nothing is hidden
             // for it.
             "uHighlightTexture",
+            // The debug view. Since the shader was split into one program per renderer
+            // (2026-09-23) the choice between a debug view and the ported path is made in
+            // Rust, by `ProgramKind::for_params`, which sends every debug view to the
+            // deterministic program -- so the ported program's source no longer mentions it,
+            // but the debug views still work with LuxCore selected. No `CONTROL_UNIFORMS`
+            // entry names it, so this hides nothing on the page.
+            "uDebugMode",
         ];
         expected.sort_unstable();
 

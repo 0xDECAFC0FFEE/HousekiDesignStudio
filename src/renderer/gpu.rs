@@ -14,50 +14,43 @@ use web_sys::{
     WebGlUniformLocation,
 };
 
-/// Compiles one shader stage, returning the driver's log on failure.
+/// `COMPLETION_STATUS_KHR`, from `KHR_parallel_shader_compile`. web-sys has no binding for
+/// the extension's one constant, so it is spelled out here.
+const COMPLETION_STATUS_KHR: u32 = 0x91B1;
+
+/// A program whose compile and link have been *issued* but not yet asked about.
 ///
-/// The log is propagated verbatim rather than summarised: a GLSL compile error names
-/// the exact line, and anything less makes shader debugging guesswork.
-pub fn compile_shader(gl: &Gl, kind: u32, source: &str) -> Result<WebGlShader, String> {
-    let shader = gl
-        .create_shader(kind)
-        .ok_or_else(|| "could not create shader object".to_string())?;
-
-    gl.shader_source(&shader, source);
-    gl.compile_shader(&shader);
-
-    let compiled = gl
-        .get_shader_parameter(&shader, Gl::COMPILE_STATUS)
-        .as_bool()
-        .unwrap_or(false);
-
-    if compiled {
-        return Ok(shader);
-    }
-
-    let log = gl
-        .get_shader_info_log(&shader)
-        .unwrap_or_else(|| "no compile log available".to_string());
-
-    gl.delete_shader(Some(&shader));
-
-    let stage = if kind == Gl::VERTEX_SHADER {
-        "vertex"
-    } else {
-        "fragment"
-    };
-
-    Err(format!("{} shader failed to compile:\n{}", stage, log))
+/// Why the link is split in two (measured 2026-09-23, Chrome 153 and Edge 153 on Windows, an
+/// RTX 2080, fresh profiles, the real ~320 KB gem shader): the first `COMPILE_STATUS` or
+/// `LINK_STATUS` query blocks until Direct3D's shader compiler has finished, which takes 13-16 s
+/// there. In Chromium that query ties up the GPU process, which is also the compositor, so the
+/// WHOLE BROWSER stops drawing for the duration -- 0 animation frames in 13.9 s. Issuing the
+/// same compile and link and then only polling `COMPLETION_STATUS_KHR` once a frame until it
+/// says done gave 863 frames over 14.4 s, never more than 17.5 ms apart (Edge: 948, 22 ms).
+///
+/// So nothing here may query a status before `is_complete` says so: one early
+/// `get_shader_parameter` puts the freeze straight back. Firefox 156 does not offer the
+/// extension; there `parallel` is false, `is_complete` is always true, and `finish` blocks
+/// exactly as the old single-call link did.
+pub struct PendingProgram {
+    program: WebGlProgram,
+    vertex: WebGlShader,
+    fragment: WebGlShader,
+    parallel: bool,
 }
 
-/// Compiles and links the two stages into a program.
-pub fn link_program(
+/// Issues the compile of both stages and the link, without waiting for any of it.
+pub fn start_link(
     gl: &Gl,
     vertex_source: &str,
     fragment_source: &str,
-) -> Result<WebGlProgram, String> {
-    let vertex = compile_shader(gl, Gl::VERTEX_SHADER, vertex_source)?;
-    let fragment = compile_shader(gl, Gl::FRAGMENT_SHADER, fragment_source)?;
+) -> Result<PendingProgram, String> {
+    // Enabling the extension is what makes `COMPLETION_STATUS_KHR` a legal query; the compile
+    // itself is asynchronous in ANGLE either way, it is only ever the status query that waits.
+    let parallel = matches!(gl.get_extension("KHR_parallel_shader_compile"), Ok(Some(_)));
+
+    let vertex = issue_compile(gl, Gl::VERTEX_SHADER, vertex_source)?;
+    let fragment = issue_compile(gl, Gl::FRAGMENT_SHADER, fragment_source)?;
 
     let program = gl
         .create_program()
@@ -67,27 +60,127 @@ pub fn link_program(
     gl.attach_shader(&program, &fragment);
     gl.link_program(&program);
 
-    // The shader objects are no longer needed once linked; the program holds its own
-    // reference until it is deleted.
-    gl.delete_shader(Some(&vertex));
-    gl.delete_shader(Some(&fragment));
+    Ok(PendingProgram {
+        program,
+        vertex,
+        fragment,
+        parallel,
+    })
+}
 
-    let linked = gl
-        .get_program_parameter(&program, Gl::LINK_STATUS)
+impl PendingProgram {
+    /// Whether the driver can report progress, i.e. whether polling `is_complete` keeps the
+    /// browser responsive. False means `finish` will block for the whole compile.
+    pub fn parallel(&self) -> bool {
+        self.parallel
+    }
+
+    /// Whether `finish` can now run without blocking. Always true without the extension,
+    /// since then there is nothing to ask and nothing to gain by waiting.
+    pub fn is_complete(&self, gl: &Gl) -> bool {
+        if !self.parallel {
+            return true;
+        }
+
+        gl.get_program_parameter(&self.program, COMPLETION_STATUS_KHR)
+            .as_bool()
+            .unwrap_or(true)
+    }
+
+    /// Deletes everything without waiting for, or asking about, the link.
+    pub fn discard(self, gl: &Gl) {
+        gl.delete_shader(Some(&self.vertex));
+        gl.delete_shader(Some(&self.fragment));
+        gl.delete_program(Some(&self.program));
+    }
+
+    /// Reads the outcome and hands back the linked program, or the driver's log on failure.
+    ///
+    /// Logs are propagated verbatim rather than summarised: a GLSL compile error names the
+    /// exact line, and anything less makes shader debugging guesswork. A stage that failed to
+    /// compile is reported as such rather than as the link failure it also causes, which is
+    /// what the old compile-then-check-then-link sequence reported too.
+    pub fn finish(self, gl: &Gl) -> Result<WebGlProgram, String> {
+        let PendingProgram {
+            program,
+            vertex,
+            fragment,
+            ..
+        } = self;
+
+        let linked = gl
+            .get_program_parameter(&program, Gl::LINK_STATUS)
+            .as_bool()
+            .unwrap_or(false);
+
+        let failure = if linked {
+            None
+        } else {
+            Some(
+                compile_failure(gl, &vertex, "vertex")
+                    .or_else(|| compile_failure(gl, &fragment, "fragment"))
+                    .unwrap_or_else(|| {
+                        let log = gl
+                            .get_program_info_log(&program)
+                            .unwrap_or_else(|| "no link log available".to_string());
+
+                        format!("program failed to link:\n{}", log)
+                    }),
+            )
+        };
+
+        // The shader objects are no longer needed once linked; the program holds its own
+        // reference until it is deleted.
+        gl.delete_shader(Some(&vertex));
+        gl.delete_shader(Some(&fragment));
+
+        match failure {
+            None => Ok(program),
+            Some(message) => {
+                gl.delete_program(Some(&program));
+                Err(message)
+            }
+        }
+    }
+}
+
+/// Creates a shader object and issues its compile, without asking how it went.
+fn issue_compile(gl: &Gl, kind: u32, source: &str) -> Result<WebGlShader, String> {
+    let shader = gl
+        .create_shader(kind)
+        .ok_or_else(|| "could not create shader object".to_string())?;
+
+    gl.shader_source(&shader, source);
+    gl.compile_shader(&shader);
+
+    Ok(shader)
+}
+
+/// The error message for a stage that failed to compile, or `None` if it compiled.
+fn compile_failure(gl: &Gl, shader: &WebGlShader, stage: &str) -> Option<String> {
+    let compiled = gl
+        .get_shader_parameter(shader, Gl::COMPILE_STATUS)
         .as_bool()
         .unwrap_or(false);
 
-    if linked {
-        return Ok(program);
+    if compiled {
+        return None;
     }
 
     let log = gl
-        .get_program_info_log(&program)
-        .unwrap_or_else(|| "no link log available".to_string());
+        .get_shader_info_log(shader)
+        .unwrap_or_else(|| "no compile log available".to_string());
 
-    gl.delete_program(Some(&program));
+    Some(format!("{} shader failed to compile:\n{}", stage, log))
+}
 
-    Err(format!("program failed to link:\n{}", log))
+/// Compiles and links the two stages into a program, blocking until it is done.
+pub fn link_program(
+    gl: &Gl,
+    vertex_source: &str,
+    fragment_source: &str,
+) -> Result<WebGlProgram, String> {
+    start_link(gl, vertex_source, fragment_source)?.finish(gl)
 }
 
 /// Collects every active uniform's location once, so the render loop never queries

@@ -291,8 +291,15 @@ def render_sequence_js(width, height, passes):
     The shader's seed comes from the pass index (see `src/renderer/shaders/lux/host.glsl`'s
     `uLuxSeed`), so two such sequences draw the same N random streams and must produce the
     same pixels -- which is what keeps `capture`'s two-identical-renders check meaningful.
+
+    `link_current_program()` first, because each renderer is its own shader program, linked
+    the first time a frame asks for it (2026-09-23, `ProgramKind` in src/renderer/lib.rs).
+    Until then `render()` draws the deterministic renderer in its place, and a capture taken
+    inside one synchronous script never gives a polled link the frame it needs to finish -- so
+    without this a LuxCore capture would silently be a deterministic one.
     """
     return (
+        " window.gemApp.link_current_program();"
         " window.gemApp.reset_accumulation();"
         " for (let pass = 0; pass < %d; pass += 1) {"
         "   window.gemApp.render(%d, %d);"

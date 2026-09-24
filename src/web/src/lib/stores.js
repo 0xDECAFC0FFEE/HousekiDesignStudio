@@ -109,6 +109,13 @@ export const renderer = writable(0);
 /** The lighting model the dropdown shows (`LightingModel::as_u32`). */
 export const lightingModel = writable(0);
 
+/**
+ * True while a renderer's shader program is still compiling after it was first asked for
+ * (`GemApp::program_linking`); the pane shows a small notice meanwhile, over the deterministic
+ * render that stands in for it. Set by viewport.js.
+ */
+export const programLinking = writable(false);
+
 /** The LuxCore renderer's progress line (`#lux-progress`), empty when it does not apply. */
 export const luxProgress = writable('');
 

@@ -56,7 +56,7 @@ export async function boot() {
   selfCheckTierIdsAgainstHexCutV2Gcs();
 
   // The no-modules build attaches its exports to the global `wasm_bindgen` object.
-  const { GemApp } = wasm_bindgen;
+  const { GemApp, ShaderLink } = wasm_bindgen;
 
   // The built-in stone (T-0149): the SAME reader path an opened .gcs takes, via
   // objTextFromBytes, rather than a separate conversion at build time -- so the
@@ -78,15 +78,20 @@ export async function boot() {
     return;
   }
 
-  // The constructor below links the shader, and on Windows -- where WebGL goes through ANGLE
-  // and Direct3D's shader compiler -- that one call blocks the page thread for the better part
-  // of ten seconds. Put an indeterminate bar up first, and only where it is needed: on macOS
-  // and Android the same link is over in a fraction of a second and there would be nothing to
-  // look at. `shader_wait.js` explains both the measurement and why the bar has to be on
-  // screen, and awaited, before the call rather than after it.
+  // Linking the shader takes the better part of ten seconds on Windows, where WebGL goes through
+  // ANGLE and Direct3D's shader compiler. Put an indeterminate bar up first, and only where it
+  // is needed: on macOS and Android the same link is over in a fraction of a second and there
+  // would be nothing to look at. `shader_wait.js` explains the measurement.
+  //
+  // Where the browser offers KHR_parallel_shader_compile (Chrome and Edge), the link is started
+  // and then polled once a frame, so the page, the bar and the rest of the browser keep drawing
+  // through it. Asking for the result before it was ready is what used to freeze all three;
+  // `gpu::PendingProgram` has the measurement. Firefox does not offer the extension, so there
+  // `is_complete` is true at once and `from_shader_link` pays the whole compile in one blocking
+  // call, which is why the bar must be on screen, and awaited, before the link starts.
   const canvas = document.getElementById('canvas');
   const notice = shaderCompileIsSlow(canvas)
-    ? showShaderCompileNotice(document.getElementById('viewport'))
+    ? showShaderCompileNotice(document.getElementById('viewport'), canvas)
     : null;
 
   if (notice) {
@@ -98,7 +103,15 @@ export async function boot() {
   // `finally`, so a constructor that throws takes the bar down too and leaves the error box
   // showing on its own rather than behind it.
   try {
-    app = new GemApp('canvas', startupModel.text);
+    const link = new ShaderLink('canvas');
+
+    // A timer rather than requestAnimationFrame, which a hidden tab never fires: a page opened
+    // in the background should finish linking there, not wait to be looked at first.
+    while (!link.is_complete()) {
+      await new Promise(resolve => setTimeout(resolve, 16));
+    }
+
+    app = GemApp.from_shader_link(link, startupModel.text);
   } catch (cause) {
     showError(String(cause));
     return;

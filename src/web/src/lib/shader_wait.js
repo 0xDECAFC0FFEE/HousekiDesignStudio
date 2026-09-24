@@ -8,26 +8,32 @@
 // that GLSL to HLSL and hands it to Direct3D's shader compiler, and that compiler takes
 // 7.7-11.9 s over it. macOS and Android hand the shader to Metal or to the native GLES driver
 // instead and are done in a fraction of a second, which is why the page opens instantly there
-// and looked like it had hung on Windows. Chrome keeps the compiled program in an on-disk
-// cache and so pays it only on a profile's first load; Firefox has no such cache and pays it
-// on EVERY load. WebGL exposes no program-binary API, so the page cannot cache it either.
+// and looked like it had hung on Windows. Every browser pays it on every load: Firefox has no
+// shader cache, and Chrome never writes a program linked through KHR_parallel_shader_compile to
+// its cache (2026-09-23; see kb/shader-compile-on-windows-one-program-per-render.md). WebGL
+// exposes no program-binary API, so the page cannot cache it either.
 //
 // HOW IT IS SLOW shapes everything below, and is worth reading before changing any of it:
 //
-//   * The wait is one synchronous WebGL call inside the wasm constructor. No JavaScript runs
-//     while it happens, so there is no progress to report and nothing to update as it goes.
-//     Hence an indeterminate bar, and hence `painted` -- it has to be on screen BEFORE the
-//     constructor is called, because nothing can put it there afterwards.
-//   * A JS-driven animation would freeze along with the rest of the page thread, and so, as it
-//     turns out, would a CSS `transform` one. In Firefox what keeps moving through the freeze
-//     is an `opacity` animation, and only that; the rule and the measurement behind it are in
-//     `styles/panel.css` beside the markup below. Do not reimplement this with
-//     `requestAnimationFrame`, and do not "improve" the wave into a sliding bar.
-//   * In Chrome and Edge NOTHING animates, because there the D3D compile occupies the GPU
-//     process, which is also the compositor -- so the frame the wave was in when the compile
-//     began is the frame that stays on screen for the next nine seconds. A stopped animation
-//     reads as a hung page, which is worse than no animation at all, so those browsers get a
-//     deliberately still indicator instead. See `isChromiumBrowser`.
+//   * Whatever the browser, the compiler reports no progress, so the bar is indeterminate.
+//   * In Chrome and Edge (2026-09-23) the page no longer waits synchronously. `boot.js` starts
+//     the link with `ShaderLink` and polls it once a frame through KHR_parallel_shader_compile,
+//     and the browser keeps drawing at a steady 60 fps throughout. Before that change, the
+//     first status query blocked the GPU process, which is also Chromium's compositor, and
+//     froze the WHOLE BROWSER for the compile: no frames at all, and a bar stuck on whatever
+//     frame it had reached. `gpu::PendingProgram` in `src/renderer/gpu.rs` has the measurement.
+//   * Firefox 156 does not offer that extension, so there the wait is still one synchronous
+//     WebGL call inside `GemApp::from_shader_link`, and no JavaScript runs while it happens.
+//     Hence `painted`: the bar has to be on screen BEFORE that call, because nothing can put it
+//     there afterwards. And hence the animation's form: a JS-driven animation would freeze
+//     along with the page thread, and so, as it turns out, would a CSS `transform` one. In
+//     Firefox what keeps moving through the freeze is an `opacity` animation, and only that;
+//     the rule and the measurement behind it are in `styles/panel.css` beside the markup below.
+//     Do not reimplement this with `requestAnimationFrame`, and do not "improve" the wave into
+//     a sliding bar.
+//   * A Chromium browser WITHOUT the extension would freeze exactly as described above, so it
+//     gets a deliberately still indicator: a stopped animation reads as a hung page. See
+//     `waveCanAnimate`.
 
 /**
  * Renderer strings that mean "this WebGL context goes through Direct3D".
@@ -113,18 +119,12 @@ export function shaderCompileIsSlow(canvas) {
 /**
  * Whether this is a Chromium browser -- Chrome, Edge, and the rest of the family.
  *
- * Two things follow from it, both measured on this machine (2026-09-22, Chrome 153 and Edge
- * 153, fresh profiles, the real page, watched from outside the browser):
- *
- *   * **Nothing animates while the shader compiles.** Seven screen grabs across the compile
- *     were pixel-identical in both browsers, down to the same stopped frame. Firefox, whose
- *     compile does not tie up its compositor the same way, gave seven different frames. So the
- *     indicator holds still here on purpose rather than appearing to hang.
- *   * **The compiled program is cached on disk**, so the wait is a first-time cost rather than
- *     a per-load one: Chrome 9,595 ms on a fresh profile and 207 ms on the next load, Edge
- *     8,443 ms and then 2 ms. Firefox has no such cache and paid 9,175 ms every time. That is
- *     the difference the note tells the reader about, because "this takes ten seconds" and
- *     "this takes ten seconds once" are very different things to be told.
+ * What follows from it (measured 2026-09-22, Chrome 153 and Edge 153, fresh profiles, the real
+ * page, watched from outside the browser): **a blocking compile stops everything from
+ * animating.** With a synchronous link, seven screen grabs across the compile were
+ * pixel-identical in both browsers, down to the same stopped frame. Firefox, whose compile does
+ * not tie up its compositor the same way, gave seven different frames. The parallel link avoids
+ * this; see `waveCanAnimate`.
  *
  * `userAgentData` exists only on Chromium, which makes it the cleanest signal; the user-agent
  * string is checked too so that a browser which has turned the newer API off is not mistaken
@@ -135,30 +135,42 @@ export function isChromiumBrowser(userAgent, hasUserAgentData) {
 }
 
 /**
- * The second line of the notice: what this wait will cost the reader *next* time.
+ * Whether the bar's wave can keep moving while the shader compiles, or must be drawn still.
  *
- * Deliberately says which browsers cache it rather than "your browser", because the one
- * question someone watching a ten-second freeze wants answered is whether it will happen
- * again, and naming Chrome and Edge makes the answer checkable instead of a claim.
+ * Only a Chromium browser that has to fall back on a blocking link gets the still bar: there
+ * the compile holds the compositor and a started animation would stop dead mid-wave. With
+ * `KHR_parallel_shader_compile` the page polls instead of blocking and everything keeps
+ * drawing (Chrome 153: 863 frames over a 14.4 s compile, none more than 17.5 ms apart; Edge 153:
+ * 948 frames, 22 ms). Firefox keeps animating through its blocking link on its own, because its
+ * compositor is not the process doing the compile. Kept pure, and pinned by
+ * `tests/shader_wait_test.js`.
  */
-export function shaderWaitNote(userAgent, hasUserAgentData) {
-  if (isChromiumBrowser(userAgent, hasUserAgentData)) {
-    return 'Chrome and Edge cache the compiled shader, so this should only happen the first ' +
-      'time you open the page.';
-  }
+export function waveCanAnimate(chromium, parallelCompile) {
+  return !chromium || Boolean(parallelCompile);
+}
 
-  if (/Firefox\//.test(userAgent || '')) {
-    return 'Firefox does not cache the compiled shader, so this happens on every load.';
+/**
+ * Whether this canvas's context offers `KHR_parallel_shader_compile`, i.e. whether the link
+ * `boot.js` is about to start can be polled rather than waited on. Asks without enabling it;
+ * `gpu::start_link` enables it itself.
+ */
+export function supportsParallelCompile(canvas) {
+  try {
+    const gl = canvas?.getContext('webgl2');
+    return Boolean(gl?.getSupportedExtensions()?.includes('KHR_parallel_shader_compile'));
+  } catch {
+    return false;
   }
-
-  return 'This browser may recompile it each time the page is opened.';
 }
 
 /**
  * Puts the bar over the renderer's pane and returns a handle to take it away again.
  *
+ * `canvas` is the renderer's own canvas, asked only whether it can link in parallel, which is
+ * what decides between the moving wave and the still bar.
+ *
  * `handle.painted` resolves once the browser has actually put it on the screen. Await that
- * before the call that blocks, or the bar is queued behind the block and is removed again
+ * before the call that may block, or the bar is queued behind the block and is removed again
  * before a single frame of it is ever drawn. Two `requestAnimationFrame`s and a macrotask: the
  * second callback runs in the frame after the one that committed this element, and the
  * `setTimeout` yields once more so the compositor has the frame in hand.
@@ -167,11 +179,13 @@ export function shaderWaitNote(userAgent, hasUserAgentData) {
  * moment relative to a synchronous call, with no store update, no `tick()` and no reactive
  * scheduling in between -- and it has to be removable from a `finally`, whatever happened.
  */
-export function showShaderCompileNotice(viewport) {
+export function showShaderCompileNotice(viewport, canvas) {
   const notice = document.createElement('div');
 
-  const userAgent = navigator.userAgent;
-  const still = isChromiumBrowser(userAgent, Boolean(navigator.userAgentData));
+  const still = !waveCanAnimate(
+    isChromiumBrowser(navigator.userAgent, Boolean(navigator.userAgentData)),
+    supportsParallelCompile(canvas),
+  );
 
   notice.id = 'shader-wait';
   // `role="status"` rather than a live region that interrupts: this is progress, not an alert.
@@ -187,9 +201,7 @@ export function showShaderCompileNotice(viewport) {
     '<i class="shader-wait-segment"></i><i class="shader-wait-segment"></i>' +
     '<i class="shader-wait-segment"></i></div>' +
     '<p class="shader-wait-note">Windows compiles this shader through Direct3D, ' +
-    'which takes a few seconds. ' +
-    shaderWaitNote(userAgent, Boolean(navigator.userAgentData)) +
-    '</p></div>';
+    'which takes a few seconds.</p></div>';
 
   viewport.appendChild(notice);
 

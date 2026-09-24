@@ -249,18 +249,40 @@ button.eyedropper svg { flex: 0 0 auto; width: 14px; height: 14px; }
 
 .shader-wait-note { margin: 10px 0 0; color: var(--muted); font-size: 12px; line-height: 1.45; }
 
-/* Chrome and Edge get no animation at all, because there it could not run: the D3D compile
-   occupies the GPU process, which is also Chromium's compositor, so whatever frame the wave was
-   in when the compile started is the frame that stays on screen until it finishes. Measured the
-   same way as the table above -- seven grabs across a real compile, pixel-identical in both,
-   stopped on the same uneven frame, which is exactly what a hung page looks like. An evenly dim
-   row cannot be mistaken for motion that has stalled. (lib/shader_wait.js sets the class.) */
+/* A Chromium browser that has to link BLOCKING gets no animation at all, because there it could
+   not run: the D3D compile occupies the GPU process, which is also Chromium's compositor, so
+   whatever frame the wave was in when the compile started is the frame that stays on screen
+   until it finishes. Measured the same way as the table above -- seven grabs across a real
+   compile, pixel-identical in both Chrome and Edge, stopped on the same uneven frame, which is
+   exactly what a hung page looks like. An evenly dim row cannot be mistaken for motion that has
+   stalled. Since 2026-09-23 Chrome and Edge link through KHR_parallel_shader_compile instead and
+   keep animating, so this is only the fallback for a Chromium without that extension.
+   (lib/shader_wait.js's waveCanAnimate decides.) */
 .shader-wait-still .shader-wait-segment { animation: none; opacity: 0.35; }
 
 /* A pulsing row is exactly the kind of motion this asks to be spared. The row still shows that
    something is in progress, and the wording above it already says what and for how long. */
 @media (prefers-reduced-motion: reduce) {
   .shader-wait-segment { animation: none; opacity: 0.5; }
+}
+
+/* "Compiling the shader for this renderer…", top centre of the renderer while a renderer picked
+   for the first time has its shader compiled (2026-09-23; viewport.js, watchProgramLinks). The
+   floating card style below, so it reads as part of the page rather than the picture, and small,
+   because the deterministic render it sits over is a usable picture meanwhile. */
+#program-linking {
+  position: absolute;
+  top: 12px;
+  left: 50%;
+  transform: translateX(-50%);
+  padding: 6px 12px;
+  border: 1px solid var(--panel-edge);
+  border-radius: var(--radius-card);
+  background: var(--floating);
+  box-shadow: var(--floating-shadow);
+  color: var(--text);
+  font-size: 12px;
+  pointer-events: none;
 }
 
 /* The stone's stats, bottom right of the renderer (2026-09-19, the user's request): the facet

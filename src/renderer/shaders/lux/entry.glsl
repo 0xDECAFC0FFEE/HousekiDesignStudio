@@ -246,21 +246,29 @@ vec3 luxAccumulated() {
     return texelFetch(uLuxAccum, ivec2(gl_FragCoord.xy), 0).rgb;
 }
 
+// ONE SOURCE, THREE PROGRAMS (2026-09-23).
+//
+// This unit is compiled three times, each with one `GEM_PROGRAM_*` define that `src/lib.rs`
+// (`fragment_source`) puts straight after the `#version` line, and each program keeps only
+// its own branch of `main()` below. Direct3D's shader compiler, which every Windows browser
+// goes through, inlines every call it can reach from `main()`: with all three renderers
+// behind a runtime `uRenderer` branch it compiled all three on every page load, 13-18 s for
+// the whole unit, when the deterministic renderer alone compiles in about a third of that.
+// So the page links only the program the current settings draw with, and the rest when first
+// asked for (`ProgramKind::for_params` in `src/lib.rs` is the selection this branch used to
+// make, and must stay the same selection). With no define at all, as `tools/glsl_check.sh`
+// compiles it, the unit is the deterministic program.
+//
+// The debug views (facet normals, facet ids, traversal cost, bounce count) are this
+// project's geometry-inspection tools, not a rendering mode, and they read a single
+// deterministic primary hit. They stay on the deterministic program whichever renderer is
+// selected, so "is the geometry right?" is answerable either way.
 void main() {
-    // The debug views (facet normals, facet ids, traversal cost, bounce count) are this
-    // project's geometry-inspection tools, not a rendering mode, and they read a single
-    // deterministic primary hit. They stay on the deterministic path whichever renderer is
-    // selected, so "is the geometry right?" is answerable either way.
-    if (uRenderer == RENDERER_FLAT && uDebugMode == DEBUG_FULL) {
-        renderFlat();
-        return;
-    }
-
-    if (uRenderer != RENDERER_LUXCORE || uDebugMode != DEBUG_FULL) {
-        renderHandWritten();
-        return;
-    }
-
+#if defined(GEM_PROGRAM_FLAT)
+    renderFlat();
+#elif !defined(GEM_PROGRAM_LUXCORE)
+    renderHandWritten();
+#else
     // ---- the resolve pass (T-0122): no tracing, just present what has been accumulated.
     //
     // Same display transfer as the deterministic path, deliberately: tools/compare_luxcore.py
@@ -292,6 +300,7 @@ void main() {
     // the browser cannot render to a float texture, where uLuxSamples is again the only
     // way to take more than one sample.
     fragColor = vec4(tonemap(radiance), 1.0);
+#endif
 }
 
 #endif // LUX_ENTRY_GLSL

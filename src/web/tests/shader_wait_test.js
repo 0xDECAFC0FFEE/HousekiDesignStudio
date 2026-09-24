@@ -19,7 +19,7 @@
  */
 
 import {
-  backendCompilesSlowly, isChromiumBrowser, shaderWaitNote,
+  backendCompilesSlowly, isChromiumBrowser, waveCanAnimate,
 } from "../src/lib/shader_wait.js";
 
 // Real user-agent strings from the browsers these were measured in (2026-09-22, this machine).
@@ -99,15 +99,9 @@ Deno.test("with no renderer string at all, only Windows falls back to showing th
 });
 
 /*
- * The second decision the module makes: Chrome and Edge get a still indicator and a note saying
- * the result is cached, Firefox gets the animated one and a note saying it is not. Both halves
- * come from the same measurement, so they are tested together.
- *
- * Why it matters that this is right rather than merely plausible: if a Chromium browser were
- * taken for Firefox it would be given an animation that physically cannot run there -- the D3D
- * compile occupies the process that composites -- and the page would spend nine seconds showing
- * a stopped animation, which is exactly the "looks hung" failure the still version exists to
- * avoid. And it would tell the reader the wait repeats on every load when in fact it does not.
+ * The second decision the module makes: a Chromium browser that cannot link in parallel gets a
+ * still indicator rather than the moving wave (see the waveCanAnimate test below). Taking a
+ * Chromium browser for Firefox would give it an animation that physically cannot run there.
  */
 
 Deno.test("Chrome and Edge are recognised as Chromium, with or without userAgentData", () => {
@@ -127,24 +121,23 @@ Deno.test("Chrome and Edge are recognised as Chromium, with or without userAgent
   assert(!isChromiumBrowser(undefined, undefined), "nothing at all must not throw");
 });
 
-Deno.test("the note tells the reader whether the wait will happen again", () => {
-  // Chrome 9,595 ms cold then 207 ms; Edge 8,443 ms then 2 ms. It is a first-time cost, and
-  // the note names both browsers so the claim can be checked rather than taken on trust.
-  for (const [name, userAgent] of [["Chrome", CHROME], ["Edge", EDGE]]) {
-    const note = shaderWaitNote(userAgent, true);
-    assert(note.includes("Chrome and Edge"), `${name}: the note should name both browsers`);
-    assert(note.includes("cache"), `${name}: the note should say the result is cached`);
-    assert(note.includes("first time"), `${name}: the note should say it is a one-off`);
-  }
-
-  // Firefox paid the full 9,175 ms on every load, warm profile included, so it must not be
-  // told the opposite.
-  const firefox = shaderWaitNote(FIREFOX, false);
-  assert(firefox.includes("every load"), "Firefox should be told the wait repeats");
-  assert(!firefox.includes("first time"), "Firefox must not be told it is a one-off");
-
-  // Anything else: nothing was measured, so the note claims nothing it cannot support.
-  const unknown = shaderWaitNote("Mozilla/5.0 (Windows NT 10.0) SomeOtherEngine/1.0", false);
-  assert(!unknown.includes("Chrome and Edge"), "an unknown browser should not be told about Chromium's cache");
-  assert(!unknown.includes("Firefox"), "an unknown browser should not be called Firefox");
+/*
+ * The third decision: does the wave move, or is the bar drawn still?
+ *
+ * Setup: nothing but the two facts the decision turns on -- whether the browser is Chromium, and
+ * whether its context offers KHR_parallel_shader_compile.
+ *
+ * What it verifies: the still bar is reserved for the one case that freezes, a Chromium browser
+ * that has to link blocking. Measured 2026-09-23 on this machine with the real gem shader and
+ * fresh profiles: a blocking link drew 0 frames in 13.9 s in Chrome 153, while the polled
+ * parallel link drew 863 frames over 14.4 s (Edge 153: 948), so Chrome and Edge as they ship now
+ * must get the moving wave. Firefox 156 does not offer the extension, and its opacity wave keeps
+ * running through its blocking link anyway, so it must keep the moving wave too.
+ */
+Deno.test("only a Chromium browser that must link blocking gets the still bar", () => {
+  assert(waveCanAnimate(true, true), "Chrome/Edge with the parallel link should animate");
+  assert(!waveCanAnimate(true, false), "Chromium without it would freeze, so it must be still");
+  assert(waveCanAnimate(false, false), "Firefox animates through its blocking link");
+  assert(waveCanAnimate(false, true), "a non-Chromium browser with the extension animates");
+  assert(!waveCanAnimate(true, undefined), "an unknown answer about the extension is a no");
 });

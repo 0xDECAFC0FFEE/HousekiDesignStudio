@@ -6,6 +6,7 @@
 import { get } from 'svelte/store';
 import {
   engine, luxProgress, accumulationTarget, resolutionScale, dragQuality, bumpParams,
+  programLinking, showError,
 } from './stores.js';
 import {
   clearFacetAndTierHighlight, highlightFacetAndItsTier,
@@ -14,6 +15,7 @@ import { getDesign, tierBeingEdited } from './tier_controller.js';
 import { designFacetForNormal } from './edit_geometry.js';
 import { enterEditMode } from './edit_mode.js';
 import { budgetedTask } from './work_budget.js';
+import { shaderCompileIsSlow, showShaderCompileNotice } from './shader_wait.js';
 
 /** How long after the last movement full quality comes back. */
 const INTERACTION_MS = 160;
@@ -92,8 +94,21 @@ function renderNow() {
   renderedCssWidth = canvas.clientWidth;
   renderedCssHeight = canvas.clientHeight;
 
+  // Where links cannot be polled (Firefox), the first frame to need a renderer's program would
+  // compile it inside `render()`, freezing the page for seconds with nothing to say why. Put
+  // the compile notice up first and link then; the frame is drawn once that is done.
+  if (app.links_block?.() && !app.current_program_ready()) {
+    linkBehindNotice();
+    return;
+  }
+
   app.render(width, height);
   syncLuxProgress();
+
+  // Guarded on the method's existence, like `settled` above, for the tests' stand-in apps.
+  if (app.program_linking?.()) {
+    watchProgramLinks();
+  }
 
   // Keep going while the ported path still owes the target more samples (T-0122).
   //
@@ -105,6 +120,90 @@ function renderNow() {
   if (stillAccumulating()) {
     requestRender();
   }
+}
+
+// ---- renderers whose shader program is still compiling (2026-09-23)
+//
+// Each renderer is its own shader program, linked the first time a frame needs it rather than
+// all at page load (`ProgramKind` in src/renderer/lib.rs: Direct3D takes seconds over each).
+// Until it is ready `render()` draws the deterministic renderer in its place and does not
+// accumulate, so nothing else would ask for another frame. This asks the driver every 16 ms --
+// a query that never waits -- and draws again the moment the link is done. A timer rather than
+// requestAnimationFrame, which a hidden tab never fires, so a link started just before the
+// user switched tabs is finished when they come back.
+// Browsers without KHR_parallel_shader_compile take `linkBehindNotice` instead, so this never
+// starts there.
+let watchingLinks = false;
+let linkingBehindNotice = false;
+
+/**
+ * Links the current renderer's program blocking, with the compile notice on screen for the
+ * wait -- the same one boot shows, and for the same reason (shader_wait.js): the page thread is
+ * frozen for the whole link, so the notice has to be painted before it starts. Only where the
+ * link is slow enough to be worth a notice; elsewhere it links straight away.
+ */
+function linkBehindNotice() {
+  if (linkingBehindNotice) {
+    return;
+  }
+
+  linkingBehindNotice = true;
+
+  const notice = shaderCompileIsSlow(canvas)
+    ? showShaderCompileNotice(document.getElementById('viewport'), canvas)
+    : null;
+
+  Promise.resolve(notice?.painted).then(() => {
+    const app = engine.app;
+
+    try {
+      app.link_current_program();
+
+      const error = app.program_error();
+
+      if (error) {
+        showError(error);
+      }
+    } finally {
+      notice?.remove();
+      linkingBehindNotice = false;
+    }
+
+    requestRender();
+  });
+}
+
+function watchProgramLinks() {
+  if (watchingLinks) {
+    return;
+  }
+
+  watchingLinks = true;
+  programLinking.set(true);
+
+  const poll = () => {
+    const app = engine.app;
+
+    if (app.poll_program_links()) {
+      const error = app.program_error();
+
+      if (error) {
+        showError(error);
+      }
+
+      requestRender();
+    }
+
+    if (app.program_linking()) {
+      setTimeout(poll, 16);
+      return;
+    }
+
+    watchingLinks = false;
+    programLinking.set(false);
+  };
+
+  setTimeout(poll, 16);
 }
 
 /**
