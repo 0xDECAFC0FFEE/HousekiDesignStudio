@@ -174,7 +174,7 @@ uniform vec4 uDopEnd;
 
 // Compile-time loop bound. Must match `params::MAX_BOUNCES` on the Rust side, which
 // clamps the uniform so the two can never disagree.
-const int MAX_BOUNCE_LIMIT = 32;
+const int MAX_BOUNCE_LIMIT = 64;
 
 // How far to push a ray off a surface before continuing. Large enough that float
 // error cannot leave the origin on the wrong side (which would immediately re-hit

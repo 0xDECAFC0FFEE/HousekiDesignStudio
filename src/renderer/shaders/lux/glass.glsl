@@ -65,6 +65,31 @@
 // upstream bugs -- is a literal transliteration. See
 // kb/luxcore-glass-bsdf-port-eval-stack-stripping-and.md for the durable version of this note.
 // -----------------------------------------------------------------------------
+// BEHAVIOURAL DEPARTURE FROM UPSTREAM: ONE WAVELENGTH PER PATH (T-0092, the user, 2026-09-25).
+//
+// Upstream draws a fresh wavelength from each transmission's own u0, and evaluates reflection
+// at the undispersed `nt` (Cauchy's A, below every visible wavelength's index). Two upstream-
+// acknowledged bugs follow, and this port used to reproduce both:
+//   - a ray refracts into the stone at one wavelength and out at an unrelated one, so entry and
+//     exit dispersion no longer add up, and the saturated WaveLength2RGB tints of the two
+//     events multiply (LuxCore issue #262, diagnosed by CodeFHD 2020-12-13: "the only
+//     solution ... would be to make the wavelength fixed per sample");
+//   - between the critical angles of A and of the sampled index, transmission reports total
+//     internal reflection while reflection reports R < 1, and the difference is lost. Trapped
+//     paths cross that band on every bounce, so they drain to black, blue fastest (A = IOR
+//     came in with f8e1f16b, issue #47; neo2068's objection to it there was never answered).
+// Measured on Hanabi (index 2.85, dispersion 0.28): 11% of the stone below 25/255 and a brown
+// cast before; 0.8% after, at 32 bounces.
+//
+// So an eye path now carries one wavelength, gLuxPathWaveLength (host.glsl, drawn once per
+// camera sample by entry.glsl); GlassMaterial_Sample evaluates BOTH Fresnel terms at that
+// wavelength's index, and folds its WaveLength2RGB tint into the throughput once, at the
+// path's first transmission (gLuxPathTinted). Reflections before any transmission stay
+// untinted: their direction does not depend on the wavelength, only their strength does, and
+// tinting them would turn the crown's glare into colour noise for the sake of a correlation
+// between R(lambda) and the tint that is a fraction of a percent. See
+// kb/luxcore-glass-bsdf-port-eval-stack-stripping-and.md.
+// -----------------------------------------------------------------------------
 
 #ifndef LUX_GLASS_GLSL
 #define LUX_GLASS_GLSL
@@ -152,6 +177,14 @@ float CosTheta(const vec3 v);
 float SinTheta2(const vec3 w);
 vec3 GlassMaterial_WaveLength2RGB(const float waveLength);
 vec3 CalcFilmColor(vec3 localFixedDir, float localFilmThickness, float localFilmIor);
+
+// The eye path's wavelength and whether its tint is in the throughput yet (T-0092): shader
+// globals owned by host.glsl, which is concatenated before this file. Stand-ins here only
+// when glass.glsl is compiled standalone (tools/glsl_check.sh), where host.glsl is absent.
+#ifndef LUX_HOST_GLSL
+float gLuxPathWaveLength = 580.0;
+bool gLuxPathTinted = false;
+#endif
 
 // --- FrDiel2 / FresnelCauchy_Evaluate ---------------------------------------------------------
 // materialdefs_funcs_generic.cl:285-337. Full Fresnel dielectric equations, not Schlick's
@@ -245,39 +278,19 @@ vec3 GlassMaterial_EvalSpecularReflection(vec3 localFixedDir, vec3 kr,
 // is a port of the .cl's already-simplified form -- the dead branch is kept below only as the
 // comment upstream left it, and `hitPoint` (needed solely by that dead branch) is dropped.
 //
-// UPSTREAM BUG, PORTED FAITHFULLY -- see T-0092 and kb/luxcore-as-a-reference-oracle.md. When
-// cauchyB > 0.0 the transmitted ray is evaluated at the *dispersed*, per-wavelength index lnt
-// (ntc = lnt / nc below), while GlassMaterial_EvalSpecularReflection above always receives the
-// *undispersed* nt. Reflectance and transmittance are therefore Fresnel-evaluated at two
-// different indices of refraction for the same interface, so R + T != 1 per wavelength. This
-// project's own deterministic renderer deliberately made R + T = 1 per channel (T-0071); this
-// port exists to reproduce LuxCore's behaviour bug included, per explicit user instruction, so
-// this asymmetry is NOT a mistake to fix here.
-//
-// `GlassMaterial_WaveLength2RGB` is called, not defined, in this file: it is provided by
-// src/shaders/lux/math.glsl (math.glsl:336, confirmed by reading it), under its full upstream
-// name (materialdefs_funcs_glass.cl:62-106). The compile-only stub at the bottom of this file
-// stands in for it when glass.glsl is checked standalone, without math.glsl concatenated.
-vec3 GlassMaterial_EvalSpecularTransmission(vec3 localFixedDir, float u0,
-        vec3 kt, float nc, float nt, float cauchyB,
+// T-0092 DEPARTURE (see the file header). Upstream took u0 and cauchyB here, drew its own
+// wavelength (`mix(380.0, 780.0, u0)`), and tinted `lkt` by it. GlassMaterial_Sample now does
+// both once for the whole path, and passes in `lnt`, the index at the path's wavelength (or the
+// undispersed index when cauchyB is 0), the same index it hands EvalSpecularReflection. The
+// wavelength tint is applied by the caller, so `lkt` is just `kt`. The rest is upstream's body.
+vec3 GlassMaterial_EvalSpecularTransmission(vec3 localFixedDir,
+        vec3 kt, float nc, float lnt,
         out vec3 sampledDir) {
     if (Spectrum_IsBlack(kt))
         return BLACK;
 
     // Compute transmitted ray direction
-    vec3 lkt;
-    float lnt;
-    if (cauchyB > 0.0) {
-        // Select the wavelength to sample
-        float waveLength = mix(380.0, 780.0, u0);
-
-        lnt = GlassMaterial_WaveLength2IOR(waveLength, nt, cauchyB);
-
-        lkt = kt * GlassMaterial_WaveLength2RGB(waveLength);
-    } else {
-        lnt = nt;
-        lkt = kt;
-    }
+    vec3 lkt = kt;
 
     float ntc = lnt / nc;
     float costheta = CosTheta(localFixedDir);
@@ -332,18 +345,32 @@ vec3 GlassMaterial_Evaluate(vec3 lightDir, vec3 eyeDir, out BSDFEvent event) {
 // the void function; there is no stack left to push onto, so this returns bool instead --
 // false exactly where upstream would have pushed NONE, and the caller must check the return
 // value (equivalently, event != NONE) before reading the other out-parameters.
+//
+// T-0092 DEPARTURE (see the file header): the wavelength is the path's, not drawn from u0,
+// which is therefore unused here. It stays in the signature because it is the draw upstream
+// makes at every vertex, and the sampler's dimension layout (pathtracer.glsl) depends on it
+// being made. Reflection and transmission both see `lnt`; the tint joins `trans` only until
+// the path's first transmission has taken it.
 bool GlassMaterial_Sample(
         vec3 fixedDir, float u0, float u1, float passThroughEvent,
         vec3 kr, vec3 kt, float nc, float nt, float cauchyB,
         float localFilmThickness, float localFilmIor,
         out vec3 sampledDir, out float pdfW, out BSDFEvent event, out vec3 result) {
+    float lnt = nt;
+    vec3 waveLengthTint = WHITE;
+    if (cauchyB > 0.0) {
+        lnt = GlassMaterial_WaveLength2IOR(gLuxPathWaveLength, nt, cauchyB);
+        if (!gLuxPathTinted)
+            waveLengthTint = GlassMaterial_WaveLength2RGB(gLuxPathWaveLength);
+    }
+
     vec3 transLocalSampledDir;
-    vec3 trans = GlassMaterial_EvalSpecularTransmission(fixedDir, u0,
-            kt, nc, nt, cauchyB, transLocalSampledDir);
+    vec3 trans = waveLengthTint * GlassMaterial_EvalSpecularTransmission(fixedDir,
+            kt, nc, lnt, transLocalSampledDir);
 
     vec3 reflLocalSampledDir;
     vec3 refl = GlassMaterial_EvalSpecularReflection(fixedDir,
-            kr, nc, nt, reflLocalSampledDir, localFilmThickness, localFilmIor);
+            kr, nc, lnt, reflLocalSampledDir, localFilmThickness, localFilmIor);
 
     // Decide to transmit or reflect
     float threshold;
@@ -377,6 +404,10 @@ bool GlassMaterial_Sample(
         pdfW = threshold;
 
         result = trans;
+
+        // T-0092: `trans` carried the wavelength tint if the path had not taken it yet.
+        if (cauchyB > 0.0)
+            gLuxPathTinted = true;
     } else {
         // Reflect
 

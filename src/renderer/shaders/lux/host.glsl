@@ -208,6 +208,26 @@ float gLuxSkyVisibility = 1.0;
 // -----------------------------------------------------------------------------
 bool gLuxPathHitStone = false;
 
+// -----------------------------------------------------------------------------
+// gLuxPathWaveLength / gLuxPathTinted -- the one wavelength an eye path carries through a
+// dispersive stone (T-0092, 2026-09-25).
+//
+// Upstream LuxCore draws a new wavelength at every transmission and evaluates reflection
+// at an undispersed index; both are upstream-acknowledged bugs (LuxCore issues #262 and #47)
+// that made the stone lose light and blur its fire. The user chose to fix them, so the path
+// now keeps one wavelength (nm, uniform over upstream's own 380-780 range), which
+// glass.glsl's GlassMaterial_Sample uses for both Fresnel terms at every surface.
+// gLuxPathTinted records that the wavelength's WaveLength2RGB tint has been folded into the
+// throughput, which happens once, at the path's first transmission. See the header of
+// glass.glsl for the full argument and the measurements.
+//
+// Globals for the same reason gLuxPathHitStone is one: the chain between entry.glsl and
+// glass.glsl is ported code whose signatures this project does not widen. Both are set per
+// eye path by entry.glsl's sample loop, and only read or written by glass.glsl.
+// -----------------------------------------------------------------------------
+float gLuxPathWaveLength = 580.0;
+bool gLuxPathTinted = false;
+
 // Distance along `direction` at which a ray from `origin` meets the horizon quad, or a
 // negative value when it never does.
 //

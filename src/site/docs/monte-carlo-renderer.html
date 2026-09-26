@@ -77,7 +77,10 @@ Higher sharpens the picture in fewer frames, but each frame takes longer, so the
 more slowly while it is moving.</li>
 <li><span class="ui">Max internal bounces</span>, <span class="ui">Resolution scale</span> and
 <span class="ui">Drag quality</span> are shared with every renderer and behave exactly as
-described on the <a href="deterministic-renderer.html">Deterministic renderer</a> page.</li>
+described on the <a href="deterministic-renderer.html">Deterministic renderer</a> page, with one
+difference: light still bouncing when the limit runs out is left dark here, not filled with a tint.
+If parts of a deep or highly refractive stone look black, raise <span class="ui">Max internal
+bounces</span> (up to 64).</li>
 <li><span class="ui">Facet wireframe</span> is not shown here: the Monte Carlo renderer does not
 draw it, so the checkbox is hidden whenever this renderer is selected. Switch to
 <span class="ui">Deterministic</span> or <span class="ui">Flat</span> to see it again.</li>

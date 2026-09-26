@@ -104,10 +104,13 @@
 // HOW ABSORPTION COMPOSES WITH THIS RENDERER'S SINGLE-WAVELENGTH DISPERSION. Read this
 // before changing anything here; it is the one subtle thing about this port.
 //
-// `GlassMaterial_EvalSpecularTransmission` (glass.glsl) samples ONE random wavelength per
+// Upstream's `GlassMaterial_EvalSpecularTransmission` samples ONE random wavelength per
 // transmission event and folds its saturated RGB tint into the throughput
-// (`lkt = kt * GlassMaterial_WaveLength2RGB(waveLength)`). It is natural to expect a volume
-// to then evaluate its absorption AT that wavelength. **LuxCore does not, and cannot.**
+// (`lkt = kt * GlassMaterial_WaveLength2RGB(waveLength)`). (This port now keeps one wavelength
+// for the whole path and folds the tint in once -- T-0092, glass.glsl's header -- which
+// changes nothing below: the tint is still RGB, and the absorption still sees only RGB.)
+// It is natural to expect a volume to then evaluate its absorption AT that wavelength.
+// **LuxCore does not, and cannot.**
 //
 //   * `sigmaA` is a `Spectrum` -- three RGB numbers -- everywhere: in the SDL property, in
 //     `HomogeneousVolume::sigmaA`, and in `Spectrum_Exp(-tau)`, which is three independent

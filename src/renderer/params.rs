@@ -991,7 +991,10 @@ pub const MAX_DISPERSION: f32 = 0.5;
 /// the same day, which this makes the slider's own minimum rather than only draft mode's).
 pub const MIN_BOUNCES: u32 = 3;
 /// Must match `MAX_BOUNCE_LIMIT` in `gem.frag`, which needs a compile-time bound.
-pub const MAX_BOUNCES: u32 = 32;
+/// 2026-09-25, the user: "increase the limit for max internal bounces to 64". Trapped
+/// light in the hex cut's corners escapes after 16-64 bounces; the Monte Carlo path, which
+/// has no out-of-bounces fill, renders it black below that (T-0092).
+pub const MAX_BOUNCES: u32 = 64;
 /// A head shadow is a cone about the viewing axis, so half of it can at most reach the
 /// horizon. Beyond 90 degrees it would obscure the entire visible hemisphere.
 pub const MAX_HEAD_SHADOW_HALF_ANGLE: f32 = std::f32::consts::FRAC_PI_2;

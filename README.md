@@ -30,7 +30,7 @@ Supports ([documentation](https://0xdecafc0ffee.github.io/HousekiDesignStudio/do
     - [Cutting assistant](https://0xdecafc0ffee.github.io/HousekiDesignStudio/docs/cutting-assistant.html)
     - [Rendering recording](https://0xdecafc0ffee.github.io/HousekiDesignStudio/docs/render-recording.html) (wip)
 
-Houseki is named after the manga *Houseki no Kuni* (land of the lustrous). Houseki Design Studio is written by Lucas Tong, based in Seattle.
+Houseki is named after the manga *Houseki no Kuni* (land of the lustrous). Houseki Design Studio is written by Lucas Tong, proudly based in Seattle.
 
 ## Screenshots
 

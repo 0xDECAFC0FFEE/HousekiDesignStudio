@@ -139,23 +139,16 @@
 //     a future non-delta material (T-0092's own open question could eventually motivate one)
 //     would make it fire again.
 //
-// T-0092 (dispersion model) -- WHAT THIS FILE ASSUMES. This project's standing instruction is
-// a faithful port, so this integrator threads LuxCore's stochastic single-wavelength
-// dispersion, not the three-fixed-channel model gem.frag's traceInterior() currently uses.
-// Concretely: GlassMaterial_EvalSpecularTransmission (glass.glsl) already samples one random
-// wavelength independently *at every transmission event* (`mix(380.0, 780.0, u0)`, using that
-// event's own BSDF u0 sample) -- LuxCore does not carry a single path-wide "hero wavelength"
-// the way some spectral renderers do. Once sampled, that wavelength's RGB tint
-// (`GlassMaterial_WaveLength2RGB`) is baked into `bsdfSample`, and this integrator's
-// `pathThroughput *= bsdfSample` (faithfully in the same place and order as
-// pathtracer.cpp:645) is what threads it through every subsequent bounce: no separate
-// per-vertex wavelength state was needed beyond what glass.glsl already computes. Reflection
-// events never resample a wavelength (GlassMaterial_EvalSpecularReflection always uses the
-// undispersed `nt`/`kr`, per the R != T-index upstream bug preserved in glass.glsl and tracked
-// by T-0092). The consequence T-0092 must weigh: with this threading, a single accumulated
-// frame is genuinely noisy exactly the way kb/luxcore-as-a-reference-oracle.md measured
-// (confetti below ~2000 spp) -- this integrator does nothing to mitigate that, by design, per
-// "faithful port, bugs and all". Commented on T-0092 with this same summary.
+// T-0092 (dispersion model) -- WHAT THIS FILE ASSUMES. This integrator threads stochastic
+// single-wavelength dispersion, not the three-fixed-channel model gem.frag's traceInterior()
+// uses. Since 2026-09-25 the wavelength is the eye path's own (host.glsl's
+// gLuxPathWaveLength, drawn once per sample by entry.glsl), not upstream's fresh draw at every
+// transmission, and reflection and transmission share its index: a deliberate departure that
+// fixes two upstream-acknowledged bugs (see glass.glsl's header). The wavelength's RGB tint
+// (`GlassMaterial_WaveLength2RGB`) is baked into `bsdfSample` once, at the first transmission,
+// and this integrator's `pathThroughput *= bsdfSample` (in the same place and order as
+// pathtracer.cpp:645) carries it through every later bounce, so nothing in this file changed.
+// A single frame is still noisy, as any sampled-spectrum renderer is; frames accumulate.
 //
 // CUTS -- LuxCore generality this single-faceted-gemstone renderer has no use for, recorded as
 // tickets, not implemented. Filed by this ticket:

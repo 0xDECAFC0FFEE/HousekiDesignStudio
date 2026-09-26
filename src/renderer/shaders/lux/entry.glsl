@@ -213,7 +213,12 @@ vec3 luxRenderPixel() {
         // own order, so each vertex's BSDF draws land on the same dimensions of the stream
         // as they do in LuxCore. Same reasoning as the five discarded direct-light draws
         // pathtracer.glsl already keeps (T-0115).
-        Sampler_GetSample(sampler, uint(IDX_EYE_TIME));
+        //
+        // The shutter-time draw is put to use: it picks this path's one wavelength (T-0092,
+        // see host.glsl's gLuxPathWaveLength), with upstream's own 380-780 nm range.
+        // Reusing a draw that is already made keeps every other dimension where it was.
+        gLuxPathWaveLength = mix(380.0, 780.0, Sampler_GetSample(sampler, uint(IDX_EYE_TIME)));
+        gLuxPathTinted = false;
         Sampler_GetSample(sampler, uint(IDX_DOF_X));
         Sampler_GetSample(sampler, uint(IDX_DOF_Y));
 

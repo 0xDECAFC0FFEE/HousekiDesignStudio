@@ -134,7 +134,8 @@ export const SLIDER_SPECS = {
   dispersion: { min: 0, max: 0.3, step: 0.001 },
   // Floor 3, not 1: matches Rust's own MIN_BOUNCES (2026-09-22, the user: "make the minimum
   // max internal bounces 3" -- below 3 a stone barely reads as glass).
-  maxBounces: { min: 3, max: 32, step: 1 },
+  // Ceiling 64 matches Rust's MAX_BOUNCES (2026-09-25, raised from 32 at the user's request).
+  maxBounces: { min: 3, max: 64, step: 1 },
   headShadowHalfAngle: { min: 0, max: 90, step: 1 },
   spin: { min: -180, max: 180, step: 1 },
   tilt: { min: -180, max: 180, step: 1 },

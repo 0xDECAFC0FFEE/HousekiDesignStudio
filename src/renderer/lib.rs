@@ -3814,6 +3814,77 @@ mod tests {
         );
     }
 
+    /// The ported glass keeps one wavelength per eye path, and evaluates reflection and
+    /// transmission at that wavelength's index.                                    T-0092
+    ///
+    /// Setup: the text of the three files that carry the fix -- `lux/host.glsl` (which
+    /// declares the per-path globals `gLuxPathWaveLength` and `gLuxPathTinted`),
+    /// `lux/entry.glsl` (which draws the wavelength and clears the tint flag at the start
+    /// of every eye path) and `lux/glass.glsl` (whose `GlassMaterial_Sample` uses them).
+    ///
+    /// Test: the globals are declared; the sample loop sets both; `GlassMaterial_Sample`
+    /// computes one index `lnt` from the path's wavelength and hands that same `lnt` to
+    /// BOTH Fresnel evaluations; and nothing in glass.glsl draws its own wavelength from a
+    /// BSDF sample any more (upstream's `mix(380.0, 780.0, u0)`).
+    ///
+    /// Verifies the two upstream LuxCore bugs the user chose to fix on 2026-09-25 stay
+    /// fixed. A fresh wavelength per transmission (LuxCore issue #262) decorrelates entry
+    /// and exit dispersion and multiplies unrelated saturated tints, which blurs the fire.
+    /// Reflection at the undispersed index while transmission uses the dispersed one makes
+    /// R and T disagree between the two critical angles, so trapped light drains away on
+    /// every bounce: on Hanabi (index 2.85, dispersion 0.28) 11% of the stone rendered
+    /// below 25/255 with a brown cast, against 0.8% with the fix. Either half regressing
+    /// brings its symptom back, and neither shows up in a zero-dispersion render, which is
+    /// what most comparison views use; hence a source-level check here.
+    #[test]
+    fn the_ported_glass_keeps_one_wavelength_per_path_for_reflection_and_transmission() {
+        let host = shader_file("src/renderer/shaders/lux/host.glsl");
+        let entry = shader_file("src/renderer/shaders/lux/entry.glsl");
+        let glass = shader_file("src/renderer/shaders/lux/glass.glsl");
+
+        assert!(
+            host.contains("float gLuxPathWaveLength = 580.0;")
+                && host.contains("bool gLuxPathTinted = false;"),
+            "lux/host.glsl must declare the per-path wavelength state gLuxPathWaveLength \
+             and gLuxPathTinted"
+        );
+
+        assert!(
+            entry.contains("gLuxPathWaveLength = mix(380.0, 780.0, Sampler_GetSample(")
+                && entry.contains("gLuxPathTinted = false;"),
+            "lux/entry.glsl's sample loop must draw each eye path's wavelength and clear \
+             its tint flag, or one sample's wavelength leaks into the next"
+        );
+
+        let sample = glass
+            .split("bool GlassMaterial_Sample(")
+            .nth(1)
+            .and_then(|rest| rest.split("\n}\n").next())
+            .expect("lux/glass.glsl should still define GlassMaterial_Sample");
+
+        assert!(
+            sample.contains("lnt = GlassMaterial_WaveLength2IOR(gLuxPathWaveLength, nt, cauchyB);"),
+            "GlassMaterial_Sample must take its index from the path's wavelength. Body \
+             was:\n{}",
+            sample
+        );
+        assert!(
+            sample.contains("kt, nc, lnt, transLocalSampledDir);")
+                && sample.contains("kr, nc, lnt, reflLocalSampledDir,"),
+            "GlassMaterial_Sample must hand the SAME dispersed index lnt to both \
+             EvalSpecularTransmission and EvalSpecularReflection; evaluating reflection at \
+             the undispersed nt is the upstream bug that drains trapped light. Body \
+             was:\n{}",
+            sample
+        );
+        // Code only: glass.glsl's comments quote upstream's per-surface draw on purpose.
+        assert!(
+            !without_comments(glass).contains("mix(380.0, 780.0, u0)"),
+            "lux/glass.glsl must not draw a wavelength per surface from a BSDF sample; the \
+             path's wavelength comes from entry.glsl"
+        );
+    }
+
     /// The offsets `glsl_function_signatures` reports must be true byte offsets into the
     /// source whatever line ending that source uses.
     ///
