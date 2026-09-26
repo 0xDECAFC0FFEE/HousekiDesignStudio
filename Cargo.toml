@@ -52,6 +52,9 @@ features = [
     "Element",
     "HtmlCanvasElement",
     "WebGl2RenderingContext",
+    # The pixel-pack buffer tilt performance reads each pass back through, so the page is not
+    # held up waiting for the GPU (T-0261); without it `create_buffer` does not exist.
+    "WebGlBuffer",
     # Easy to miss: without it `get_active_uniform` simply does not exist.
     "WebGlActiveInfo",
     # The ported path accumulates radiance into an off-screen RGBA32F target across

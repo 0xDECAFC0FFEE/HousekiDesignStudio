@@ -399,15 +399,16 @@ const vec3 LUX_ENV_SUN_COLOR[LUX_ENV_MAX_SUNS] = vec3[LUX_ENV_MAX_SUNS](
 // cascade, which painted the whole background with the window colour whenever one was
 // enabled (kb/luxcore-port-s-window-colour-floods-the-whole-ba.md).
 //
-// The one rule reproduced here rather than called is the first half of `arrivingLight`'s
-// leak test: light arriving from below the lighting horizon shows the separate window
-// colour, or the flat background when that is off. gem.frag's own second half -- "or it
-// leaves through a facet facing below the horizon" -- needs the exit facet's outward normal,
-// and the Env_GetRadiance seam carries only a direction, so it is NOT applied here. That is
-// a stated, bounded gap (T-0134), not an approximation dressed up as the rule: every exit
-// this branch calls a leak is one gem.frag also calls a leak, and the exits it misses are
-// the back-facet ones. `blockedByObserver` (the Gem Cut Studio centre dot) needs the exit
-// position as well and is likewise absent.
+// The one rule reproduced here rather than called is `arrivingLight`'s leak test, both
+// halves: light arriving from below the lighting horizon, or leaving through a facet that
+// faces below it, shows the separate window colour, or the flat background when that is off.
+// The second half needs the exit facet's outward normal, which the Env_GetRadiance seam does
+// not carry; host.glsl's gLuxPathExitNormal supplies it (T-0134, 2026-09-25), recorded by
+// Scene_Intersect's bridge arm at the path's last stone hit. It is the half that paints the
+// oval cut's face-up end windows: light leaves there heading about 11 degrees UP, through
+// pavilion facets that face down, so the direction test alone missed it. The threshold is
+// gem.frag's own BACK_FACET_TOLERANCE. `blockedByObserver` (the Gem Cut Studio centre dot)
+// needs the exit position as well and is still absent.
 //
 // Picked colours are decoded through `displayToRadiance`, exactly as gem.frag does, so they
 // enter the path as radiance and come back out as the colour that was picked. Feeding a
@@ -446,7 +447,7 @@ vec3 Env_ProjectRadiance(vec3 travelDirection) {
         return sampleEnvironment(direction);
     }
 
-    if (direction.y < 0.0) {
+    if (direction.y < 0.0 || toLightingFrame(gLuxPathExitNormal).y < -BACK_FACET_TOLERANCE) {
         if (uUseWindowColor != 0) {
             return displayToRadiance(uWindowColor);
         }

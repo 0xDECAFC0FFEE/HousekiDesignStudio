@@ -228,6 +228,25 @@ bool gLuxPathHitStone = false;
 float gLuxPathWaveLength = 580.0;
 bool gLuxPathTinted = false;
 
+// -----------------------------------------------------------------------------
+// gLuxPathExitNormal -- the world-space outward geometric normal of the last stone facet
+// this eye path struck (T-0134, 2026-09-25).
+//
+// When the path escapes, that facet is the one the light left through, or reflected off from
+// outside: exactly the `outwardNormal` gem.frag's arrivingLight takes. Its second leak clause
+// -- light leaving through a facet that faces below the lighting horizon counts as coming
+// from behind the stone, whatever its direction -- needs it, and the Env_GetRadiance seam
+// carries only a direction. Without the clause the ported path sampled the environment for
+// such exits: white under Isometric where Gem Cut Studio paints the oval cut's end windows,
+// and Angle Rings' low magenta ring where it shows the background through the stone.
+//
+// Written by Scene_Intersect's LUX_HAS_GEM_FRAG arm on every real stone hit, reset per eye
+// path by entry.glsl, read only by lights.glsl's Env_ProjectRadiance. A global for the same
+// reason gLuxPathHitStone is one. Meaningless until gLuxPathHitStone is true, which is the
+// only case its reader looks at it.
+// -----------------------------------------------------------------------------
+vec3 gLuxPathExitNormal = vec3(0.0, 1.0, 0.0);
+
 // Distance along `direction` at which a ray from `origin` meets the horizon quad, or a
 // negative value when it never does.
 //

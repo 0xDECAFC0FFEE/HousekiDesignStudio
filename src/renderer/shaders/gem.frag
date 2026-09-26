@@ -92,6 +92,26 @@ uniform float uOrthographicHalfHeight;
 // pixels, and by lux/entry.glsl to turn sub-pixel samples into NDC.
 uniform vec2 uResolution;
 
+// The view the deterministic renderer traces from: the camera uniforms above, copied here by
+// viewFromUniforms() at the start of main(). Tilt performance (T-0261) draws many poses as tiles
+// of one image, each with its own camera, and sets these per tile instead (renderTiltMeasure);
+// uniforms cannot be changed from inside the shader. Read by primaryRay, toLightingFrame and
+// blockedByObserver, everything the measurement's path through the shader reaches.
+vec3 viewOrigin;
+vec3 viewRight;
+vec3 viewUp;
+vec3 viewForward;
+// This pixel's position across the image, -1 to 1: vNdc, or within its tile.
+vec2 viewNdc;
+
+void viewFromUniforms() {
+    viewOrigin = uCameraOrigin;
+    viewRight = uCameraRight;
+    viewUp = uCameraUp;
+    viewForward = uCameraForward;
+    viewNdc = vNdc;
+}
+
 // ---------------------------------------------------------------- geometry
 // Three texels per triangle: (a.xyz, facetId), (b.xyz, facet-edge mask), (c.xyz, unused).
 uniform highp sampler2D uTriangles;
@@ -109,6 +129,25 @@ uniform float uEnvRotation;
 // three analytical models are evaluated exactly rather than read from uEnvironment; see
 // analyticalRadiance().
 uniform int uLightingModel;
+
+// Non-zero to make the Cosine model a true cosine of the tilt rather than 1 - sin(tilt). Only
+// tilt performance's COS pass sets it: Gem Cut Studio's tilt graph uses the true cosine, its
+// Cosine render does not (T-0261; see params::RenderParams::true_cosine).
+uniform int uTrueCosine;
+
+// Non-zero while tilt performance measures a pose (T-0261): renderHandWritten then hands the
+// pixel to renderTiltMeasure, which draws the pose's mask (TILT_MEASURE_MASK) or traces the stone
+// once and writes all four of the graph's quantities, one per channel (TILT_MEASURE_QUANTITIES).
+// Mirrors params::TILT_MEASURE_*.
+uniform int uTiltMeasure;
+const int TILT_MEASURE_QUANTITIES = 1;
+const int TILT_MEASURE_MASK = 2;
+// The poses of one batch, drawn as tiles of uResolution pixels, uTiltColumns to a row, uTiltCount
+// of them: tile i's camera is row i of uTiltCameras, four RGBA32F texels holding its origin,
+// right, up and forward (camera::OrbitCamera::basis, uploaded by GemApp::queue_tilt_passes).
+uniform int uTiltColumns;
+uniform int uTiltCount;
+uniform highp sampler2D uTiltCameras;
 
 // Cosine of the head-shadow half angle, or a value above 1.0 when disabled.
 //
@@ -544,9 +583,9 @@ vec3 toLightingFrame(vec3 worldDirection) {
     }
 
     return vec3(
-        dot(worldDirection, uCameraRight),
-        -dot(worldDirection, uCameraForward),
-        -dot(worldDirection, uCameraUp)
+        dot(worldDirection, viewRight),
+        -dot(worldDirection, viewForward),
+        -dot(worldDirection, viewUp)
     );
 }
 
@@ -582,6 +621,10 @@ vec3 analyticalRadiance(vec3 direction) {
     // an orthographic sphere map. Fitted from GCS's screenshots (T-0004); a true cosine rendered
     // about 70 levels too bright. Mirrors env_map::cosine_radiance.
     if (uLightingModel == LIGHTING_COSINE) {
+        if (uTrueCosine != 0) {
+            return vec3(RING_LEVEL * height);
+        }
+
         return vec3(RING_LEVEL * (1.0 - sqrt(max(1.0 - height * height, 0.0))));
     }
 
@@ -836,9 +879,9 @@ bool blockedByObserver(vec3 position, vec3 direction) {
         return false;
     }
 
-    vec3 towardsViewer = -uCameraForward;
+    vec3 towardsViewer = -viewForward;
 
-    if (length(cross(position - uCameraOrigin, towardsViewer)) >= uObserverRadius) {
+    if (length(cross(position - viewOrigin, towardsViewer)) >= uObserverRadius) {
         return false;
     }
 
@@ -847,7 +890,7 @@ bool blockedByObserver(vec3 position, vec3 direction) {
             && length(cross(direction, towardsViewer)) <= OBSERVER_ALIGNMENT_TOLERANCE;
     }
 
-    vec3 towardsEye = uCameraOrigin - position;
+    vec3 towardsEye = viewOrigin - position;
 
     return dot(direction, towardsEye) > 0.0
         && length(cross(towardsEye, direction)) < OBSERVER_EYE_RADIUS_SCALE * uObserverRadius;
@@ -1349,17 +1392,17 @@ vec3 dopAwareRayStart(vec3 eye, vec3 direction, vec3 start) {
 // plane through the eye. The plane sits at least camera::MIN_DISTANCE from the target,
 // outside the unit-radius stone, so no ray starts inside the solid.
 void primaryRay(out vec3 origin, out vec3 direction) {
-    origin = uCameraOrigin;
+    origin = viewOrigin;
 
     if (uOrthographicHalfHeight > 0.0) {
-        origin += uCameraRight * (vNdc.x * uAspect * uOrthographicHalfHeight)
-                + uCameraUp * (vNdc.y * uOrthographicHalfHeight);
-        direction = uCameraForward;
+        origin += viewRight * (viewNdc.x * uAspect * uOrthographicHalfHeight)
+                + viewUp * (viewNdc.y * uOrthographicHalfHeight);
+        direction = viewForward;
     } else {
         direction = normalize(
-            uCameraForward
-            + uCameraRight * (vNdc.x * uAspect * uTanHalfFov)
-            + uCameraUp * (vNdc.y * uTanHalfFov)
+            viewForward
+            + viewRight * (viewNdc.x * uAspect * uTanHalfFov)
+            + viewUp * (viewNdc.y * uTanHalfFov)
         );
     }
 
@@ -1432,11 +1475,212 @@ vec3 withOverlays(vec3 display, Hit entry) {
     return display;
 }
 
+// ---------------------------------------------------------------- tilt performance (T-0261)
+//
+// Tilt performance's graph plots four quantities per pose: ISO brightness, COS brightness,
+// window and head shadow, each averaged over the stone. They were once four renders of the
+// pose, each with its own lighting and colours set so the image was that one quantity. But all
+// four follow exactly the same rays through the stone; they differ only in what the light leaving
+// it counts for. So the pose is traced once, and each escaping ray is scored four ways at once
+// (the user, 2026-09-26: "can we speed it up ... gcs gets the data in 1 second").
+//
+// The rules are arrivingLight()'s and sampleEnvironment()'s, applied as the four renders set
+// them up (tilt::TiltPass's history in kb/tilt-performance.md): the observer's body and the head
+// shadow cone are head shadow; light from behind the stone is window; anything else is lit, 1
+// under Isometric and the true cosine of its height under COS. Change one here and there
+// together.
+
+// What light leaving the stone at `position` along `worldDirection`, through a facet facing
+// `outwardNormal`, counts for: (ISO, COS, window, head shadow).
+vec4 tiltArrival(vec3 position, vec3 worldDirection, vec3 outwardNormal) {
+    if (blockedByObserver(position, worldDirection)) {
+        return vec4(0.0, 0.0, 0.0, 1.0);
+    }
+
+    vec3 direction = toLightingFrame(worldDirection);
+
+    if (direction.y < 0.0 || toLightingFrame(outwardNormal).y < -BACK_FACET_TOLERANCE) {
+        return vec4(0.0, 0.0, 1.0, 0.0);
+    }
+
+    if (direction.y >= uHeadShadowCosine) {
+        return vec4(0.0, 0.0, 0.0, 1.0);
+    }
+
+    // A true cosine for COS (see params::RenderParams::true_cosine), not the 1 - sin(tilt) the
+    // Cosine render uses.
+    return vec4(RING_LEVEL, RING_LEVEL * clamp(direction.y, 0.0, 1.0), 0.0, 0.0);
+}
+
+// traceInterior(), scoring every escape four ways instead of looking up one lighting: adds each
+// quantity's radiance, for the channels in `channelMask`, to iso, cosine, window and head. A
+// path that runs out of bounces counts as lit for ISO and as dark for the rest (kb/tilt-performance.md,
+// "Three rules"). The stone is measured colourless, so there is no absorption.
+void traceInteriorTilt(vec3 entryPoint, vec3 viewDirection, vec3 entryNormal,
+                       float refractiveIndex, vec3 channelMask,
+                       inout vec3 iso, inout vec3 cosine, inout vec3 window, inout vec3 head) {
+    float etaEntering = 1.0 / refractiveIndex;
+    vec3 interiorDirection;
+
+    if (!refractRay(viewDirection, entryNormal, etaEntering, interiorDirection)) {
+        return;
+    }
+
+    float cosEntry = -dot(viewDirection, entryNormal);
+    vec3 throughput = channelMask * (1.0 - fresnelReflectance(cosEntry, etaEntering));
+    vec3 origin = entryPoint - entryNormal * SURFACE_EPSILON;
+    vec3 direction = normalize(interiorDirection);
+    bool exhausted = true;
+
+    for (int bounce = 0; bounce < MAX_BOUNCE_LIMIT; ++bounce) {
+        if (bounce >= uMaxBounces) {
+            break;
+        }
+
+        Hit interior;
+
+        if (!traceScene(origin, direction, INTERIOR_T_MIN, FAR_DISTANCE, RAY_FROM_INSIDE, interior)) {
+            exhausted = false;
+            break;
+        }
+
+        vec3 surfacePoint = origin + direction * interior.t;
+        vec3 outwardNormal = interior.outwardNormal;
+
+        if (dot(direction, outwardNormal) < 0.0) {
+            outwardNormal = -outwardNormal;
+        }
+
+        float reflectance = fresnelReflectance(dot(direction, outwardNormal), refractiveIndex);
+        vec3 exitDirection;
+
+        if (reflectance < 1.0 && refractRay(direction, -outwardNormal, refractiveIndex, exitDirection)) {
+            vec4 counts = tiltArrival(surfacePoint, normalize(exitDirection), outwardNormal);
+            vec3 escaping = throughput * (1.0 - reflectance);
+
+            iso += escaping * counts.x;
+            cosine += escaping * counts.y;
+            window += escaping * counts.z;
+            head += escaping * counts.w;
+        }
+
+        throughput *= reflectance;
+
+        if (maxComponent(throughput) < THROUGHPUT_CUTOFF) {
+            exhausted = false;
+            break;
+        }
+
+        direction = reflect(direction, outwardNormal);
+        origin = surfacePoint - outwardNormal * SURFACE_EPSILON;
+    }
+
+    if (exhausted) {
+        iso += throughput;
+    }
+}
+
+// One pixel of a tilt performance pass. No dop, overlays or debug views: this is a measurement.
+//
+// The pixel belongs to one tile, one pose of the batch: its camera is the tile's, and its
+// position the one it has within the tile, so every tile is the image a single pose would have
+// drawn at uResolution. A pixel past the last tile is 0.
+//
+// The mask (TILT_MEASURE_MASK): white off the stone, black on it, and a mid grey on a table facet
+// (marked in uHighlightTexture for this pass), which tilt::classify_mask_pixel tells apart. Only
+// the primary ray is traced.
+//
+// The quantities (TILT_MEASURE_QUANTITIES): ISO, COS, window and head shadow in R, G, B and A,
+// each the Rec. 601 luminance of its three channels (tilt::CHANNEL_WEIGHTS) after the linear
+// transfer's clamp, as each had been in its own render. A pixel off the stone is 0.
+void renderTiltMeasure() {
+    ivec2 tileSize = ivec2(uResolution);
+    ivec2 tile = ivec2(gl_FragCoord.xy) / tileSize;
+    int index = tile.y * uTiltColumns + tile.x;
+
+    if (tile.x >= uTiltColumns || index >= uTiltCount) {
+        fragColor = vec4(0.0);
+        return;
+    }
+
+    viewOrigin = texelFetch(uTiltCameras, ivec2(0, index), 0).xyz;
+    viewRight = texelFetch(uTiltCameras, ivec2(1, index), 0).xyz;
+    viewUp = texelFetch(uTiltCameras, ivec2(2, index), 0).xyz;
+    viewForward = texelFetch(uTiltCameras, ivec2(3, index), 0).xyz;
+    viewNdc = (gl_FragCoord.xy - vec2(tile * tileSize)) / vec2(tileSize) * 2.0 - 1.0;
+
+    vec3 origin;
+    vec3 direction;
+    primaryRay(origin, direction);
+
+    Hit entry;
+    bool struckStone = traceScene(origin, direction, SURFACE_EPSILON, FAR_DISTANCE, RAY_FROM_OUTSIDE, entry);
+
+    if (uTiltMeasure == TILT_MEASURE_MASK) {
+        bool table = struckStone
+            && texelFetch(uHighlightTexture, ivec2(int(entry.facet + 0.5), 0), 0).r > 0.5;
+
+        fragColor = !struckStone ? vec4(1.0) : table ? vec4(0.5, 0.5, 0.5, 1.0) : vec4(0.0, 0.0, 0.0, 1.0);
+        return;
+    }
+
+    if (!struckStone) {
+        fragColor = vec4(0.0);
+        return;
+    }
+
+    vec3 entryPoint = origin + direction * entry.t;
+    vec3 entryNormal = entry.outwardNormal;
+
+    if (dot(direction, entryNormal) > 0.0) {
+        entryNormal = -entryNormal;
+    }
+
+    vec3 entryIndices = uSpectralSamples <= 1 ? vec3(uSpectralIor.y) : uSpectralIor;
+    float cosEntry = -dot(direction, entryNormal);
+    vec3 surfaceReflectance = vec3(
+        fresnelReflectance(cosEntry, 1.0 / entryIndices.x),
+        fresnelReflectance(cosEntry, 1.0 / entryIndices.y),
+        fresnelReflectance(cosEntry, 1.0 / entryIndices.z)
+    );
+    vec4 surface = tiltArrival(entryPoint, reflect(direction, entryNormal), entryNormal);
+    vec3 iso = surfaceReflectance * surface.x;
+    vec3 cosine = surfaceReflectance * surface.y;
+    vec3 window = surfaceReflectance * surface.z;
+    vec3 head = surfaceReflectance * surface.w;
+
+    if (uSpectralSamples <= 1) {
+        traceInteriorTilt(entryPoint, direction, entryNormal, entryIndices.y, vec3(1.0),
+                          iso, cosine, window, head);
+    } else {
+        traceInteriorTilt(entryPoint, direction, entryNormal, entryIndices.x, vec3(1.0, 0.0, 0.0),
+                          iso, cosine, window, head);
+        traceInteriorTilt(entryPoint, direction, entryNormal, entryIndices.y, vec3(0.0, 1.0, 0.0),
+                          iso, cosine, window, head);
+        traceInteriorTilt(entryPoint, direction, entryNormal, entryIndices.z, vec3(0.0, 0.0, 1.0),
+                          iso, cosine, window, head);
+    }
+
+    const vec3 LUMINANCE = vec3(0.299, 0.587, 0.114);
+
+    fragColor = vec4(
+        dot(clamp(iso * uExposure, 0.0, 1.0), LUMINANCE),
+        dot(clamp(cosine * uExposure, 0.0, 1.0), LUMINANCE),
+        dot(clamp(window * uExposure, 0.0, 1.0), LUMINANCE),
+        dot(clamp(head * uExposure, 0.0, 1.0), LUMINANCE)
+    );
+}
+
 // The deterministic renderer's whole frame. This was `main()` until T-0120 wired the ported
 // LuxCore path in alongside it; `main()` now lives in src/shaders/lux/entry.glsl and calls
 // this when `uRenderer` selects the deterministic path. Its primary ray, background and
 // overlays are primaryRay, missDisplay and withOverlays, shared with renderFlat.
 void renderHandWritten() {
+    if (uTiltMeasure != 0) {
+        renderTiltMeasure();
+        return;
+    }
+
     vec3 origin;
     vec3 direction;
     primaryRay(origin, direction);

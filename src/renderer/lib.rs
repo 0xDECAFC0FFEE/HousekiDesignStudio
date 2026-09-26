@@ -42,6 +42,7 @@ pub mod gpu;
 pub mod loader;
 pub mod mesh;
 pub mod params;
+pub mod tilt;
 
 use accel::Accel;
 use camera::OrbitCamera;
@@ -737,7 +738,7 @@ const WELD_EPSILON_SCALE: f32 = 1e-5;
 const ENVIRONMENT_WIDTH: u32 = 1024;
 const ENVIRONMENT_HEIGHT: u32 = 512;
 
-/// Texture units. Fixed rather than allocated, since there are only five.
+/// Texture units. Fixed rather than allocated, since there are only seven.
 const UNIT_TRIANGLES: u32 = 0;
 const UNIT_NODES: u32 = 1;
 const UNIT_ENVIRONMENT: u32 = 2;
@@ -751,6 +752,8 @@ const UNIT_HIGHLIGHT: u32 = 4;
 /// the highlight texture; read only by the ported LuxCore path (`uFrostedTexture` in
 /// `lux/host.glsl`). See `GemApp::set_frosted_facets`.
 const UNIT_FROSTED: u32 = 5;
+/// Tilt performance's cameras, one row per pose of a batch (T-0261); bound only while it draws.
+const UNIT_TILT_CAMERAS: u32 = 6;
 
 /// Values of the `uLuxPass` uniform: what a given draw is for. Must match the
 /// `LUX_PASS_*` constants in `src/shaders/lux/host.glsl`, which is where each one is
@@ -988,6 +991,24 @@ pub struct GemApp {
     /// until the driver blocks the submitting thread and the tab, and the desktop
     /// compositor behind it, stop responding.
     frame_fence: Option<web_sys::WebGlSync>,
+
+    /// The off-screen images tilt performance measures into (T-0261): one per pass
+    /// (`tilt::TiltPass::ALL`) for each of `tilt::TILT_IN_FLIGHT` batches, each big enough for a
+    /// full batch of tiles (`tilt::TileLayout`), so a batch's passes are drawn back to back and
+    /// read behind one fence while the batch queued after it draws into its own. Slot `s`, pass
+    /// `p` is `tilt_targets[s * passes + p]`. Made the first time they are asked for, so a page
+    /// that never opens the tool never allocates them.
+    tilt_targets: Vec<gpu::ReadbackTarget>,
+    /// Each slot's cameras, one row of four texels per pose of its batch (gem.frag's
+    /// uTiltCameras).
+    tilt_cameras: [Option<WebGlTexture>; tilt::TILT_IN_FLIGHT],
+    /// The batches `tilt_begin` queued and not yet collected, oldest first, and what the last one
+    /// `tilt_poll` finished came to.
+    tilt_jobs: std::collections::VecDeque<TiltJob>,
+    /// The selection texture that marks the table facets in the mask pass, and the
+    /// `model_generation` it was built for: built once per stone rather than once per pose.
+    tilt_table: Option<(u64, WebGlTexture)>,
+    tilt_result: Vec<f32>,
 }
 
 #[wasm_bindgen]
@@ -1133,6 +1154,11 @@ impl GemApp {
             model_generation: 0,
             environment_generation: 0,
             frame_fence: None,
+            tilt_targets: Vec::new(),
+            tilt_cameras: Default::default(),
+            tilt_jobs: std::collections::VecDeque::new(),
+            tilt_table: None,
+            tilt_result: Vec::new(),
         })
     }
 
@@ -2255,9 +2281,313 @@ impl GemApp {
     pub fn facet_count(&self) -> u32 {
         self.model.diagnostics.facet_count
     }
+
+    /// Tilt performance (T-0261): measures the stone at one pose and returns what the graph
+    /// plots there, as `tilt::TiltSums::to_vec` lays it out -- ISO brightness, COS brightness,
+    /// window and head shadow averaged over the stone, the same four over the table, then the
+    /// stone's and the table's pixel counts.
+    ///
+    /// The pose is `spin_degrees` and `tilt_degrees` from face-up, with Gem Cut Studio's default
+    /// camera and framing, whatever the page's own view, zoom or canvas: it is drawn at
+    /// `tilt::TILT_RENDER_WIDTH` x `tilt::TILT_RENDER_HEIGHT` off screen, twice (`tilt::TiltPass`:
+    /// the mask, then all four quantities at once), and read back. The render settings --
+    /// refractive index, dispersion, bounces, head shadow angle -- are the page's; see
+    /// `TiltPass::params` for what is overridden. Nothing on screen changes.
+    ///
+    /// Waits for the GPU, which is fine for the harness. The page uses `tilt_begin` and
+    /// `tilt_poll` instead, which never wait. Abandons any batches queued.
+    pub fn measure_tilt_pose(
+        &mut self,
+        spin_degrees: f32,
+        tilt_degrees: f32,
+    ) -> Result<Vec<f32>, JsValue> {
+        self.tilt_cancel();
+
+        let job = self.new_tilt_job(&[spin_degrees, tilt_degrees], 0)?;
+
+        self.draw_tilt_passes(&job).map_err(|e| js_error(&e))?;
+
+        let [mask, quantities] = self.read_tilt_passes(&job, false).map_err(|e| js_error(&e))?;
+
+        Ok(tilt::TiltSums::from_tile(&mask, &quantities, &tilt::TileLayout::batch(), 0).to_vec())
+    }
+
+    /// Queues a batch of poses to be measured, as `measure_tilt_pose` measures one, without
+    /// waiting for any of it. `poses` is spin and tilt in degrees, pose after pose, at most
+    /// `tilt::TILT_BATCH` of them. The whole batch is drawn as tiles of one image, one tile per
+    /// pose, each with its own camera: two draws (the mask, then the quantities) and one read-back
+    /// behind one fence, whatever the batch's size. `tilt_poll` collects it once it signals. Up
+    /// to `tilt::TILT_IN_FLIGHT` batches may be queued at once (`tilt_can_begin`); they finish in
+    /// the order they were queued.
+    ///
+    /// Why (2026-09-26, the user: "can we speed it up ... gcs gets the data in 1 second"): with
+    /// a draw per pass per pose, a sweep was 340 small draws, each paying the page's per-draw and
+    /// per-read-back costs, and the page waited between them; 14.6 s at 200 x 167. Tracing the
+    /// four quantities at once cut the GPU's work to a quarter, and batching cuts the draws and
+    /// read-backs from hundreds to a dozen.
+    pub fn tilt_begin(&mut self, poses: &[f32]) -> Result<(), JsValue> {
+        let Some(slot) = (0..tilt::TILT_IN_FLIGHT)
+            .find(|slot| self.tilt_jobs.iter().all(|job| job.slot != *slot))
+        else {
+            return Err(js_error("tilt performance already has as many batches queued as it can take"));
+        };
+        let mut job = self.new_tilt_job(poses, slot)?;
+
+        self.draw_tilt_passes(&job).map_err(|e| js_error(&e))?;
+        self.queue_tilt_reads(&mut job).map_err(|e| js_error(&e))?;
+        self.tilt_jobs.push_back(job);
+
+        Ok(())
+    }
+
+    /// Whether `tilt_begin` can queue another batch now.
+    pub fn tilt_can_begin(&self) -> bool {
+        self.tilt_jobs.len() < tilt::TILT_IN_FLIGHT
+    }
+
+    /// The most poses `tilt_begin` takes at once.
+    pub fn tilt_batch_size(&self) -> u32 {
+        tilt::TILT_BATCH as u32
+    }
+
+    /// Checks on the oldest batch queued, without waiting: once it is drawn and read, sums it.
+    /// True once that batch is measured, when `tilt_result` has it (call again for the next);
+    /// false while it is not, or when nothing is queued. Cheap enough to call every few
+    /// milliseconds.
+    pub fn tilt_poll(&mut self) -> Result<bool, JsValue> {
+        let Some(mut job) = self.tilt_jobs.pop_front() else {
+            return Ok(false);
+        };
+        let Some(fence) = job.fence.take() else {
+            return Err(js_error("a tilt batch was queued without a fence"));
+        };
+
+        // TIMEOUT_EXPIRED is "not yet"; anything else -- done, or a fence that failed, as after
+        // a lost context -- goes on, as `frame_settled` does, rather than stalling for ever.
+        if self.gl.client_wait_sync_with_u32(&fence, 0, 0) == Gl::TIMEOUT_EXPIRED {
+            job.fence = Some(fence);
+            self.tilt_jobs.push_front(job);
+
+            return Ok(false);
+        }
+
+        self.gl.delete_sync(Some(&fence));
+
+        let [mask, quantities] = self.read_tilt_passes(&job, true).map_err(|e| js_error(&e))?;
+        let layout = tilt::TileLayout::batch();
+
+        self.tilt_result = (0..job.count)
+            .flat_map(|index| tilt::TiltSums::from_tile(&mask, &quantities, &layout, index).to_vec())
+            .collect();
+
+        Ok(true)
+    }
+
+    /// What the last batch `tilt_poll` finished came to: ten numbers per pose, laid out as
+    /// `measure_tilt_pose` returns them, in the order the poses were given; empty before the
+    /// first.
+    pub fn tilt_result(&self) -> Vec<f32> {
+        self.tilt_result.clone()
+    }
+
+    /// Abandons every batch queued, if there are any.
+    pub fn tilt_cancel(&mut self) {
+        while let Some(job) = self.tilt_jobs.pop_front() {
+            if let Some(fence) = job.fence {
+                self.gl.delete_sync(Some(&fence));
+            }
+        }
+    }
+}
+
+/// One batch of tilt performance poses being measured (T-0261): the slot of off-screen targets
+/// and camera texture it draws with, how many poses it holds, and the fence behind its
+/// read-backs once they are queued.
+struct TiltJob {
+    slot: usize,
+    count: usize,
+    fence: Option<web_sys::WebGlSync>,
 }
 
 impl GemApp {
+    /// A batch of `poses` (spin and tilt in degrees, pose after pose) to draw with slot `slot`,
+    /// with nothing drawn yet: uploads the poses' cameras into the slot's camera texture, and
+    /// makes the off-screen targets and the table's selection texture the first time they are
+    /// needed.
+    fn new_tilt_job(&mut self, poses: &[f32], slot: usize) -> Result<TiltJob, JsValue> {
+        if poses.is_empty() || poses.len() % 2 != 0 || poses.len() / 2 > tilt::TILT_BATCH {
+            return Err(js_error(&format!(
+                "tilt performance takes 1 to {} poses at once, as spin and tilt pairs",
+                tilt::TILT_BATCH
+            )));
+        }
+
+        if poses.iter().any(|angle| !angle.is_finite()) {
+            return Err(js_error("tilt performance needs finite angles"));
+        }
+
+        let full = tilt::TileLayout::batch();
+
+        while self.tilt_targets.len() < tilt::TILT_IN_FLIGHT * tilt::TiltPass::ALL.len() {
+            self.tilt_targets.push(
+                gpu::ReadbackTarget::new(&self.gl, full.width(), full.height())
+                    .map_err(|e| js_error(&e))?,
+            );
+        }
+
+        if self.tilt_table.as_ref().map(|(generation, _)| *generation) != Some(self.model_generation) {
+            let table: std::collections::BTreeSet<u32> =
+                tilt::table_facets(&self.model.facet_normals).into_iter().collect();
+            let texture = build_highlight_texture(&self.gl, self.model.diagnostics.facet_count, &table)
+                .map_err(|e| js_error(&e))?;
+
+            if let Some((_, old)) = self.tilt_table.replace((self.model_generation, texture)) {
+                self.gl.delete_texture(Some(&old));
+            }
+        }
+
+        // Four texels a pose (origin, right, up, forward), a row per pose; the rows past the
+        // batch's count are never read (the shader stops at uTiltCount). The same aspect every
+        // tile is drawn at, so the framing is exactly a single pose's.
+        let aspect = tilt::TILT_RENDER_WIDTH as f32 / tilt::TILT_RENDER_HEIGHT as f32;
+        let mut texels = vec![0.0f32; tilt::TILT_BATCH * 4 * 4];
+
+        for (index, pose) in poses.chunks_exact(2).enumerate() {
+            let mut camera = OrbitCamera::default();
+
+            camera.set_orientation(pose[0].to_radians(), pose[1].to_radians());
+
+            let basis = camera.basis(aspect);
+            let vectors = [
+                basis.origin.coords,
+                basis.right,
+                basis.up,
+                basis.forward,
+            ];
+
+            for (texel, vector) in vectors.iter().enumerate() {
+                let at = (index * 4 + texel) * 4;
+
+                texels[at..at + 3].copy_from_slice(&[vector.x, vector.y, vector.z]);
+            }
+        }
+
+        let cameras = gpu::create_data_texture(&self.gl, 4, tilt::TILT_BATCH as u32, &texels)
+            .map_err(|e| js_error(&e))?;
+
+        if let Some(old) = self.tilt_cameras[slot].replace(cameras) {
+            self.gl.delete_texture(Some(&old));
+        }
+
+        Ok(TiltJob {
+            slot,
+            count: poses.len() / 2,
+            fence: None,
+        })
+    }
+
+    /// Draws both passes of `job` into its slot's targets: every pose a tile, with its own
+    /// camera, no dop and, for the mask, the table marked by the selection tint (see
+    /// `tilt::TiltPass::Mask`). The page's own selection is its own again as soon as the draw is
+    /// issued.
+    fn draw_tilt_passes(&mut self, job: &TiltJob) -> Result<(), String> {
+        let layout = tilt::TileLayout::batch();
+        let saved_dop = self.dop.take();
+        let saved_drawing = self.drawing;
+
+        // The deterministic program is linked before the app exists, so it is always ready.
+        self.drawing = ProgramKind::Deterministic;
+
+        let ProgramState::Ready(linked) = &self.programs[self.drawing.index()] else {
+            self.dop = saved_dop;
+            self.drawing = saved_drawing;
+
+            return Err("the deterministic program is not ready".to_string());
+        };
+        let program = linked.program.clone();
+
+        self.gl.use_program(Some(&program));
+        self.gl.active_texture(Gl::TEXTURE0 + UNIT_TILT_CAMERAS);
+        self.gl.bind_texture(Gl::TEXTURE_2D, self.tilt_cameras[job.slot].as_ref());
+        self.uniform1i("uTiltCameras", UNIT_TILT_CAMERAS as i32);
+        self.uniform1i("uTiltColumns", layout.columns as i32);
+        self.uniform1i("uTiltCount", job.count as i32);
+
+        for (index, pass) in tilt::TiltPass::ALL.iter().enumerate() {
+            let params = pass.params(&self.render_params);
+            let mask = *pass == tilt::TiltPass::Mask;
+
+            if mask {
+                if let Some((_, table)) = self.tilt_table.as_mut() {
+                    std::mem::swap(&mut self.highlight_texture, table);
+                }
+            }
+
+            self.tilt_targets[job.slot * tilt::TiltPass::ALL.len() + index].bind(&self.gl);
+            // The whole image as the viewport, and a tile's size as the resolution the
+            // uniforms describe: the shader splits the one into tiles of the other.
+            self.draw_trace_in(
+                (layout.width(), layout.height()),
+                tilt::TILT_RENDER_WIDTH,
+                tilt::TILT_RENDER_HEIGHT,
+                &params,
+                LUX_PASS_DIRECT,
+                0,
+                1,
+            );
+            self.gl.bind_framebuffer(Gl::FRAMEBUFFER, None);
+
+            if mask {
+                if let Some((_, table)) = self.tilt_table.as_mut() {
+                    std::mem::swap(&mut self.highlight_texture, table);
+                }
+            }
+        }
+
+        // Back to a unit that always holds a texture, so the page's own draws never find the
+        // sampler on an empty one. The deterministic program is still the one in use.
+        self.uniform1i("uTiltCameras", UNIT_TRIANGLES as i32);
+
+        self.dop = saved_dop;
+        self.drawing = saved_drawing;
+
+        Ok(())
+    }
+
+    /// Queues the read-backs of `job`'s two targets behind one fence.
+    fn queue_tilt_reads(&mut self, job: &mut TiltJob) -> Result<(), String> {
+        for index in 0..tilt::TiltPass::ALL.len() {
+            self.tilt_targets[job.slot * tilt::TiltPass::ALL.len() + index].queue_read(&self.gl)?;
+        }
+
+        job.fence = Some(gpu::fence(&self.gl)?);
+
+        Ok(())
+    }
+
+    /// The pixels of `job`'s two targets: collected from their pixel-pack buffers once
+    /// `queue_tilt_reads`'s fence has signalled (`queued`), or read straight back, waiting for
+    /// the GPU (`measure_tilt_pose`).
+    fn read_tilt_passes(&self, job: &TiltJob, queued: bool) -> Result<[Vec<u8>; 2], String> {
+        let layout = tilt::TileLayout::batch();
+        let mut images = [
+            vec![0u8; (layout.width() * layout.height() * 4) as usize],
+            vec![0u8; (layout.width() * layout.height() * 4) as usize],
+        ];
+
+        for (index, pixels) in images.iter_mut().enumerate() {
+            let target = &self.tilt_targets[job.slot * tilt::TiltPass::ALL.len() + index];
+
+            if queued {
+                target.collect(&self.gl, pixels);
+            } else {
+                target.read(&self.gl, pixels)?;
+            }
+        }
+
+        Ok(images)
+    }
+
     /// `load_obj` and `load_obj_framed`: builds the model, in `pinned`'s frame when given
     /// (see `conditioned_mesh_in_pinned_frame`), and swaps it in.
     fn load_obj_pinned(
@@ -2464,6 +2794,22 @@ impl GemApp {
         seed: u32,
         pass_count: u32,
     ) {
+        self.draw_trace_in((width, height), width, height, effective, pass, seed, pass_count);
+    }
+
+    /// `draw_trace` over a `viewport` other than the `width` x `height` the uniforms describe:
+    /// tilt performance's batches (T-0261), whose image is many tiles of that size.
+    #[allow(clippy::too_many_arguments)]
+    fn draw_trace_in(
+        &self,
+        viewport: (u32, u32),
+        width: u32,
+        height: u32,
+        effective: &RenderParams,
+        pass: i32,
+        seed: u32,
+        pass_count: u32,
+    ) {
         let gl = &self.gl;
 
         // `render_pass` only ever selects a ready program, so this is not expected to return.
@@ -2471,7 +2817,7 @@ impl GemApp {
             return;
         };
 
-        gl.viewport(0, 0, width as i32, height as i32);
+        gl.viewport(0, 0, viewport.0 as i32, viewport.1 as i32);
         gl.use_program(Some(&linked.program));
         gl.bind_vertex_array(Some(&self.vertex_array));
 
@@ -2630,6 +2976,8 @@ impl GemApp {
         self.uniform1i("uHighlightTexture", UNIT_HIGHLIGHT as i32);
         self.uniform1i("uToneMapMode", effective.tone_map_mode.as_u32() as i32);
         self.uniform1i("uLightingModel", effective.lighting_model.as_u32() as i32);
+        self.uniform1i("uTrueCosine", if effective.true_cosine { 1 } else { 0 });
+        self.uniform1i("uTiltMeasure", effective.tilt_measure as i32);
 
         // The cutting assistant's dop (T-0234), through the frame of the stone loaded now.
         let (dop_start, dop_end) = dop_uniforms(self.dop.as_ref(), &self.model.file_frame);
@@ -2807,6 +3155,20 @@ impl Drop for GemApp {
 
         if let Some(targets) = self.accumulation.as_ref() {
             targets.delete(&self.gl);
+        }
+
+        self.tilt_cancel();
+
+        for target in &self.tilt_targets {
+            target.delete(&self.gl);
+        }
+
+        if let Some((_, texture)) = self.tilt_table.take() {
+            self.gl.delete_texture(Some(&texture));
+        }
+
+        for texture in self.tilt_cameras.iter_mut().filter_map(Option::take) {
+            self.gl.delete_texture(Some(&texture));
         }
 
         self.gl.delete_vertex_array(Some(&self.vertex_array));
@@ -3885,6 +4247,81 @@ mod tests {
         );
     }
 
+    /// The ported path applies BOTH halves of gem.frag's window (leak) rule, including
+    /// light leaving through a facet that faces below the lighting horizon.       T-0134
+    ///
+    /// Setup: the text of the four files that carry the rule -- `lux/host.glsl` (which
+    /// declares the per-path global `gLuxPathExitNormal`), `lux/pathtracer.glsl` (whose
+    /// `LUX_HAS_GEM_FRAG` bridge arm records the struck facet's outward normal),
+    /// `lux/entry.glsl` (which resets it per eye path) and `lux/lights.glsl` (whose
+    /// `Env_ProjectRadiance` tests it), plus `gem.frag`, whose `arrivingLight` is the rule
+    /// being mirrored.
+    ///
+    /// Test: each piece is present, and `Env_ProjectRadiance`'s leak condition is textually
+    /// the same test `arrivingLight` makes, with the exit normal in place of its
+    /// `outwardNormal` parameter and the same `BACK_FACET_TOLERANCE`.
+    ///
+    /// Verifies the gap T-0134 was. With only the direction half, the ported path sampled
+    /// the environment for light leaving through a pavilion facet heading slightly upwards:
+    /// white under Isometric where Gem Cut Studio paints the oval cut's face-up end windows
+    /// (window-coloured pixels, deterministic about 11,800 against LuxCore about 3,200), and
+    /// Angle Rings' low magenta ring where Gem Cut Studio shows the background through the
+    /// asterisk illusion. Pixels need a browser and a GPU; this is the part `cargo test` can
+    /// hold in place.
+    #[test]
+    fn the_ported_path_applies_the_back_facet_half_of_the_window_rule() {
+        let host = shader_file("src/renderer/shaders/lux/host.glsl");
+        let pathtracer = shader_file("src/renderer/shaders/lux/pathtracer.glsl");
+        let entry = shader_file("src/renderer/shaders/lux/entry.glsl");
+        let lights = shader_file("src/renderer/shaders/lux/lights.glsl");
+        let gem = shader_file("src/renderer/shaders/gem.frag");
+
+        assert!(
+            host.contains("vec3 gLuxPathExitNormal = vec3(0.0, 1.0, 0.0);"),
+            "lux/host.glsl must declare gLuxPathExitNormal, the last struck facet's normal"
+        );
+
+        let bridge = pathtracer
+            .split("#ifdef LUX_HAS_GEM_FRAG")
+            .nth(1)
+            .and_then(|rest| rest.split("#else").next())
+            .expect("pathtracer.glsl's LUX_HAS_GEM_FRAG block should have an #else arm");
+        assert!(
+            bridge.contains("gLuxPathExitNormal = gemHit.outwardNormal;"),
+            "Scene_Intersect's wired-in arm must record each real hit's outward normal in \
+             gLuxPathExitNormal. Found:\n{}",
+            bridge
+        );
+
+        assert!(
+            entry.contains("gLuxPathExitNormal = vec3(0.0, 1.0, 0.0);"),
+            "lux/entry.glsl's sample loop must reset gLuxPathExitNormal per eye path"
+        );
+
+        // The rule being mirrored, so a change to gem.frag's test shows up here too.
+        assert!(
+            gem.contains(
+                "if (direction.y < 0.0 || toLightingFrame(outwardNormal).y < -BACK_FACET_TOLERANCE) {"
+            ),
+            "gem.frag's arrivingLight leak test has changed; update Env_ProjectRadiance to \
+             match it, then this test"
+        );
+
+        let project_branch = lights
+            .split("vec3 Env_ProjectRadiance(vec3 travelDirection) {")
+            .nth(1)
+            .and_then(|rest| rest.split("\n#else").next())
+            .expect("lux/lights.glsl should still define Env_ProjectRadiance");
+        assert!(
+            project_branch.contains(
+                "if (direction.y < 0.0 || toLightingFrame(gLuxPathExitNormal).y < -BACK_FACET_TOLERANCE) {"
+            ),
+            "Env_ProjectRadiance must apply both halves of arrivingLight's leak test, the \
+             back-facet half through gLuxPathExitNormal. Branch body was:\n{}",
+            project_branch
+        );
+    }
+
     /// The offsets `glsl_function_signatures` reports must be true byte offsets into the
     /// source whatever line ending that source uses.
     ///
@@ -4012,6 +4449,14 @@ mod tests {
             // but the debug views still work with LuxCore selected. No `CONTROL_UNIFORMS`
             // entry names it, so this hides nothing on the page.
             "uDebugMode",
+            // Tilt performance's passes (2026-09-26): renderHandWritten hands the pixel to
+            // renderTiltMeasure, which draws a batch of poses as tiles, and the measurement
+            // always draws with the deterministic program. No page control sets these, so
+            // nothing is hidden for them.
+            "uTiltMeasure",
+            "uTiltColumns",
+            "uTiltCount",
+            "uTiltCameras",
         ];
         expected.sort_unstable();
 

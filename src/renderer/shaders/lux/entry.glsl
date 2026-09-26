@@ -234,6 +234,7 @@ vec3 luxRenderPixel() {
         // pass: samples share a fragment, and a stone hit in sample 3 must not make
         // sample 4's camera miss look like light leaving the stone.               T-0137
         gLuxPathHitStone = false;
+        gLuxPathExitNormal = vec3(0.0, 1.0, 0.0);
 
         total += PathTracer_RenderEyePath(rayOrigin, rayDirection, glass,
                 maxPathDepth, rrDepth, uLuxRrImportanceCap, sampler);
@@ -269,6 +270,10 @@ vec3 luxAccumulated() {
 // deterministic primary hit. They stay on the deterministic program whichever renderer is
 // selected, so "is the geometry right?" is answerable either way.
 void main() {
+    // The view the shared functions trace from (gem.frag's viewFromUniforms): the camera
+    // uniforms, unless tilt performance sets a tile's own.
+    viewFromUniforms();
+
 #if defined(GEM_PROGRAM_FLAT)
     renderFlat();
 #elif !defined(GEM_PROGRAM_LUXCORE)

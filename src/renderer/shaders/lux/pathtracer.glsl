@@ -448,6 +448,14 @@ bool Scene_Intersect(vec3 origin, vec3 direction, float tMin, float tMax, float 
     // the sky, exactly as it is for LuxCore's black matte.                          T-0137
     gLuxPathHitStone = gLuxPathHitStone || (struck && !occluded);
 
+    // The facet this hit is on, for gem.frag's back-facet leak clause: if the path escapes
+    // next, this is the facet it left through or reflected off (host.glsl's
+    // gLuxPathExitNormal). A miss leaves it alone, so it always names the last real hit.
+    //                                                                              T-0134
+    if (struck && !occluded) {
+        gLuxPathExitNormal = gemHit.outwardNormal;
+    }
+
     // `out` parameters are undefined until written, and the caller reads `hit` only when this
     // returns true; write every field on both paths anyway, as the stub did.
     if (!struck || occluded) {

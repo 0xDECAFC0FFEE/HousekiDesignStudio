@@ -38,10 +38,12 @@
   import { onMount } from 'svelte';
   import * as Resizable from '$lib/components/ui/resizable/index.js';
   import InstructionsPane from './InstructionsPane.svelte';
+  import TiltPerformancePanel from './TiltPerformancePanel.svelte';
   import Viewport from './Viewport.svelte';
   import SubBar from './SubBar.svelte';
   import { editing } from '../lib/edit_mode.js';
   import { fullscreen } from '../lib/fullscreen.js';
+  import { tiltPerformance } from '../lib/tilt_performance_mode.js';
   import { beginPaneScoot, endPaneScoot } from '../lib/viewport.js';
   import {
     readSetting, writeSetting, INSTRUCTIONS_WIDTH_SETTING, INSTRUCTIONS_WIDTH_MIN,
@@ -243,7 +245,15 @@
   <Resizable.Pane bind:this={leftPane} bind:ref={leftElement} defaultSize={percentOf(fitted.left)}
     minSize={leftMin} maxSize={leftMax} onResize={size => onResize(size, px => { leftPx = px; })}
     class={$fullscreen ? 'hidden' : ''}>
-    <InstructionsPane />
+    <!-- Tools > Tilt performance's panel (T-0261) takes this pane while it is open (the user,
+         2026-09-25: "the faceting instructions on the left side of the screen should have tilt
+         performance mode"), stacked over the cutting instructions the way App's #panel-stack
+         stacks the right-hand column's layers: both stay mounted, the one not in use
+         `visibility: hidden`, so the instructions keep their scroll and folds. -->
+    <div id="left-stack">
+      <div class="panel-layer" class:panel-layer-off={$tiltPerformance.open}><InstructionsPane /></div>
+      <div class="panel-layer" class:panel-layer-off={!$tiltPerformance.open}><TiltPerformancePanel /></div>
+    </div>
   </Resizable.Pane>
 
   <Resizable.Handle id="instructions-resize" aria-label="Resize the cutting instructions pane"

@@ -311,6 +311,17 @@ export function syncSpectralSamples() {
   app.set_param('spectralSamples', app.get_param('dispersion') > 0 ? 3 : 1);
 }
 
+// Told the name of every parameter `applyParam` sets (T-0261): tilt performance measures its
+// graph again when a render setting it depends on is changed beside it.
+const paramListeners = new Set();
+
+/** Calls `listener(name)` after each parameter `applyParam` sets; returns what stops it. */
+export function onParamApplied(listener) {
+  paramListeners.add(listener);
+
+  return () => paramListeners.delete(listener);
+}
+
 /**
  * Sets a parameter and redraws; false if Rust refused it. The slider reads its own value
  * back afterwards: Rust clamps and wraps, and the readout should show what is actually being
@@ -329,6 +340,8 @@ export function applyParam(name, value) {
   if (name === 'dispersion') {
     syncSpectralSamples();
   }
+
+  paramListeners.forEach(listener => listener(name));
 
   if (VIEW_SLIDERS.includes(name)) {
     // The user took the pose over, so a turn towards a clicked facet stops where it is.

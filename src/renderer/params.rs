@@ -895,6 +895,24 @@ pub struct RenderParams {
     /// truncates such paths to black, which was this renderer's original behaviour; it
     /// underestimates, because total internal reflection keeps nearly all the light.
     pub exhaustion_shade: f32,
+    /// When true, the Cosine lighting model falls off as a true cosine of the tilt of the
+    /// arriving light, instead of Gem Cut Studio's rendered `1 - sin(tilt)`. Never set by the
+    /// page's own controls: only tilt performance's COS pass turns it on (T-0261).
+    ///
+    /// Gem Cut Studio's tilt performance graph does not use the law its Cosine render does.
+    /// Measured on the hex cut against its graph, with the float64 reference tracer's
+    /// transport weights (`tools/reference_tracer/weights.py`): the stone's average under
+    /// `1 - sin` is 0.425 / 0.394 / 0.278 at X tilts of 0 / 15 / 30 degrees, and under a
+    /// true cosine 0.708 / 0.658 / 0.513, where the graph reads about 0.70 / 0.68 / 0.50.
+    /// `cos^2`, `1 - tilt/90` and `sqrt(1 - sin)` all land 0.11-0.15 low face-up.
+    pub true_cosine: bool,
+
+    /// What the deterministic renderer draws for tilt performance (T-0261) instead of the stone:
+    /// `TILT_MEASURE_OFF` (the stone, as always), `TILT_MEASURE_QUANTITIES` (one trace per pixel,
+    /// scored as ISO, COS, window and head shadow in the four channels) or `TILT_MEASURE_MASK`
+    /// (only what the primary ray hits: backdrop, stone or table). See gem.frag's
+    /// renderTiltMeasure. Never set by the page's own controls; only `tilt::TiltPass` sets it.
+    pub tilt_measure: u32,
 
     /// When true, the deterministic renderer outlines every facet the viewer can see.
     ///
@@ -965,6 +983,10 @@ impl Default for RenderParams {
             lighting_follows_view: true,
             // GCS's measured half tint; see the field's documentation.
             exhaustion_shade: 0.5,
+            // Gem Cut Studio's rendered law; only tilt performance's COS pass changes it.
+            true_cosine: false,
+            // Only tilt performance's passes set it.
+            tilt_measure: TILT_MEASURE_OFF,
             // On, at the user's request (2026-09-18).
             wireframe: true,
             // The deterministic renderer stays the default. T-0120 wired the LuxCore port in
@@ -990,6 +1012,11 @@ pub const MAX_DISPERSION: f32 = 0.5;
 /// barely reads as glass (see `RenderParams::draft`'s own floor at 3 while dragging, added
 /// the same day, which this makes the slider's own minimum rather than only draft mode's).
 pub const MIN_BOUNCES: u32 = 3;
+
+/// `RenderParams::tilt_measure`'s values, mirrored by gem.frag's TILT_MEASURE_* constants.
+pub const TILT_MEASURE_OFF: u32 = 0;
+pub const TILT_MEASURE_QUANTITIES: u32 = 1;
+pub const TILT_MEASURE_MASK: u32 = 2;
 /// Must match `MAX_BOUNCE_LIMIT` in `gem.frag`, which needs a compile-time bound.
 /// 2026-09-25, the user: "increase the limit for max internal bounces to 64". Trapped
 /// light in the hex cut's corners escapes after 16-64 bounces; the Monte Carlo path, which
@@ -3345,6 +3372,8 @@ mod tests {
             window_color: _,
             lighting_follows_view: _,
             exhaustion_shade: _,
+            true_cosine: _,
+            tilt_measure: _,
             wireframe: _,
             renderer: _,
             lux_samples: _,
@@ -3398,6 +3427,8 @@ mod tests {
                 key.params.lighting_follows_view = !key.params.lighting_follows_view
             }),
             ("exhaustionShade", |key| key.params.exhaustion_shade = 0.25),
+            ("true cosine", |key| key.params.true_cosine = !key.params.true_cosine),
+            ("tilt measure", |key| key.params.tilt_measure = TILT_MEASURE_QUANTITIES),
             ("wireframe", |key| key.params.wireframe = !key.params.wireframe),
             ("renderer", |key| key.params.renderer = Renderer::LuxCore),
             ("luxSamples", |key| key.params.lux_samples = 4),

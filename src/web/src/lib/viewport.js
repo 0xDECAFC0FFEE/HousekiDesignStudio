@@ -68,14 +68,46 @@ const renderTask = budgetedTask({
   settled: () => !engine.app?.frame_settled || engine.app.frame_settled(),
 });
 
+// Whether the view is not to be drawn for now (T-0261): tilt performance, while it measures. Its
+// measurement shares the GPU with the view, and a frame of the view -- worse, a change of the
+// canvas's size between draft and full quality, which waits for everything the GPU has queued --
+// held the sweep up for seconds (measured 2026-09-26: 0.5-1 s on its own, 6 s with the view
+// drawing in between). A redraw asked for meanwhile is kept, and made by `releaseRenderHold`.
+let renderHold = () => false;
+let renderDeferred = false;
+
+/** Holds every redraw back for as long as `reader()` says so; see `releaseRenderHold`. */
+export function setRenderHold(reader) {
+  renderHold = reader;
+}
+
+/** Makes the redraw asked for while the view was held, if there was one. */
+export function releaseRenderHold() {
+  if (renderDeferred) {
+    renderDeferred = false;
+    requestRender();
+  }
+}
+
 /** Asks for a redraw, soon. Every change goes through here, and none of them waits for it. */
 export function requestRender() {
+  if (renderHold()) {
+    renderDeferred = true;
+    return;
+  }
+
   renderTask.request();
 }
 
 /** One pass: what the animation frame used to do. */
 function renderNow() {
   const app = engine.app;
+
+  // A redraw asked for before the hold began, and run after: kept for later all the same.
+  if (renderHold()) {
+    renderDeferred = true;
+    return;
+  }
 
   // Drop resolution while the user is moving. This is the single largest lever
   // available: cost is proportional to pixel count, so rendering at half scale

@@ -10,7 +10,7 @@
 use js_sys::{Float32Array, Uint16Array};
 use std::collections::HashMap;
 use web_sys::{
-    WebGl2RenderingContext as Gl, WebGlFramebuffer, WebGlProgram, WebGlShader, WebGlTexture,
+    WebGl2RenderingContext as Gl, WebGlBuffer, WebGlFramebuffer, WebGlProgram, WebGlShader, WebGlTexture,
     WebGlUniformLocation,
 };
 
@@ -595,4 +595,198 @@ fn create_float_target(
 fn delete_float_target(gl: &Gl, target: &(WebGlTexture, WebGlFramebuffer)) {
     gl.delete_texture(Some(&target.0));
     gl.delete_framebuffer(Some(&target.1));
+}
+
+/// An off-screen 8-bit RGBA image the renderer can draw into and read back (T-0261, tilt
+/// performance), so a measurement is made at a fixed size of its own instead of at whatever
+/// size the page's canvas happens to be.
+///
+/// 8 bits per channel rather than a float target, so it works in every WebGL2 browser: the
+/// graph averages each quantity over the half million or so pixels of a stone, where rounding
+/// each one to 1/255 moves the average by far less than a line's width.
+///
+/// It also carries a pixel-pack buffer, so an image can be read back without waiting for it:
+/// `queue_read` queues the copy into the buffer, a `fence` says when the GPU has done it (one
+/// fence for both passes of a pose), and `collect` then copies it out at once. The page's
+/// sweep uses that, so that it is never held up waiting for the GPU; `read` is the waiting
+/// version, for the harness.
+pub struct ReadbackTarget {
+    texture: WebGlTexture,
+    framebuffer: WebGlFramebuffer,
+    pack_buffer: WebGlBuffer,
+    width: u32,
+    height: u32,
+}
+
+/// A fence that signals once the GPU has done everything queued so far, such as the copies
+/// `ReadbackTarget::queue_read` queued. Flushed, as `GemApp::place_frame_fence` explains a fence
+/// nobody flushed may never signal.
+pub fn fence(gl: &Gl) -> Result<web_sys::WebGlSync, String> {
+    let fence = gl
+        .fence_sync(Gl::SYNC_GPU_COMMANDS_COMPLETE, 0)
+        .ok_or_else(|| "could not create a fence for the tilt images".to_string())?;
+
+    gl.flush();
+
+    Ok(fence)
+}
+
+impl ReadbackTarget {
+    /// Allocates the target at this size, checked complete.
+    pub fn new(gl: &Gl, width: u32, height: u32) -> Result<ReadbackTarget, String> {
+        let texture = gl
+            .create_texture()
+            .ok_or_else(|| "could not create a readback texture".to_string())?;
+
+        gl.bind_texture(Gl::TEXTURE_2D, Some(&texture));
+
+        let allocated = gl
+            .tex_image_2d_with_i32_and_i32_and_i32_and_format_and_type_and_opt_array_buffer_view(
+                Gl::TEXTURE_2D,
+                0,
+                Gl::RGBA8 as i32,
+                width.max(1) as i32,
+                height.max(1) as i32,
+                0,
+                Gl::RGBA,
+                Gl::UNSIGNED_BYTE,
+                None,
+            );
+
+        gl.tex_parameteri(Gl::TEXTURE_2D, Gl::TEXTURE_MIN_FILTER, Gl::NEAREST as i32);
+        gl.tex_parameteri(Gl::TEXTURE_2D, Gl::TEXTURE_MAG_FILTER, Gl::NEAREST as i32);
+        gl.bind_texture(Gl::TEXTURE_2D, None);
+
+        if let Err(error) = allocated {
+            gl.delete_texture(Some(&texture));
+
+            return Err(format!(
+                "could not allocate a {}x{} readback texture: {:?}",
+                width, height, error
+            ));
+        }
+
+        let Some(framebuffer) = gl.create_framebuffer() else {
+            gl.delete_texture(Some(&texture));
+
+            return Err("could not create a readback framebuffer".to_string());
+        };
+
+        gl.bind_framebuffer(Gl::FRAMEBUFFER, Some(&framebuffer));
+        gl.framebuffer_texture_2d(
+            Gl::FRAMEBUFFER,
+            Gl::COLOR_ATTACHMENT0,
+            Gl::TEXTURE_2D,
+            Some(&texture),
+            0,
+        );
+
+        let status = gl.check_framebuffer_status(Gl::FRAMEBUFFER);
+
+        gl.bind_framebuffer(Gl::FRAMEBUFFER, None);
+
+        if status != Gl::FRAMEBUFFER_COMPLETE {
+            gl.delete_framebuffer(Some(&framebuffer));
+            gl.delete_texture(Some(&texture));
+
+            return Err(format!(
+                "an RGBA8 readback framebuffer is not complete (status 0x{:x})",
+                status
+            ));
+        }
+
+        let Some(pack_buffer) = gl.create_buffer() else {
+            gl.delete_framebuffer(Some(&framebuffer));
+            gl.delete_texture(Some(&texture));
+
+            return Err("could not create a readback pixel buffer".to_string());
+        };
+
+        gl.bind_buffer(Gl::PIXEL_PACK_BUFFER, Some(&pack_buffer));
+        gl.buffer_data_with_i32(
+            Gl::PIXEL_PACK_BUFFER,
+            (width.max(1) * height.max(1) * 4) as i32,
+            Gl::STREAM_READ,
+        );
+        gl.bind_buffer(Gl::PIXEL_PACK_BUFFER, None);
+
+        Ok(ReadbackTarget {
+            texture,
+            framebuffer,
+            pack_buffer,
+            width,
+            height,
+        })
+    }
+
+    /// Binds the target for drawing, with the viewport set to cover it.
+    pub fn bind(&self, gl: &Gl) {
+        gl.bind_framebuffer(Gl::FRAMEBUFFER, Some(&self.framebuffer));
+        gl.viewport(0, 0, self.width as i32, self.height as i32);
+    }
+
+    /// Reads the whole image back into `pixels` (RGBA, bottom row first, as GL stores it),
+    /// which must hold `width * height * 4` bytes. Waits for the GPU to finish drawing it.
+    pub fn read(&self, gl: &Gl, pixels: &mut [u8]) -> Result<(), String> {
+        gl.bind_framebuffer(Gl::FRAMEBUFFER, Some(&self.framebuffer));
+
+        let result = gl.read_pixels_with_opt_u8_array(
+            0,
+            0,
+            self.width as i32,
+            self.height as i32,
+            Gl::RGBA,
+            Gl::UNSIGNED_BYTE,
+            Some(pixels),
+        );
+
+        gl.bind_framebuffer(Gl::FRAMEBUFFER, None);
+
+        result.map_err(|error| format!("could not read the tilt image back: {:?}", error))
+    }
+
+    /// Queues a copy of the whole image into the pixel-pack buffer, with no fence of its own, so
+    /// several targets can be read together behind one `fence` (tilt performance's passes of a
+    /// pose). Nothing waits here.
+    pub fn queue_read(&self, gl: &Gl) -> Result<(), String> {
+        gl.bind_framebuffer(Gl::FRAMEBUFFER, Some(&self.framebuffer));
+        gl.bind_buffer(Gl::PIXEL_PACK_BUFFER, Some(&self.pack_buffer));
+
+        let result = gl.read_pixels_with_i32(
+            0,
+            0,
+            self.width as i32,
+            self.height as i32,
+            Gl::RGBA,
+            Gl::UNSIGNED_BYTE,
+            0,
+        );
+
+        gl.bind_buffer(Gl::PIXEL_PACK_BUFFER, None);
+        gl.bind_framebuffer(Gl::FRAMEBUFFER, None);
+        result.map_err(|error| format!("could not queue the tilt image read: {:?}", error))
+    }
+
+    /// Copies what `queue_read` queued into `pixels` (`width * height * 4` bytes). Only after
+    /// its fence has signalled, or this waits for the GPU after all.
+    pub fn collect(&self, gl: &Gl, pixels: &mut [u8]) {
+        gl.bind_buffer(Gl::PIXEL_PACK_BUFFER, Some(&self.pack_buffer));
+        gl.get_buffer_sub_data_with_i32_and_u8_array(Gl::PIXEL_PACK_BUFFER, 0, pixels);
+        gl.bind_buffer(Gl::PIXEL_PACK_BUFFER, None);
+    }
+
+    pub fn width(&self) -> u32 {
+        self.width
+    }
+
+    pub fn height(&self) -> u32 {
+        self.height
+    }
+
+    /// Releases the texture, the framebuffer and the pixel buffer.
+    pub fn delete(&self, gl: &Gl) {
+        gl.delete_texture(Some(&self.texture));
+        gl.delete_framebuffer(Some(&self.framebuffer));
+        gl.delete_buffer(Some(&self.pack_buffer));
+    }
 }

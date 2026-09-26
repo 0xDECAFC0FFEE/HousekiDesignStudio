@@ -1956,12 +1956,19 @@ mod tests {
 
         // The Cosine law. The Rust side is checked numerically by
         // cosine_model_falls_off_as_one_minus_the_sine_of_the_tilt; here the shader must spell
-        // the same law, and must not still return the plain height.
+        // the same law, and must return the plain height only behind tilt performance's switch
+        // (T-0261, RenderParams::true_cosine): the one true cosine in the file is the guarded one.
         let cosine_law = "return vec3(RING_LEVEL * (1.0 - sqrt(max(1.0 - height * height, 0.0))));";
         assert!(shader.contains(cosine_law), "gem.frag's Cosine model must be {}", cosine_law);
+        let true_cosine = "return vec3(RING_LEVEL * height);";
+        assert_eq!(
+            shader.matches(true_cosine).count(),
+            1,
+            "gem.frag's Cosine model returns the true cosine outside tilt performance's switch"
+        );
         assert!(
-            !shader.contains("return vec3(RING_LEVEL * height);"),
-            "gem.frag's Cosine model still returns the true cosine"
+            shader.contains(&format!("if (uTrueCosine != 0) {{\n            {}", true_cosine)),
+            "gem.frag's true cosine must sit behind uTrueCosine"
         );
 
         for (name, model) in [

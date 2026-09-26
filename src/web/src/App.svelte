@@ -20,8 +20,9 @@
   import { scaleHeightOpen, cancelScaleHeightMode } from './lib/scale_height_mode.js';
   import { cutting, exitCuttingAssistant, step } from './lib/cutting_assistant_mode.js';
   import ResizeGirdlePanel from './components/ResizeGirdlePanel.svelte';
+  import { tiltPerformance, exitTiltPerformance } from './lib/tilt_performance_mode.js';
   import { resizeGirdleOpen, cancelResizeGirdleMode } from './lib/resize_girdle_mode.js';
-  import { exitFullscreen } from './lib/fullscreen.js';
+  import { fullscreen, exitFullscreen } from './lib/fullscreen.js';
   import { eventTargetTakesText, eventTargetIsEditable, eventTargetActivatesOnEnter } from './lib/keys.js';
   import { get } from 'svelte/store';
   import {
@@ -147,6 +148,12 @@
     } else if ($resizeGirdleOpen) {
       // Resize girdle (T-0237), likewise: never open together with either of the others.
       cancelResizeGirdleMode();
+    } else if ($tiltPerformance.open && !$fullscreen) {
+      // Tilt performance (T-0261): Done's twin, as for the cutting assistant. Not while
+      // fullscreen hides its pane (it is in the left pane, which fullscreen hides, and the render
+      // settings stay): that Escape leaves fullscreen first, bringing the pane back, as edit
+      // mode's order above does the other way round.
+      exitTiltPerformance();
     } else {
       exitFullscreen();
     }
@@ -182,6 +189,9 @@
          mode is open, the way edit mode's is, and the cutting assistant's bar (T-0234) a fourth. -->
     {#snippet right()}
       <div id="panel-stack">
+        <!-- Not swapped out for tilt performance (T-0261), whose panel takes the LEFT pane
+             instead (Workspace.svelte): the user, "tilt performance mode should leave the render
+             details on the right side of the screen". -->
         <div class="panel-layer" class:panel-layer-off={$editing || $scaleHeightOpen || $cutting.open || $resizeGirdleOpen}><SettingsPanel /></div>
         <div class="panel-layer" class:panel-layer-off={!$editing}><EditPanel /></div>
         <div class="panel-layer" class:panel-layer-off={!$scaleHeightOpen}><ScaleHeightPanel /></div>

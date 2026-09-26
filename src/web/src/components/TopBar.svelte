@@ -41,6 +41,8 @@
   import { cutting, enterCuttingAssistant } from '../lib/cutting_assistant_mode.js';
   // Edit > Resize girdle (T-0237), likewise.
   import { resizeGirdleOpen, enterResizeGirdleMode } from '../lib/resize_girdle_mode.js';
+  // Tools > Tilt performance (T-0261), likewise.
+  import { tiltPerformance, enterTiltPerformance } from '../lib/tilt_performance_mode.js';
   // T-0204/T-0205/T-0207 originally wired these three through onSelect={() => import(...)},
   // a dynamic import, each deliberately avoiding this file's own top-level import lines so three
   // concurrent agents' edits could never collide on the same line. That safely built and tested
@@ -218,37 +220,53 @@
   // already open -- one session at a time, as edit mode has it. A greyed item that cannot say
   // why is exactly what T-0208's tips were written against.
   const SCALE_HEIGHT_TIP = 'Makes the crown or the pavilion taller or flatter, each by its own ratio: every facet turns so the tangent of its angle is multiplied by the ratio, and moves so its meets still meet. The girdle stays where it is.';
-  const scaleHeightInert = $derived(!$tierView.hasDesign || $editing !== null || $scaleHeightOpen || $cutting.open || $resizeGirdleOpen);
+  const scaleHeightInert = $derived(!$tierView.hasDesign || $editing !== null || $scaleHeightOpen || $cutting.open || $resizeGirdleOpen || $tiltPerformance.open);
   const scaleHeightTip = $derived(
     !$tierView.hasDesign ? `${SCALE_HEIGHT_TIP} There is no design loaded to scale.`
       : $editing !== null ? `${SCALE_HEIGHT_TIP} Finish editing the tier first: Done, or Cancel.`
         : $scaleHeightOpen ? `${SCALE_HEIGHT_TIP} It is already open.`
           : $cutting.open ? `${SCALE_HEIGHT_TIP} Close the cutting assistant first: Done, or Escape.`
             : $resizeGirdleOpen ? `${SCALE_HEIGHT_TIP} Finish resizing the girdle first: Done, or Cancel.`
-              : SCALE_HEIGHT_TIP);
+              : $tiltPerformance.open ? `${SCALE_HEIGHT_TIP} ${CLOSE_TILT_TIP}`
+                : SCALE_HEIGHT_TIP);
 
   // Tools > Cutting assistant (T-0234): live, and inert, saying why, in the same cases as scale
   // height -- no design to walk through, or another mode open -- or while it is already open.
   const CUTTING_TIP = 'Walks you through cutting the stone from a rough, one facet at a time: each step shows the angle and tooth to set and the rock as it will look once that facet is cut, on its dop. The design is not changed.';
-  const cuttingInert = $derived(!$tierView.hasDesign || $editing !== null || $scaleHeightOpen || $cutting.open || $resizeGirdleOpen);
+  const cuttingInert = $derived(!$tierView.hasDesign || $editing !== null || $scaleHeightOpen || $cutting.open || $resizeGirdleOpen || $tiltPerformance.open);
   const cuttingTip = $derived(
     !$tierView.hasDesign ? `${CUTTING_TIP} There is no design loaded to cut.`
       : $editing !== null ? `${CUTTING_TIP} Finish editing the tier first: Done, or Cancel.`
         : $scaleHeightOpen ? `${CUTTING_TIP} Finish scaling the height first: Done, or Cancel.`
           : $cutting.open ? `${CUTTING_TIP} It is already open.`
             : $resizeGirdleOpen ? `${CUTTING_TIP} Finish resizing the girdle first: Done, or Cancel.`
-              : CUTTING_TIP);
+              : $tiltPerformance.open ? `${CUTTING_TIP} ${CLOSE_TILT_TIP}`
+                : CUTTING_TIP);
 
   // Edit > Resize girdle (T-0237), the same way: what it does, then why it is inert when it is.
   const RESIZE_GIRDLE_TIP = 'Cuts every facet deeper or shallower by the same ratio while the girdle facets stay where they are, so the girdle band grows or shrinks against the rest of the stone. Every angle stays as cut.';
-  const resizeGirdleInert = $derived(!$tierView.hasDesign || $editing !== null || $scaleHeightOpen || $cutting.open || $resizeGirdleOpen);
+  const resizeGirdleInert = $derived(!$tierView.hasDesign || $editing !== null || $scaleHeightOpen || $cutting.open || $resizeGirdleOpen || $tiltPerformance.open);
   const resizeGirdleTip = $derived(
     !$tierView.hasDesign ? `${RESIZE_GIRDLE_TIP} There is no design loaded to resize.`
       : $editing !== null ? `${RESIZE_GIRDLE_TIP} Finish editing the tier first: Done, or Cancel.`
         : $scaleHeightOpen ? `${RESIZE_GIRDLE_TIP} Finish scaling the height first: Done, or Cancel.`
           : $cutting.open ? `${RESIZE_GIRDLE_TIP} Close the cutting assistant first: Done, or Escape.`
             : $resizeGirdleOpen ? `${RESIZE_GIRDLE_TIP} It is already open.`
-              : RESIZE_GIRDLE_TIP);
+              : $tiltPerformance.open ? `${RESIZE_GIRDLE_TIP} ${CLOSE_TILT_TIP}`
+                : RESIZE_GIRDLE_TIP);
+
+  // Tools > Tilt performance (T-0261): live for any stone, a plain .obj included, and inert,
+  // saying why, while another mode is open or it already is.
+  const CLOSE_TILT_TIP = 'Close tilt performance first: Done, or Escape.';
+  const TILT_TIP = 'How much light the stone returns as it is tilted up to 33° (or as far as you choose) one way and then the other, the way it is actually looked at rather than only straight on: brightness under even and under overhead light, the see-through window, and the head shadow, for the whole stone and for the table.';
+  const tiltInert = $derived($editing !== null || $scaleHeightOpen || $cutting.open || $resizeGirdleOpen || $tiltPerformance.open);
+  const tiltTip = $derived(
+    $editing !== null ? `${TILT_TIP} Finish editing the tier first: Done, or Cancel.`
+      : $scaleHeightOpen ? `${TILT_TIP} Finish scaling the height first: Done, or Cancel.`
+        : $cutting.open ? `${TILT_TIP} Close the cutting assistant first: Done, or Escape.`
+          : $resizeGirdleOpen ? `${TILT_TIP} Finish resizing the girdle first: Done, or Cancel.`
+            : $tiltPerformance.open ? `${TILT_TIP} It is already open.`
+              : TILT_TIP);
 
   // Mode status (moved here from two places, 2026-09-24): SettingsPanel's own pinned footer,
   // "Mode: Overview" (added 2026-09-22, the user: "at the bottom of the render settings section
@@ -259,6 +277,9 @@
   // top right of the menu bar"; this single readout replaces all four, always on screen (as
   // SettingsPanel's footer always was) rather than only while a mode panel is mounted, so a
   // glance at the bar answers "which mode am I in" from anywhere on the page.
+  //
+  // Just the mode's name since 2026-09-25, with no "Mode: " in front (the user: "we can remove
+  // the mode: from it. so "mode: overview" would just be "overview"").
   //
   // The four live modes are mutually exclusive (kb/application-modes-current-and-planned.md:
   // each refuses to open while another is), so at most one of the four branches below is ever
@@ -275,7 +296,8 @@
       : $scaleHeightOpen ? 'Scaling height'
         : $cutting.open ? 'Cutting assistant'
           : $resizeGirdleOpen ? 'Resizing girdle'
-            : 'Overview');
+            : $tiltPerformance.open ? 'Tilt performance'
+              : 'Overview');
 </script>
 
 <svelte:document onkeydown={onDocumentKeydown} />
@@ -410,14 +432,15 @@
       <Menubar.Content id="menu-dropdown-tools" aria-label="Tools" class={MENU} align="start"
         sideOffset={4} alignOffset={0}>
         <!-- T-0208, the user's list, plus Record rendering added later, less Manual optimizer, which
-             moved to Edit (2026-09-23). All but the Cutting assistant (live since T-0234) are
-             inert for now, but the menu reads as "things are coming". Each is a WINDOW onto the design rather than a change to it, which is why
+             moved to Edit (2026-09-23). All but the Cutting assistant (live since T-0234) and Tilt
+             performance (live since T-0261) are inert for now, but the menu reads as "things are coming". Each is a WINDOW onto the design rather than a change to it, which is why
              none of them is in Edit above. Each of these, like Edit's six transforms, is
              planned to become its own mode once it is built (see
              kb/application-modes-current-and-planned.md). -->
-        <Menubar.Item id="menu-item-tilt-performance" {@attach ariaDisabled(() => true)}
-          class="{ITEM} {INERT}"
-          data-tip="How much light the stone returns as it is tilted away from face-up, so a cut can be judged the way it is actually looked at rather than only straight on. {PLACEHOLDER_TIP}"
+        <!-- Live since T-0261 (2026-09-25): opens tilt_performance_mode.js. -->
+        <Menubar.Item id="menu-item-tilt-performance" {@attach ariaDisabled(() => tiltInert)}
+          class="{ITEM} {INERT}" data-tip={tiltTip}
+          onSelect={() => { if (!tiltInert) enterTiltPerformance(); }}
           >Tilt performance</Menubar.Item>
         <Menubar.Item id="menu-item-size-yield" {@attach ariaDisabled(() => true)}
           class="{ITEM} {INERT}"
@@ -468,7 +491,7 @@
        own `margin-left: auto` (topbar.css), the same technique `#app-title` uses to give way
        rather than push a menu button off screen -- both can shrink, and the menu bar itself
        never does. -->
-  <div id="topbar-mode" data-tip="Which mode the page is in right now.">Mode: {modeStatus}</div>
+  <div id="topbar-mode" data-tip="Which mode the page is in right now.">{modeStatus}</div>
 </div>
 
 <SettingsDialog bind:this={settingsDialog} />

@@ -74,8 +74,7 @@
         {
           "slug": "tilt-performance",
           "title": "Tilt performance analyzer",
-          "summary": "See how a design looks as it tilts away from face-up.",
-          "wip": true
+          "summary": "Graph how much light a design returns as it tilts away from face-up."
         },
         {
           "slug": "size-yield-calculator",

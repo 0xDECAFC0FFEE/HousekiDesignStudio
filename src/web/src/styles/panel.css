@@ -28,8 +28,9 @@
    but still mounted with its state). Since 2026-09-22 the column is Workspace's third,
    resizable pane ("can you make both left and right pane widths draggable"), so it fills that
    pane and both layers fill it: the old rule, the column as wide as the wider of the two, is
-   moot now that both are the width the pane is dragged to. */
-#panel-stack {
+   moot now that both are the width the pane is dragged to. #left-stack is the left pane's twin
+   (T-0261): the cutting instructions, and tilt performance's panel over them while it is open. */
+#panel-stack, #left-stack {
   display: grid;
   grid-template-columns: minmax(0, 1fr);
   width: 100%;

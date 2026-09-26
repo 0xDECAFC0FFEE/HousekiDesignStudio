@@ -1,21 +1,132 @@
 <h1>Tilt performance analyzer</h1>
 
-<div class="note wip"><p>This feature is still being built. The menu item below exists, but choosing
-it does nothing yet.</p></div>
-
 <p>Most renders and photos of a cut are taken face-up, straight down through the table, but a
-stone set in jewellery is rarely looked at that way — it gets tilted as it's worn and turned. A
-tilt performance analyzer would show how much light a design returns as it's tilted away from
-face-up, so a cut could be judged the way it is actually seen rather than only from directly
-above.</p>
+stone set in jewellery is rarely looked at that way: it tilts as it is worn and turned. The tilt
+performance analyzer tilts the stone up to 33° one way, then back to face-up and 33° the other
+way, and graphs how much light the stone sends back to you at every degree. A design that stays
+bright as it tilts, without windows opening up, will look lively when it is worn.</p>
 
-<p>None of that is built yet. In the studio's <span class="ui">Tools</span> menu, an item named
-<span class="ui">Tilt performance</span> is already there, but it is greyed out and does nothing
-when clicked. Hovering it shows a tooltip describing what it is meant to do, ending "Not built
-yet."</p>
+<figure><img src="images/tilt-performance/overview.webp" alt="The studio with tilt performance open: the graph with its four solid curves and their dotted twins in the left-hand pane, the tilted stone in the middle, and the render settings on the right." loading="lazy">
+<figcaption>Tilt performance open. The graph takes the place of the cutting instructions on the
+left; the render settings stay on the right, and the stone in the middle shows the tilt the graph
+is at.</figcaption></figure>
 
-<figure><img src="images/tilt-performance/tools-menu.webp" alt="The Tools menu open, showing the greyed-out Tilt performance, Size/yield calculator and Record rendering items alongside the live Cutting assistant." loading="lazy">
-<figcaption>The Tools menu: Tilt performance is the first of the menu's three items still to be built.</figcaption></figure>
+<h2>Opening it</h2>
 
-<figure><img src="images/tilt-performance/tooltip.webp" alt="Hovering Tilt performance shows a tooltip reading: How much light the stone returns as it is tilted away from face-up, so a cut can be judged the way it is actually looked at rather than only straight on. Not built yet." loading="lazy">
-<figcaption>The tooltip shown on hover.</figcaption></figure>
+<p>Choose <span class="ui">Tools</span> &gt; <span class="ui">Tilt performance</span>. It works on
+any stone, whether a design you opened or a plain .obj model. It is greyed out while another mode,
+such as editing a tier, is open; its tooltip then says which one to finish first.</p>
+
+<figure class="side"><img src="images/tilt-performance/tools-menu.webp" alt="The Tools menu open with Tilt performance highlighted." loading="lazy">
+<figcaption>The <span class="ui">Tools</span> menu. The top bar's mode readout says
+<span class="ui">Tilt performance</span> while it is open.</figcaption></figure>
+
+<p>As soon as it opens, the studio measures the stone at every tilt: first
+<span class="ui">Tilt X</span>, the stone tipping towards and away from you, then
+<span class="ui">Tilt Y</span>, the stone turning to the side. The line under the graph counts
+the tilts measured, with a bar that fills as it goes, and the graph appears when they are all
+done, usually within a second or two. The stone in the middle is not redrawn while the studio
+measures, so the measuring gets the computer's full attention; it turns face-up once the graph is
+ready.</p>
+
+<div class="note"><p>Each tilt is measured on a picture of a fixed size, the same whatever the size
+of your window or screen, so the numbers can be compared between computers and between designs.
+The picture is never shown; the render in the middle is only there so you can follow along.</p></div>
+
+<h2>The pane</h2>
+
+<figure class="side"><img src="images/tilt-performance/panel.webp" alt="The tilt performance pane: the graph card with percentages up the side, Tilt X on the left half and Tilt Y on the right; the Curves card with a switch, a coloured line and a value for ISO brightness, COS brightness, Window, Head shadow and Table alone; the Tilt range card with its Start and End slider; the Download graph button; and Done at the bottom." loading="lazy">
+<figcaption>The pane, from the top: the graph, the curves and their switches, the tilt range, the
+<span class="ui">Download graph</span> button, and <span class="ui">Done</span>.</figcaption></figure>
+
+<p>Like the cutting instructions, the pane is made of cards you can fold away by clicking their
+titles: <span class="ui">Tilt performance</span> (the graph), <span class="ui">Curves</span>
+and <span class="ui">Tilt range</span>. Drag the edge between the pane and the render to make
+it wider, and the graph grows with it.</p>
+
+<h2>Reading the graph</h2>
+
+<p>The left half is <span class="ui">Tilt X</span> and the right half <span class="ui">Tilt Y</span>.
+Face-up is the brighter line marked 0°, and each half runs out to its end of the tilt range at the
+edge. Up the side is the share of the stone's face, from 0% to 100%. Each quantity is drawn twice:
+a solid line for the whole stone, and a dotted line for the table alone.</p>
+
+<table>
+  <tr><th>Curve</th><th>What it measures</th></tr>
+  <tr><td><span class="ui">ISO brightness</span></td><td>How bright the stone looks with even
+  light coming from every direction above it (the <span class="ui">Isometric</span> lighting).
+  Higher is better.</td></tr>
+  <tr><td><span class="ui">COS brightness</span></td><td>How bright it looks when the light is
+  strongest from straight behind you and fades towards the horizon, like overhead light with you
+  looking down. It rewards light returned from near your own direction. Higher is better.</td></tr>
+  <tr><td><span class="ui">Window</span></td><td>How much of what you see comes through the stone
+  from behind it instead of being reflected back to you: the washed-out, see-through patches. Lower
+  is better.</td></tr>
+  <tr><td><span class="ui">Head shadow</span></td><td>How much of the light the stone would return
+  is blocked by your own head. The angle in brackets is the <span class="ui">Head shadow half-angle</span>
+  setting in the render settings; at 0° this curve is flat at the bottom. Lower is better.</td></tr>
+</table>
+
+<p>ISO brightness, window and head shadow add up to 100%: every bit of the stone's face is either
+returning light, showing what is behind the stone, or reflecting your head. A dip in the ISO or COS
+curve is usually explained by a rise in the window or head shadow curve at the same angle.</p>
+
+<p>The switches in the <span class="ui">Curves</span> card show or hide each curve;
+<span class="ui">Table alone (dotted)</span> shows or hides all the dotted ones. The dotted lines
+stop where too little of the table is in view to measure.</p>
+
+<h2>Looking at one tilt</h2>
+
+<figure><img src="images/tilt-performance/graph-hover.webp" alt="The graph with the pointer over the Tilt X half: a teal line marks the tilt, with a dot where it crosses each curve, and the line under the graph reads Tilt X and the angle." loading="lazy">
+<figcaption>Pointing at the graph. The teal line and the dots mark the tilt the stone is turned
+to.</figcaption></figure>
+
+<p>Once every tilt has been measured, move the pointer over the graph: a line follows it, the
+stone in the middle turns to that tilt, and the value of each curve at that tilt is shown beside
+its switch, with the table's value in brackets. While the graph is still being measured, including
+after you change a setting or widen the tilt range, pointing at the graph does nothing and the
+stone stays where it is. Touch and drag does the same on a touch screen.</p>
+
+<h2>Changing the tilt range</h2>
+
+<figure class="side"><img src="images/tilt-performance/range.webp" alt="The Tilt range card: Start and End readouts above a slider with two handles, one either side of 0°, and 45° at each end of the scale." loading="lazy">
+<figcaption>The <span class="ui">Tilt range</span> card.</figcaption></figure>
+
+<p>The <span class="ui">Tilt range</span> slider sets how far the stone is tilted. Its left handle
+is the <span class="ui">Start</span>, how far <span class="ui">Tilt X</span> goes, and its right
+handle the <span class="ui">End</span>, how far <span class="ui">Tilt Y</span> goes. Both start at
+33°, and each can be set from 5° to 45°. Drag a handle, or click it and use the arrow keys.</p>
+
+<p>Every tilt measured is kept, so widening the range measures only the new tilts, and narrowing it
+redraws the graph straight away without measuring anything. The range is kept if you close the tool
+and open it again, until the page is reloaded.</p>
+
+<h2>What it uses from your settings</h2>
+
+<p>The stone is measured with the <span class="ui">Refractive index</span>,
+<span class="ui">Dispersion (fire)</span>, <span class="ui">Max internal bounces</span> and
+<span class="ui">Head shadow half-angle</span> set in the render settings, which stay on the right
+while the tool is open. Change any of them and the graph is measured again once you let go of the
+slider: for example, set a wider <span class="ui">Head shadow half-angle</span> to see how much
+more of the stone your head darkens. The stone is always measured as a colourless stone, and with
+the deterministic renderer, whichever renderer you are viewing with.</p>
+
+<h2>Downloading the graph</h2>
+
+<figure><img src="images/tilt-performance/download.webp" alt="A downloaded tilt performance graph: the design's name and the settings it was measured with at the top, the graph, and a key to the curves underneath." loading="lazy">
+<figcaption>A downloaded graph.</figcaption></figure>
+
+<p>Click <span class="ui">Download graph</span> to save the graph as a PNG picture. It shows the
+curves that are switched on, in the colours of the theme you are using, with the design's name,
+the settings it was measured with and a key to the curves. Where your browser supports it, you
+choose where to save it; otherwise it goes to your downloads folder.</p>
+
+<h2>Closing it</h2>
+
+<p>Click <span class="ui">Done</span> at the bottom of the pane, or press <kbd>Esc</kbd>. The
+cutting instructions come back, and the stone returns to the view you had before. Nothing in the
+design is changed, so there is nothing to undo; <span class="ui">Undo</span> and
+<span class="ui">Redo</span> do nothing while the tool is open, and the design cannot be edited
+until it is closed. If you switch to fullscreen while it is open, the pane is hidden with the
+cutting instructions; the first <kbd>Esc</kbd> then leaves fullscreen, and the next closes the
+tool.</p>
