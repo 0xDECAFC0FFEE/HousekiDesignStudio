@@ -126,12 +126,10 @@ export const accumulationTarget = writable(512);
 export const resolutionScale = writable(1);
 
 /**
- * "Drag quality" (0.15 to 1): the fraction of full quality kept while the user is
- * turning or zooming the stone. A single knob for two things that used to be set
- * independently -- the canvas resolution (multiplied by this, here in the page) and the max
- * bounce count (multiplied by this in Rust, via `app.set_drag_quality`, and applied by
- * `RenderParams::draft`) -- so the two always move together and 100% is indistinguishable
- * from a still frame.
+ * "Drag quality" (0.15 to 1): the fraction of the resolution scale kept while the user is
+ * turning or zooming the stone, so 100% is indistinguishable from a still frame. Page-only:
+ * it does not touch the max bounce count (it did from 2026-09-22 until the user asked it not
+ * to, 2026-09-28), so a moving stone looks like the same stone, only blurrier.
  */
 export const dragQuality = writable(0.4);
 

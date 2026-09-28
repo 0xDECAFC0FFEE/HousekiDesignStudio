@@ -18,6 +18,7 @@
   import { editGuides, rockShape } from '../lib/edit_geometry.js';
   import { tierView, getDesign } from '../lib/tier_controller.js';
   import { engine } from '../lib/stores.js';
+  import { projectionTracker } from '../lib/overlay_projection.js';
 
   // The stone the rock is measured by, kept between runs: building it is the expensive half of
   // the guide (about half a second), so while a scale is being dragged the one from before the
@@ -56,12 +57,22 @@
   // points string, or null for nothing.
   let drawn = $state(null);
 
+  // Whether this frame's projection differs from the last one drawn (overlay_projection.js).
+  const moved = projectionTracker();
+
+  // A new plane is drawn afresh, however it projects.
+  $effect(() => {
+    void guides;
+    moved.forget();
+  });
+
   /** Projects the cutting plane with the camera of the frame just drawn. */
   function project() {
     const canvas = document.getElementById('canvas');
 
     if (guides === null || !engine.app || !canvas) {
       drawn = null;
+      moved.forget();
       return;
     }
 
@@ -78,12 +89,19 @@
     // viewport.js). Without it the plane stayed put while the stone moved; IndexDial does the same.
     const left = canvas.offsetLeft;
     const top = canvas.offsetTop;
+
+    // Nothing has moved since the last frame drawn: leave the SVG alone.
+    if (!moved(projected, width, height, left, top) && drawn !== null) {
+      return;
+    }
+
     const screen = [];
 
     for (let i = 0; i < points.length; i++) {
       // Behind a perspective eye: nothing sensible to draw.
       if (!(projected[i * 3 + 2] > 0)) {
         drawn = null;
+        moved.forget();
         return;
       }
 

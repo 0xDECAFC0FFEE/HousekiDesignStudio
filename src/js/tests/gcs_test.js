@@ -120,7 +120,7 @@ const GCS_TIER_NAMES = ["P1", "G1", "P2", "C1", "C2", "C3", "C4", "C5", "C6", "T
 // own tier names disagree, with no copy to keep in step.
 // ---------------------------------------------------------------------------
 
-import { tierId } from "../../web/src/lib/tiers.js";
+import { tierId, tierIdsInFileOrder, TIER_ANGLE_EPSILON } from "../../web/src/lib/tiers.js";
 
 function tierIdLikeThePage(angle, counters) {
     return tierId({ angle }, counters);
@@ -409,6 +409,121 @@ Deno.test("a girdle tier written a hair under 90 (not over, like hex_cut_v2's) s
 });
 
 /*
+ * T-0264: the user's own Periwinkle2.gcs, cut down to the one tier that failed.
+ *
+ * SETUP. Periwinkle2.gcs (gear 80, 10-fold) writes its girdle G1 at polar angle
+ * 89.999998960684408 -- 1.04e-6 of a degree UNDER 90. That is further under than the
+ * NQR_Round-style residue the test above covers (1e-14), and just past the 1e-6 girdle window
+ * gcs.js used to have, because Gem Cut Studio's geometry for this file carries noise of about
+ * 1e-8 in every normal (G1's nz values scatter between -2e-10 and +1.8e-8). The fixture below
+ * is G1's second facet copied verbatim off the user's file (its normal and index_angle, with
+ * placeholder corners -- the cross-check reads only the normal): index_angle 72 (to 7e-8),
+ * normal (-0.951, -0.309, ~0), which points at azimuth 252 degrees from +Y towards +X.
+ *
+ * THE ARITHMETIC. At gear 80 a tooth is 4.5 degrees. The girdle's formula (azimuth = 180 +
+ * index_angle = 252) gives tooth 56, which is what the normal recovers. The crown formula
+ * (azimuth = 180 - 72 = 108) gives tooth 24. Those are exactly the two numbers in the error
+ * the user saw: "index_angle (tooth 24.000000) disagrees with the tooth its own normal recovers
+ * (56.000000) by 32.000000 of a tooth" -- the crown formula applied to a girdle.
+ *
+ * THE TEST. Parse the fixture, build the design from it, and name its tier with the page's own
+ * tierId (tiers.js).
+ *
+ * WHAT IT VERIFIES. (1) The file parses: the tier counts as the girdle for the index_angle
+ * convention, so the cross-check passes. (2) The facet lands on tooth 56, the tooth its own
+ * geometry says -- the polar design is the truth, and it agrees with the file's index_angle
+ * once the convention is right. (3) The page calls the tier G1, as the file does, rather than
+ * filing it in the crown as C1: the reader and the page use one girdle bound, so they cannot
+ * disagree about it.
+ */
+Deno.test("Periwinkle2's girdle, written 1.04e-6 degrees under 90, parses as the girdle (T-0264)", () => {
+    const gcsText = `<GemCutStudio version="1000">
+<index gear="80" base="0" symmetry="10" mirror="0"/>
+<tier angle="89.999998960684408" depth="0.80901699303565011" name="G1" instructions="" visible="true" guide="false">
+<facet nx="-0.95105651589857099" ny="-0.30901699559550333" nz="-2.2988527773454373e-10" index_angle="71.999999926468419">
+<vertex x="0" y="0" z="0"/>
+<vertex x="1" y="0" z="0"/>
+<vertex x="0" y="1" z="0"/>
+</facet>
+</tier>
+</GemCutStudio>`;
+
+    // (1) No throw: before T-0264 this line threw the user's exact error.
+    const { parsed } = GemCutStudio.importText(gcsText);
+
+    // The reader's own tooth, from index_angle by the girdle's formula: 56 (to float noise).
+    assertClose(parsed.tiers[0].indices[0].index, 56, 1e-5, "index_angle read as the girdle's tooth");
+
+    // (2) The design's tooth, recovered from the facet's normal and snapped: exactly 56.
+    const design = GemCadDesign.fromGemCad(parsed, {});
+    assertEquals(design.tiers[0].facets.map((facet) => facet.index), [56], "the design's tooth");
+    assertEquals(design.gear.fractional, false, "a whole tooth, not a fractional one");
+
+    // (3) The page's own tier id for that angle.
+    const counters = { crown: 0, pavilion: 0, girdle: 0 };
+    assertEquals(tierIdLikeThePage(design.tiers[0].angle, counters), "G1", "the page's tier id");
+});
+
+/*
+ * The other side of the same bound: widening the girdle window must not swallow a real crown
+ * tier, or a steep crown facet would be read with the girdle's formula and refused (or, worse,
+ * accepted at the wrong tooth).
+ *
+ * SETUP. One-facet files at gear 80. The first puts its tier at polar 89.99 -- 0.01 degrees
+ * under 90, twice the 5e-3 bound, and steeper than any crown tier in the corpus (the steepest is
+ * 55 degrees) -- with a normal at azimuth 108 and index_angle 72, which is consistent under the
+ * CROWN formula only (180 - 72 = 108, tooth 24). The second is the same file with the tier
+ * written 0.004 degrees under 90, inside the bound; the normal and index_angle are unchanged.
+ *
+ * THE TEST. Parse both.
+ *
+ * WHAT IT VERIFIES. The tier at 89.99 is read as crown: the crown formula agrees with its normal
+ * and it parses, at tooth 24. The tier at 89.996 is read as the girdle: the girdle's formula
+ * (tooth 56) disagrees with the same normal (tooth 24) by 32 teeth and it is refused -- so the
+ * bound sits between the two, at 5e-3, and the choice between the formulas is still a rule the
+ * reader applies rather than "whichever formula happens to agree".
+ */
+Deno.test("a tier 0.01 degrees under 90 is still crown; one 0.004 under is the girdle (T-0264)", () => {
+    const polar = 89.99 * Math.PI / 180;
+    const azimuth = 108 * Math.PI / 180;
+    const document = (angle) => `<GemCutStudio version="1000">
+<index gear="80" base="0" symmetry="1" mirror="0"/>
+<tier angle="${angle}" depth="1" name="X1" instructions="" visible="true" guide="false">
+<facet nx="${Math.sin(polar) * Math.sin(azimuth)}" ny="${Math.sin(polar) * Math.cos(azimuth)}" nz="${Math.cos(polar)}" index_angle="72">
+<vertex x="0" y="0" z="0"/>
+<vertex x="1" y="0" z="0"/>
+<vertex x="0" y="1" z="0"/>
+</facet>
+</tier>
+</GemCutStudio>`;
+
+    const crown = GemCutStudio.importText(document(89.99)).parsed;
+    assertClose(crown.tiers[0].indices[0].index, 24, 1e-9, "a steep crown tier keeps the crown formula");
+
+    assertThrows(() => GemCutStudio.importText(document(89.996)),
+        "by 32.000000 of a tooth",
+        "inside the girdle bound, the girdle's formula applies and this normal disagrees with it");
+});
+
+/*
+ * SETUP. The two copies of the tier-angle bound: design.js's `tolerances.tierAngle`, which
+ * gcs.js and export_gcs.js read when deciding which index_angle formula a tier uses, and
+ * tiers.js's exported `TIER_ANGLE_EPSILON`, which the page's isGirdleTier/isTableTier/
+ * isCuletTier use to name and section tiers. tiers.js is an ES module imported before
+ * GemCadDesign exists, so it cannot read design.js's value and keeps its own.
+ *
+ * THE TEST. Compare them.
+ *
+ * WHAT IT VERIFIES. They are the same number, and it is 5e-3 degrees (half the 0.01-degree step
+ * an angle is written and set to). If either changed alone, a tier could be read with the
+ * girdle's index_angle formula and still be listed as a crown tier, or the reverse.
+ */
+Deno.test("tiers.js's TIER_ANGLE_EPSILON is design.js's tierAngle tolerance (T-0264)", () => {
+    assertEquals(TIER_ANGLE_EPSILON, GemCadDesign.tolerances.tierAngle, "one girdle bound");
+    assertEquals(TIER_ANGLE_EPSILON, 5e-3, "half of a 0.01-degree angle step");
+});
+
+/*
  * SETUP. A two-tier hand-written .gcs, both tiers a single facet at polar 30 degrees (a
  * crown angle) on a 96-tooth gear. The first tier's facet carries frosting="0.5", as real
  * frosted facets do (Dragon_Eye C5, Illusional_Eye_Neo C4, Kiss_Kiss C6); the second has
@@ -631,6 +746,27 @@ Deno.test("every corpus .gcs builds a design that round-trips through JSON", { i
         delete design.provenance;
         const restored = GemCadDesign.fromJSON(JSON.parse(JSON.stringify(GemCadDesign.toJSON(design))));
         assertEquals(restored, design, name + ": JSON round trip");
+    }
+});
+
+/*
+ * SETUP. Every .gcs in the corpus, each read and built into a design the way the page does.
+ *
+ * THE TEST. Generate each design's tier ids with the page's own rule (tiers.js's
+ * tierIdsInFileOrder) and compare them with the names Gem Cut Studio wrote into the file.
+ *
+ * WHAT IT VERIFIES. The page names every tier of every real Gem Cut Studio design the way Gem
+ * Cut Studio does -- in particular, which tiers are girdles. Before T-0264 widened the girdle
+ * bound to 5e-3 degrees, two files disagreed (TriZag_A's G1 at polar 90.0017 and
+ * Random_Number_Generator_M2's G2 at 90.0020 were generated as P tiers); a bound that is too
+ * tight or too loose fails here on real files, not only on the synthetic ones above.
+ */
+Deno.test("the page's generated tier ids match every corpus file's own tier names", { ignore: !CORPUS_PRESENT }, () => {
+    for (const [name, text] of CORPUS) {
+        const design = GemCadDesign.fromGemCad(GemCutStudio.importText(text).parsed, {});
+
+        assertEquals(tierIdsInFileOrder(design.tiers), design.tiers.map((tier) => tier.name),
+            name + ": generated tier ids against the file's own names");
     }
 });
 

@@ -272,6 +272,37 @@ Deno.test("designToGcs round-trips every Gem Cut Studio design it can be given",
   assertEquals(worst < MICRO_EDGE, true, `worst corner ${worst}`);
 });
 
+Deno.test("designToGcs writes a girdle a hair under 90 with the girdle's index_angle (T-0264)", async () => {
+  // Setup: the startup stone's design with its girdle G1 (tier 1, written by Gem Cut Studio a
+  // hair OVER polar 90) moved to polar 89.999998960684408 -- 1.04e-6 of a degree UNDER 90, the
+  // angle the user's Periwinkle2.gcs writes its girdle at. In mast terms that is the same
+  // number, a positive angle just under 90. The facets and depth are unchanged, so the stone
+  // is the same to a millionth of a degree.
+  //
+  // Test: write the design, then read the text back through the reader and build its design.
+  //
+  // Verifies: the writer decides "girdle" with the reader's own bound (design.js's
+  // tolerances.tierAngle, 5e-3 degrees), so it writes G1's index_angle with the girdle's
+  // formula. Had it kept its old 1e-6 bound it would have written the crown's formula, and the
+  // reader would refuse its own export with "disagrees with the tooth its own normal recovers".
+  // Every G1 facet comes back on the tooth it was written at.
+  const { design } = readGcs(await Deno.readTextFile(STARTUP_URL), "hex_cut_v2");
+  const girdle = design.tiers[1];
+
+  assertEquals(girdle.name, "G1", "fixture check: tier 1 is the startup stone's girdle");
+  girdle.angle = GemCadDesign.mastAngleOf(89.999998960684408);
+  assertEquals(girdle.angle < 90 && girdle.angle > 89.99999, true, "fixture check: just under 90");
+
+  const { text } = designToGcs(design);
+  const again = readGcs(text, "hex_cut_v2");
+
+  assertEquals(
+    again.design.tiers[1].facets.map(facet => facet.index),
+    girdle.facets.map(facet => facet.index),
+    "G1's teeth, read back from the written index_angle",
+  );
+});
+
 Deno.test("designToGcs on a reversed wheel writes the same stone", async () => {
   // Setup: the startup stone's design re-expressed on the same 96-tooth wheel run backwards
   // (GemCadDesign.reExpressOnGear with reversed: true). A reversed design is what a GemCad file

@@ -107,8 +107,8 @@ glass left to see, and the tooltip suggests using the <span class="ui">Flat</spa
 instead if that little detail is wanted.</li>
 <li><span class="ui">Resolution scale</span> renders at a fraction of the screen's resolution
 while the view is still. Lower is faster but blurrier. It defaults to 100%.</li>
-<li><span class="ui">Drag quality</span> is how close to full quality the picture stays while the
-stone is being turned or zoomed &ndash; see "Turning the stone" below.</li>
+<li><span class="ui">Drag quality</span> is how sharp the picture stays while the stone is being
+turned or zoomed, as a share of the resolution scale &ndash; see "Turning the stone" below.</li>
 <li><span class="ui">Facet wireframe</span> outlines every facet you can see (edges hidden behind
 the stone are not drawn). It is on by default.</li>
 </ul>
@@ -171,8 +171,8 @@ background or the lighting instead.</li>
 <p>Drag the stone with the mouse to orbit it, and scroll the mouse wheel to zoom. Any drag, wheel
 step, or move of the <span class="ui">X rotation (spin)</span> or <span class="ui">Y rotation
 (tilt)</span> sliders drops the picture to <span class="ui">Drag quality</span> while it moves
-(scaling both the resolution and the internal bounces together), then returns to full quality
-shortly after the movement stops. Because the Deterministic renderer finishes in one pass, this
+(lowering the resolution only &ndash; the internal bounces stay as you set them, so the stone looks
+the same, just blurrier), then returns to full quality shortly after the movement stops. Because the Deterministic renderer finishes in one pass, this
 is only about keeping the stone responsive while it moves; the picture itself never needs to
 settle the way the Monte Carlo renderer's does.</p>
 

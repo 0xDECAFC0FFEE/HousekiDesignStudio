@@ -270,16 +270,22 @@
      * Gem Cut Studio itself used to write the file. A bare `>= 90` misclassified both as
      * crown, using the wrong mirror formula for every off-axis G1 facet and throwing on
      * the cross-check below by exactly `2 * index_angle` teeth (measured: index_angle 30,
-     * gear 96 -> 60 degrees -> 16 teeth, matching both files' actual error). `GIRDLE_ANGLE_
-     * EPSILON` treats anything within it of 90 as the girdle side regardless of which way
-     * the file's own noise falls, the same way `TIER_ANGLE_EPSILON` (web/src/lib/tiers.js)
-     * already treats a mast angle near 0 or 90 as the table or the girdle for the same
-     * reason -- a genuine crown facet is nowhere near this close to 90 in any real design.
+     * gear 96 -> 60 degrees -> 16 teeth, matching both files' actual error). Anything
+     * within `GemCadDesign.tolerances.tierAngle` of 90 is therefore the girdle side,
+     * whichever way the file's own noise falls -- the same bound tiers.js's
+     * `TIER_ANGLE_EPSILON` uses to call a tier the girdle, so the reader and the page
+     * cannot disagree about which tiers are girdles.
+     *
+     * That bound was 1e-6 here until T-0264: the user's Periwinkle2.gcs writes its girdle
+     * at 89.999998960684408, 1.04e-6 under 90 (its normals carry ~1e-8 of noise), and
+     * threw "disagrees ... by 32.000000 of a tooth" (index_angle 72 at gear 80: 144
+     * degrees = 32 teeth). It is 5e-3 degrees now, half the 0.01-degree step an angle is
+     * written and set to; see design.js's TIER_ANGLE_TOLERANCE for the derivation and the
+     * corpus measurement (no crown tier anywhere near it: the steepest is 55 degrees).
      */
-    var GIRDLE_ANGLE_EPSILON = 1e-6;
-
     function toothFromIndexAngle(indexAngle, polarAngle, stepAngle, originIndex, teeth) {
-        var pavilionOrGirdle = polarAngle >= 90 - GIRDLE_ANGLE_EPSILON;
+        var girdleTolerance = globalThis.GemCadDesign.tolerances.tierAngle;
+        var pavilionOrGirdle = polarAngle >= 90 - girdleTolerance;
         var azimuth = pavilionOrGirdle ? (180 + indexAngle) : (180 - indexAngle);
         var tooth = azimuth / stepAngle + originIndex;
 
@@ -490,7 +496,7 @@
      * downstream could render it either, so it throws all the way out.
      *
      * Requires `globalThis.GemCadDesign` (design.js) to already be loaded, for
-     * `mastAngleOf`, `polarOf` and `tolerances.indexSnap`. `make_page.py` concatenates
+     * `mastAngleOf`, `polarOf`, `tolerances.indexSnap` and `tolerances.tierAngle`. `make_page.py` concatenates
      * gemcad.js, gemcad_obj.js, design.js and this file in that order and runs them
      * together before anything calls `importText`, so this is a load-order requirement on
      * the bundle, not a circular dependency: this module calls into design.js at

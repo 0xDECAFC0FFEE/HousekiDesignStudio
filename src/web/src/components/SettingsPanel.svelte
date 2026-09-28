@@ -201,11 +201,11 @@
     <ParamSlider name="maxBounces" rowId="maxBounces-row" label="Max internal bounces"
       tip="How many times light may reflect inside the stone before the renderer stops following it. More is more accurate for deep stones, but slower. Light still inside when it runs out is shown as a darker tint of the stone color. The minimum is 3; any lower and there is barely any glass left to see, so you might as well use the Flat renderer." />
 
-    <!-- Resolution scale: only in the page, no Rust field behind it, so the slider is the
-         store. "Drag quality" below DOES have a Rust field (drag_quality), since it also
-         scales the max bounce count, so its handlers push every change into `app` as well as
-         the store. Both are typed as a percentage, like the readout; a typed value is put
-         where the slider can sit (snapToSpec: within its 15-100% range, and on its step). -->
+    <!-- Resolution scale and drag quality: only in the page, no Rust field behind either, so
+         each slider is its store. (Drag quality also scaled the max bounce count in Rust from
+         2026-09-22 to 2026-09-28; the user asked for it to leave bounces alone.) Both are
+         typed as a percentage, like the readout; a typed value is put where the slider can
+         sit (snapToSpec: within its 15-100% range, and on its step). -->
     <Slider id="resolution" label="Resolution scale"
       tip="Renders at a fraction of the screen resolution when the view is still. Lower is faster but blurrier."
       spec={SLIDER_SPECS.resolution} value={$resolutionScale} text={`${Math.round($resolutionScale * 100)}%`}
@@ -222,12 +222,11 @@
       }} />
 
     <Slider id="drag-quality" label="Drag quality"
-      tip="How close to full quality the picture stays while you turn or zoom the stone, as a percentage of the resolution scale and the max internal bounces above -- both are multiplied by this amount together, so the stone keeps up with the mouse. 100% renders exactly like a still frame even while dragging; lower it if dragging feels choppy. Full quality always returns the moment you stop."
+      tip="How sharp the picture stays while you turn or zoom the stone, as a percentage of the resolution scale above, so the stone keeps up with the mouse. The max internal bounces are never lowered while dragging, so the stone looks the same, just blurrier. 100% renders exactly like a still frame even while dragging; lower it if dragging feels choppy. Full quality always returns the moment you stop."
       spec={SLIDER_SPECS['drag-quality']} value={$dragQuality}
       text={`${Math.round($dragQuality * 100)}%`}
       oninput={v => {
         dragQuality.set(v);
-        app.set_drag_quality(v);
         writeSetting(DRAG_QUALITY_SETTING, String(v));
         requestRender();
       }}
@@ -236,7 +235,6 @@
         const snapped = snapToSpec(value, SLIDER_SPECS['drag-quality']);
 
         dragQuality.set(snapped);
-        app.set_drag_quality(snapped);
         writeSetting(DRAG_QUALITY_SETTING, String(snapped));
         requestRender();
       }} />

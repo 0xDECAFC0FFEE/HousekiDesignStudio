@@ -57,7 +57,8 @@ const DEFAULT_MAX_SETTLE_MS = 20000;
 /**
  * Builds a budgeted task around `run`.
  *
- * - `budget` is the share of the wall clock the work may use, 0 to 1.
+ * - `budget` is the share of the wall clock the work may use, 0 to 1, or a function returning it,
+ *   asked each time a gap is sized.
  * - `minGap` is a floor under the gap, in ms; `maxGap` the ceiling.
  * - `paused()` may say "not now" (the tab is hidden): the run is skipped and tried again after
  *   `maxGap`, keeping the request pending.
@@ -101,9 +102,12 @@ export function budgetedTask({
 
   /** How long to wait after a run of `cost` ms for the rest of the page to have its share. */
   function gap() {
-    const share = budget <= 0 ? maxGap : (cost * (1 - budget)) / budget;
+    // A number, or a function read afresh for every gap: the render loop gives the GPU the
+    // whole clock while the stone is dragged and 70% of it otherwise (viewport.js).
+    const share = typeof budget === 'function' ? budget() : budget;
+    const fraction = share <= 0 ? maxGap : (cost * (1 - share)) / share;
 
-    return Math.min(maxGap, Math.max(minGap, share));
+    return Math.min(maxGap, Math.max(minGap, fraction));
   }
 
   function fire() {

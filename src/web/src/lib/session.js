@@ -170,13 +170,10 @@ export function restorePersistedSettings(app) {
     app.set_wireframe(savedWireframe);
   }
 
-  // Resolution scale, full quality and while dragging. There is no Rust field behind the
-  // still-frame resolution slider at all (`app.render(width, height)` just draws at whatever
-  // resolution the page asks for, whichever renderer is selected; see src/params.rs's own
-  // comment on why resolution is handled here, not in Rust), so a store is all that setting
-  // needs. "Drag quality" DOES have a Rust counterpart (`set_drag_quality`), because
-  // it also scales the max bounce count, not just the canvas resolution -- so its restored
-  // value is pushed into Rust right after the store is set, below.
+  // Resolution scale, full quality and while dragging. There is no Rust field behind either
+  // slider (`app.render(width, height)` just draws at whatever resolution the page asks for,
+  // whichever renderer is selected; see src/params.rs's own comment on why resolution is
+  // handled here, not in Rust), so a store is all each setting needs.
   for (const [store, key, name] of [
     [resolutionScale, RESOLUTION_SETTING, 'resolution'],
     [dragQuality, DRAG_QUALITY_SETTING, 'drag-quality'],
@@ -186,8 +183,6 @@ export function restorePersistedSettings(app) {
 
     store.set(saved !== null ? saved : spec.value);
   }
-
-  app.set_drag_quality(get(dragQuality));
 
   // What the panel shows first.
   renderer.set(app.renderer());

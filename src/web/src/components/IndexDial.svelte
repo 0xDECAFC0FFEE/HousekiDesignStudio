@@ -21,6 +21,7 @@
   import { tierView, getDesign } from '../lib/tier_controller.js';
   import { engine, stoneStatsStore } from '../lib/stores.js';
   import { indexDial, dialOpacity } from '../lib/index_dial.js';
+  import { projectionTracker } from '../lib/overlay_projection.js';
 
   // The dial in the design's frame: worked out again when the rows are redrawn (an edit, an
   // undo, a new stone), when the gear changes, and when the stone's own measurements do -- not
@@ -38,6 +39,35 @@
     return indexDial(design, $gearTeeth, stats.girdleRadius, stats.girdleZ);
   });
 
+  // Every point of the dial in one Float32Array, in three runs: each tick's base (which is also
+  // the ring), each tick's tip, then the numbers' anchors. Built when the dial is, not per frame.
+  const flat = $derived.by(() => {
+    if (dial === null) {
+      return null;
+    }
+
+    const points = [
+      ...dial.ticks.map(tick => tick.base),
+      ...dial.ticks.map(tick => tick.tip),
+      ...dial.labels.map(label => label.at),
+    ];
+    const array = new Float32Array(points.length * 3);
+
+    points.forEach((point, i) => array.set([point.x, point.y, point.z], i * 3));
+
+    return array;
+  });
+
+  // Whether this frame's projection differs from the last one drawn (overlay_projection.js).
+  const moved = projectionTracker();
+
+  // A new dial (another design, gear or stone) is drawn afresh even if it projects to the same
+  // points: its numbers may differ where its ticks do not.
+  $effect(() => {
+    void flat;
+    moved.forget();
+  });
+
   // What is drawn, in CSS pixels over the canvas: the ring as an SVG points string, the minor
   // and major ticks as one path each, and the numbered ticks. Null for nothing.
   let drawn = $state(null);
@@ -48,6 +78,7 @@
 
     if (dial === null || !engine.app || !canvas) {
       drawn = null;
+      moved.forget();
       return;
     }
 
@@ -59,21 +90,12 @@
 
     if (opacity === 0) {
       drawn = null;
+      moved.forget();
       return;
     }
 
-    // Every point in one array, in three runs: each tick's base (which is also the ring), each
-    // tick's tip, then the numbers' anchors.
-    const points = [
-      ...dial.ticks.map(tick => tick.base),
-      ...dial.ticks.map(tick => tick.tip),
-      ...dial.labels.map(label => label.at),
-    ];
-    const flat = new Float32Array(points.length * 3);
-
-    points.forEach((point, i) => flat.set([point.x, point.y, point.z], i * 3));
-
     const projected = engine.app.project_file_points(flat);
+    const pointCount = flat.length / 3;
     const width = canvas.clientWidth;
     const height = canvas.clientHeight;
     // Where the canvas sits in #viewport, which this SVG covers. 0 normally; while a side pane's
@@ -83,13 +105,20 @@
     // automatically when the sidebars resize"). #viewport is the canvas's offsetParent.
     const left = canvas.offsetLeft;
     const top = canvas.offsetTop;
+
+    // Nothing has moved since the last frame drawn: leave the SVG alone.
+    if (!moved(projected, width, height, left, top) && drawn !== null) {
+      return;
+    }
+
     const screen = [];
 
-    for (let i = 0; i < points.length; i++) {
+    for (let i = 0; i < pointCount; i++) {
       // Behind a perspective eye: nothing sensible to draw. Face-on, the whole ring is either
       // in front or the stone is not on screen at all, so this is all or nothing.
       if (!(projected[i * 3 + 2] > 0)) {
         drawn = null;
+        moved.forget();
         return;
       }
 

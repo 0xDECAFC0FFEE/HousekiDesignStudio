@@ -1009,8 +1009,8 @@ pub const MIN_REFRACTIVE_INDEX: f32 = 1.0;
 pub const MAX_REFRACTIVE_INDEX: f32 = 4.0;
 pub const MAX_DISPERSION: f32 = 0.5;
 /// 2026-09-22, the user: "make the minimum max internal bounces 3" -- below 3 a stone
-/// barely reads as glass (see `RenderParams::draft`'s own floor at 3 while dragging, added
-/// the same day, which this makes the slider's own minimum rather than only draft mode's).
+/// barely reads as glass. (It began as draft mode's floor while dragging, added the same day;
+/// draft mode has left the bounce count alone since 2026-09-28.)
 pub const MIN_BOUNCES: u32 = 3;
 
 /// `RenderParams::tilt_measure`'s values, mirrored by gem.frag's TILT_MEASURE_* constants.
@@ -1163,13 +1163,15 @@ impl RenderParams {
     }
 
     /// A reduced-quality variant of these parameters, for use while the user is
-    /// interacting with the view. `quality` is the page's "drag quality"
-    /// setting (0 to 1, clamped here): 1 leaves the bounce count untouched, and lower
-    /// values scale it down by the same fraction, linearly, so it moves in lock step
-    /// with the page's own canvas-resolution cut (`viewport.js`'s `draftResolutionScale`
-    /// was replaced by this single knob for exactly that reason -- the two used to be
-    /// set independently, which meant the bounce count and the resolution could disagree
-    /// about how "cheap" a drag should be).
+    /// interacting with the view.
+    ///
+    /// **The bounce count is deliberately preserved (2026-09-28, the user: "update the drag
+    /// quality slider to not affect the internal bounce count").** From 2026-09-22 the
+    /// page's "drag quality" fraction was passed in here and multiplied `max_bounces` as well
+    /// as the canvas resolution, floored at 3; before that, draft mode halved the bounce count
+    /// outright. Both made a drag look like a different, shallower stone. Drag quality is now
+    /// purely a resolution cut, applied by the page (`viewport.js`'s `renderNow`), so nothing
+    /// about it reaches Rust.
     ///
     /// **Dispersion is deliberately preserved.** Dropping to a single spectral sample
     /// would be the largest single saving available here (a 3x cut), and an earlier
@@ -1178,42 +1180,19 @@ impl RenderParams {
     /// very motion that reveals it is the most jarring possible degradation, and it
     /// also misrepresents the material being previewed.
     ///
-    /// Resolution is the other axis given up, and it is handled by the page rather
-    /// than here (it is a property of the canvas, not of the material): the page
-    /// multiplies its resolution scale by the same `quality` this multiplies the
-    /// bounce count by, so at `quality = 1` a drag looks exactly like a still frame,
-    /// and at `quality = 0.5` both are halved together.
-    ///
-    /// Guaranteed never to be more expensive than the original: `quality` is clamped
-    /// to at most 1 before it multiplies, so the result can only ever be less than or
-    /// equal to `self.max_bounces`. See `draft_is_never_more_expensive_than_full_quality`.
-    ///
-    /// Floored at 3 (`MIN_BOUNCES`, since 2026-09-22 -- also the slider's own minimum, for
-    /// the same reason: below 3 there is barely any glass left to see, so someone wanting
-    /// that little may as well use the Flat renderer). A drag at a low quality on a stone
-    /// set to 20 bounces would otherwise round well under that; the explicit `max(3)` here
-    /// is what stops it, since `quality` can make `self.max_bounces * quality` arbitrarily
-    /// small on its own. Still capped by `self.max_bounces` immediately after, which
-    /// matters only for a `self` that was never clamped (this function does not clamp its
-    /// receiver): a genuinely configured stone can never be below `MIN_BOUNCES` itself, so
-    /// the cap and the floor cannot conflict for any value the panel could actually produce.
+    /// Resolution is the axis given up for the deterministic renderer, and it is handled by
+    /// the page rather than here (it is a property of the canvas, not of the material).
     ///
     /// (T-0120) For the ported LuxCore path the sample count is the axis to give up, for the
     /// same reason resolution is: it is the one knob that is purely an amount of noise, not a
     /// change in what is being simulated. A quarter of the samples is a 4x saving and doubles
     /// the noise, which on a moving image reads as grain rather than as a different stone.
-    /// Capped by the configured value so, like the bounce count above, it can never make a
-    /// drag more expensive than the still frame. Left as a fixed quarter rather than also
-    /// following `quality`: it changes how many frames accumulation takes to converge, not
-    /// what the converged image looks like, so it isn't part of the "drag quality"
-    /// the user is choosing.
-    pub fn draft(&self, quality: f32) -> RenderParams {
+    /// Capped by the configured value so it can never make a drag more expensive than the
+    /// still frame. A fixed quarter rather than following "drag quality": it changes how many
+    /// frames accumulation takes to converge, not what the converged image looks like.
+    pub fn draft(&self) -> RenderParams {
         let mut draft = self.clone();
-        let quality = quality.clamp(0.0, 1.0);
 
-        let scaled_bounces = (self.max_bounces as f32 * quality).round() as u32;
-
-        draft.max_bounces = scaled_bounces.max(3).min(self.max_bounces);
         draft.lux_samples = (self.lux_samples / 4).max(1).min(self.lux_samples);
 
         draft.clamp();
@@ -2164,48 +2143,42 @@ mod tests {
         assert_eq!(params.debug_mode, DebugMode::FacetId);
     }
 
-    /// Draft mode must never cost more than full quality, at *any* bounce setting or
-    /// *any* quality-while-dragging fraction.
+    /// Draft mode must never cost more than full quality, at *any* bounce setting.
     ///
     /// This is a regression test for a real bug: the reduction used to be a fixed
     /// `(max_bounces / 2).max(4)`, which raises the bounce count whenever the user
     /// has set it below 8. At `max_bounces = 1`, full quality costs 1 bounce x 3
     /// spectral samples = 3 interior events, while the draft cost 4 bounces x 1
     /// sample = 4. Dragging the view then got *slower* and perturbed the image more
-    /// than necessary, which is the exact opposite of the intent. The quality
-    /// argument replaced the fixed halving, so this now sweeps quality too: a linear
-    /// multiply by a fraction clamped to at most 1 cannot reproduce that bug, but the
-    /// test is kept exhaustive over quality anyway since it is cheap to run.
+    /// than necessary, which is the exact opposite of the intent.
+    ///
+    /// Since 2026-09-28 draft mode leaves the bounce count alone entirely, so this now
+    /// holds with equality on the deterministic side. It is kept, swept over every
+    /// configurable bounce count and both spectral sample counts, so that any future
+    /// reduction that creeps back in has to keep satisfying it.
     #[test]
     fn draft_is_never_more_expensive_than_full_quality() {
         for bounces in MIN_BOUNCES..=MAX_BOUNCES {
             for samples in [1u32, 3] {
-                // 1.5 is out of range on purpose: `draft` clamps it to 1, so it must behave
-                // exactly like 1.0 rather than ever raising the bounce count above the
-                // configured value.
-                for quality in [0.0, 0.15, 0.4, 0.5, 0.99, 1.0, 1.5] {
-                    let mut full = RenderParams::default();
+                let mut full = RenderParams::default();
 
-                    full.max_bounces = bounces;
-                    full.spectral_samples = samples;
-                    full.clamp();
+                full.max_bounces = bounces;
+                full.spectral_samples = samples;
+                full.clamp();
 
-                    let draft = full.draft(quality);
+                let draft = full.draft();
 
-                    assert!(
-                        draft.worst_case_interior_events() <= full.worst_case_interior_events(),
-                        "draft is more expensive than full quality at {} bounces / {} \
-                         samples / {} quality: draft costs {} interior events ({} bounces x \
-                         {} samples), full costs {}",
-                        bounces,
-                        samples,
-                        quality,
-                        draft.worst_case_interior_events(),
-                        draft.max_bounces,
-                        draft.spectral_samples,
-                        full.worst_case_interior_events()
-                    );
-                }
+                assert!(
+                    draft.worst_case_interior_events() <= full.worst_case_interior_events(),
+                    "draft is more expensive than full quality at {} bounces / {} samples: \
+                     draft costs {} interior events ({} bounces x {} samples), full costs {}",
+                    bounces,
+                    samples,
+                    draft.worst_case_interior_events(),
+                    draft.max_bounces,
+                    draft.spectral_samples,
+                    full.worst_case_interior_events()
+                );
             }
         }
     }
@@ -2224,8 +2197,7 @@ mod tests {
         params.spectral_samples = 3;
         params.clamp();
 
-        // The quality argument only touches the bounce count; any value proves the point here.
-        let draft = params.draft(0.5);
+        let draft = params.draft();
 
         assert_eq!(
             draft.spectral_samples, 3,
@@ -2233,60 +2205,32 @@ mod tests {
         );
     }
 
-    /// Draft mode scales the bounce count by the "drag quality" fraction,
-    /// linearly, floors it at 3 so a low-quality drag still looks like glass rather
-    /// than a flat shade, and must never exceed the configured value even so.
+    /// Draft mode must leave the bounce count exactly as configured.
     ///
-    /// Setup: a stone set to 20 bounces. Test: draft it at a handful of quality
-    /// fractions, including the two ends of the range and a value above and below it
-    /// (the slider itself is clamped to 0.15-1, but `draft` must not trust that -- a
-    /// stray console call or a future slider range change should not be able to raise
-    /// the bounce count above what the user configured). Verifies the multiply is
-    /// exact where it divides evenly and lands at or above the floor (quality 1, 0.5,
-    /// 0.25), rounds sensibly where it does not (0.4 of 20 is 8), is clamped to the
-    /// configured value at quality > 1, and floors at 3 at quality 0. Then, the
-    /// remaining edge of the floor: at exactly 3 configured bounces (`MIN_BOUNCES`,
-    /// since 2026-09-22 -- the floor `draft` applies while dragging is now also the
-    /// slider's own minimum, so 3 is the lowest configured value that can actually
-    /// reach this function), the floor and the configured value coincide at every
-    /// quality, never exceeding 3.
+    /// 2026-09-28, the user: "update the drag quality slider to not affect the internal
+    /// bounce count". Until then `draft` took the page's drag-quality fraction and multiplied
+    /// `max_bounces` by it (floored at 3), so a drag at the default 40% turned a 14-bounce
+    /// stone into a 6-bounce one and the stone visibly changed while it moved. Drag quality is
+    /// now a resolution cut only, applied by the page, and `draft` takes no quality at all.
+    ///
+    /// Setup: every bounce count the slider can set, `MIN_BOUNCES` to `MAX_BOUNCES`, each
+    /// clamped as the panel would. Test: take the draft variant of each. Verifies the drafted
+    /// `max_bounces` equals the configured one at both ends of the range and everywhere in
+    /// between -- the low end matters because the old floor lived there, the high end
+    /// because that is where the old multiply cut the most.
     #[test]
-    fn draft_scales_bounce_count_linearly_with_quality() {
-        let mut params = RenderParams::default();
+    fn draft_leaves_the_bounce_count_alone() {
+        for bounces in MIN_BOUNCES..=MAX_BOUNCES {
+            let mut params = RenderParams::default();
 
-        params.max_bounces = 20;
-        params.clamp();
-
-        assert_eq!(params.draft(1.0).max_bounces, 20, "100% quality must not reduce bounces");
-        assert_eq!(params.draft(0.5).max_bounces, 10, "50% quality should halve 20 to 10");
-        assert_eq!(params.draft(0.25).max_bounces, 5, "25% quality should quarter 20 to 5");
-        assert_eq!(params.draft(0.4).max_bounces, 8, "40% of 20 is 8");
-        assert_eq!(
-            params.draft(1.5).max_bounces, 20,
-            "a quality above 1 must clamp to 1, not raise bounces past the configured value"
-        );
-        assert_eq!(
-            params.draft(0.15).max_bounces, 3,
-            "15% of 20 is 3, exactly the floor -- must not go any lower"
-        );
-        assert_eq!(
-            params.draft(0.0).max_bounces, 3,
-            "0% quality must floor at 3 rather than reach 0"
-        );
-
-        // At MIN_BOUNCES itself (3), the floor and the configured value are the same
-        // number, at every quality fraction (which can only shrink the multiply further,
-        // being clamped to at most 1 before it is applied) -- so this must never move.
-        params.max_bounces = MIN_BOUNCES;
-        assert_eq!(MIN_BOUNCES, 3, "this test's premise: the floor is also the slider's min");
-
-        for tenth in 0..=15 {
-            let quality = tenth as f32 / 10.0;
+            params.max_bounces = bounces;
+            params.clamp();
 
             assert_eq!(
-                params.draft(quality).max_bounces, MIN_BOUNCES,
-                "quality {} moved bounces away from the floor at the lowest configured value",
-                quality
+                params.draft().max_bounces,
+                bounces,
+                "draft mode changed a configured {} bounces",
+                bounces
             );
         }
     }
@@ -2302,7 +2246,7 @@ mod tests {
         params.exposure = 2.5;
 
         let before = params.clone();
-        let _ = params.draft(0.5);
+        let _ = params.draft();
 
         assert_eq!(params, before, "draft() must not modify its receiver");
     }
@@ -2974,7 +2918,7 @@ mod tests {
         let params = RenderParams::default();
 
         assert!(params.wireframe, "the facet wireframe must default to on");
-        assert!(params.draft(0.5).wireframe, "draft mode must not turn the wireframe off");
+        assert!(params.draft().wireframe, "draft mode must not turn the wireframe off");
     }
 
     /// The ported path's environment source must round trip, must fall back to the
@@ -3213,51 +3157,37 @@ mod tests {
     /// Since T-0122 the default is 1 sample per pass, where there is nothing left to cut:
     /// a drag is cheap because it is one pass, not because the pass is cheaper. The
     /// reduction is checked at 16 rather than at the default so it keeps being tested.
-    ///
-    /// Also checked at two very different quality-while-dragging fractions (0 and 1),
-    /// since this quarter is fixed rather than following `quality` (unlike the bounce
-    /// count): the sample count must come out the same either way, or the "quality"
-    /// slider would silently be doing something to convergence speed it does not
-    /// document.
     #[test]
     fn draft_mode_cuts_the_lux_sample_count_and_never_raises_it() {
-        for quality in [0.0, 1.0] {
+        let mut params = RenderParams::default();
+        params.lux_samples = 16;
+        assert_eq!(params.draft().lux_samples, 4);
+
+        // The default is already at the floor, so drafting is a no-op rather than a rise.
+        assert_eq!(RenderParams::default().lux_samples, DEFAULT_LUX_SAMPLES);
+        assert_eq!(RenderParams::default().draft().lux_samples, 1);
+
+        // 2 / 4 rounds to 0, so the floor lifts it to 1 -- still a cut, not a rise.
+        let mut cheap = RenderParams::default();
+        cheap.lux_samples = 2;
+        assert_eq!(cheap.draft().lux_samples, 1);
+
+        // Already at the floor: the `min(self)` is what stops it going back up to 1 from
+        // below, and the `max(1)` is what stops it reaching 0 and dividing by zero in the
+        // shader. Neither can move it here.
+        let mut one = RenderParams::default();
+        one.lux_samples = 1;
+        assert_eq!(one.draft().lux_samples, 1);
+
+        // The general property both bounds exist to guarantee, over the whole range.
+        for samples in 1..=64 {
             let mut params = RenderParams::default();
-            params.lux_samples = 16;
-            assert_eq!(params.draft(quality).lux_samples, 4, "at quality {}", quality);
+            params.lux_samples = samples;
 
-            // The default is already at the floor, so drafting is a no-op rather than a rise.
-            assert_eq!(RenderParams::default().lux_samples, DEFAULT_LUX_SAMPLES);
-            assert_eq!(RenderParams::default().draft(quality).lux_samples, 1, "at quality {}", quality);
+            let drafted = params.draft().lux_samples;
 
-            // 2 / 4 rounds to 0, so the floor lifts it to 1 -- still a cut, not a rise.
-            let mut cheap = RenderParams::default();
-            cheap.lux_samples = 2;
-            assert_eq!(cheap.draft(quality).lux_samples, 1, "at quality {}", quality);
-
-            // Already at the floor: the `min(self)` is what stops it going back up to 1 from
-            // below, and the `max(1)` is what stops it reaching 0 and dividing by zero in the
-            // shader. Neither can move it here.
-            let mut one = RenderParams::default();
-            one.lux_samples = 1;
-            assert_eq!(one.draft(quality).lux_samples, 1, "at quality {}", quality);
-
-            // The general property both bounds exist to guarantee, over the whole range.
-            for samples in 1..=64 {
-                let mut params = RenderParams::default();
-                params.lux_samples = samples;
-
-                let drafted = params.draft(quality).lux_samples;
-
-                assert!(drafted >= 1, "{} samples drafted to 0 at quality {}", samples, quality);
-                assert!(
-                    drafted <= samples,
-                    "{} samples drafted up to {} at quality {}",
-                    samples,
-                    drafted,
-                    quality
-                );
-            }
+            assert!(drafted >= 1, "{} samples drafted to 0", samples);
+            assert!(drafted <= samples, "{} samples drafted up to {}", samples, drafted);
         }
     }
 
@@ -3503,34 +3433,36 @@ mod tests {
 
     /// Draft mode must restart the accumulation in both directions.
     ///
-    /// Setup: default parameters and their draft reduction, which is what `render()`
-    /// actually sends to the shader. Test: accumulate under one and then present the
-    /// other, then go back. Verifies the case a key built from the *stored* parameters
-    /// would miss entirely: `set_draft_mode` changes no field of `RenderParams`, yet it
-    /// scales the bounce count by `drag_quality` and quarters the sample count, so frames
-    /// taken either side of it estimate different integrals. Averaging a drag's cheap
-    /// frames into the still image is exactly the "smeared" failure this ticket warns
-    /// about.
+    /// Setup: parameters at 16 samples per pass and their draft reduction, which is what
+    /// `render()` actually sends to the shader. 16 rather than the default 1, because since
+    /// 2026-09-28 draft mode only quarters the sample count (it no longer touches the
+    /// bounce count), and at 1 sample there is nothing to quarter. Test: accumulate under
+    /// one and then present the other, then go back. Verifies the case a key built from the
+    /// *stored* parameters would miss entirely: `set_draft_mode` changes no field of
+    /// `RenderParams`, yet it quarters the sample count, so frames taken either side of it
+    /// estimate different integrals. Averaging a drag's cheap frames into the still image
+    /// is exactly the "smeared" failure this ticket warns about.
     #[test]
     fn accumulation_restarts_when_draft_mode_is_entered_and_left() {
         let mut state = AccumulationState::new();
 
-        let mut drafted = accumulation_key();
-        // 0.4 matches the page's own default "drag quality" setting
-        // (`SLIDER_SPECS['drag-quality']` in panel_config.js).
-        drafted.params = drafted.params.draft(0.4);
+        let mut full = accumulation_key();
+        full.params.lux_samples = 16;
+
+        let mut drafted = full.clone();
+        drafted.params = drafted.params.draft();
 
         assert_ne!(
             drafted.params,
-            RenderParams::default(),
+            full.params,
             "draft mode must change the effective parameters or this test proves nothing"
         );
 
-        state.begin_pass(accumulation_key());
+        state.begin_pass(full.clone());
         assert!(state.begin_pass(drafted.clone()).restarted, "entering draft");
         assert!(!state.begin_pass(drafted).restarted, "staying in draft");
         assert!(
-            state.begin_pass(accumulation_key()).restarted,
+            state.begin_pass(full).restarted,
             "leaving draft must restart too: the full-quality frames cannot be averaged \
              with the reduced ones"
         );

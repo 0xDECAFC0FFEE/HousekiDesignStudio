@@ -2,7 +2,7 @@
 	import { Slider as SliderPrimitive } from "bits-ui";
 	import { cn } from "$lib/utils.js";
 
-	// The shadcn-svelte slider, with five additions this page needs (everything else is the
+	// The shadcn-svelte slider, with six additions this page needs (everything else is the
 	// CLI's file, unchanged): `thumbLabel` names the thumb for a screen reader (the page's
 	// rows are not <label>s around a native range input any more, so nothing else does),
 	// `trackStyle` lets the colour pickers paint their hue/saturation/value gradient along the
@@ -30,6 +30,16 @@
 		thumbClass = undefined,
 		...restProps
 	} = $props();
+
+	// The thumbs, one per value, worked out here rather than taken from Bits UI's snippet
+	// argument (a sixth addition, 2026-09-28). That argument is one derived object holding the
+	// thumbs AND a tick for every step of the range -- 361 for a rotation slider, 2,001 for the
+	// refractive index -- and reading any part of it recomputes all of it on every change of
+	// value. Placing each tick asks the slider for its thumb and track widths, a forced layout of
+	// the page per tick. Profiled on an M1 Pro, that was most of what made dragging the stone
+	// stall: the rotation sliders follow the drag, and each follow cost hundreds of layouts. This
+	// page draws no ticks, so it never reads them.
+	const thumbIndices = $derived(Array.isArray(value) ? value.map((_, index) => index) : [0]);
 </script>
 
 <!--
@@ -47,7 +57,7 @@ get along, so we shut typescript up by casting `value` to `never`.
 	)}
 	{...restProps}
 >
-	{#snippet children({ thumbItems })}
+	{#snippet children()}
 		<span
 			data-slot="slider-track"
 			data-orientation={orientation}
@@ -65,10 +75,10 @@ get along, so we shut typescript up by casting `value` to `never`.
 				/>
 			{/if}
 		</span>
-		{#each thumbItems as thumb (thumb.index)}
+		{#each thumbIndices as index (index)}
 			<SliderPrimitive.Thumb
 				data-slot="slider-thumb"
-				index={thumb.index}
+				{index}
 				aria-label={thumbLabel}
 				class={cn(
 					"border-ring ring-ring/50 relative size-3 rounded-full border bg-white transition-[color,box-shadow] after:absolute after:-inset-2 hover:ring-2 focus-visible:ring-3 focus-visible:outline-hidden data-active:ring-4 data-active:border-primary block shrink-0 select-none disabled:pointer-events-none disabled:opacity-50",

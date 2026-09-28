@@ -37,6 +37,7 @@
 
 pub mod accel;
 pub mod camera;
+pub mod convex;
 pub mod env_map;
 pub mod gpu;
 pub mod loader;
@@ -754,6 +755,13 @@ const UNIT_HIGHLIGHT: u32 = 4;
 const UNIT_FROSTED: u32 = 5;
 /// Tilt performance's cameras, one row per pose of a batch (T-0261); bound only while it draws.
 const UNIT_TILT_CAMERAS: u32 = 6;
+/// The stone's facet planes (`uFacetPlanes`), for the interior march's convex exit test; see
+/// `convex::FacetPlanes`.
+const UNIT_FACET_PLANES: u32 = 7;
+
+/// Most frames whose fences `GemApp` keeps (`frame_fences`). The page lets two be in flight
+/// while dragging; one more is headroom for a caller that renders without asking.
+const MAX_TRACKED_FRAMES: usize = 3;
 
 /// Values of the `uLuxPass` uniform: what a given draw is for. Must match the
 /// `LUX_PASS_*` constants in `src/shaders/lux/host.glsl`, which is where each one is
@@ -766,6 +774,11 @@ const LUX_PASS_RESOLVE: i32 = 2;
 struct ModelResources {
     triangle_texture: WebGlTexture,
     node_texture: WebGlTexture,
+    /// One texel per facet plane, or a 1x1 placeholder when the stone is not convex.
+    facet_plane_texture: WebGlTexture,
+    /// How many planes `facet_plane_texture` holds: 0 when the stone is not convex, which makes
+    /// the shader's interior march walk the BVH instead (`uFacetPlaneCount`).
+    facet_plane_count: u32,
     texture_width: u32,
     node_count: u32,
     triangle_count: u32,
@@ -930,11 +943,6 @@ pub struct GemApp {
     camera: OrbitCamera,
     render_params: RenderParams,
     draft_mode: bool,
-    /// The "drag quality" fraction (0 to 1) the page's slider is set to, applied by
-    /// `RenderParams::draft` whenever `draft_mode` is on. Kept here rather than folded into
-    /// `set_draft_mode`'s argument because it is a standing setting the panel can change at any
-    /// time (like `render_params`'s own fields), not a per-interaction flag.
-    drag_quality: f32,
     /// The facets currently tinted by the deterministic renderer (T-0160): every facet of one
     /// design tier the user clicked or picked a row for, or -- for a plain .obj, which has no
     /// design to look a tier up in -- just the one facet clicked. Cleared whenever the stone
@@ -990,7 +998,13 @@ pub struct GemApp {
     /// hundreds of full-resolution path traces into a queue the GPU is seconds behind on,
     /// until the driver blocks the submitting thread and the tab, and the desktop
     /// compositor behind it, stop responding.
-    frame_fence: Option<web_sys::WebGlSync>,
+    ///
+    /// A queue since 2026-09-28, oldest first, so the page can let a second frame be queued
+    /// behind the one the GPU is drawing while the stone is dragged (`frames_in_flight`): the
+    /// GPU then starts the next frame the moment it finishes one, instead of idling while the
+    /// page notices and submits. Fences signal in submission order, so the front is always the
+    /// next to finish. Never longer than `MAX_TRACKED_FRAMES`.
+    frame_fences: std::collections::VecDeque<web_sys::WebGlSync>,
 
     /// The off-screen images tilt performance measures into (T-0261): one per pass
     /// (`tilt::TiltPass::ALL`) for each of `tilt::TILT_IN_FLIGHT` batches, each big enough for a
@@ -1139,10 +1153,6 @@ impl GemApp {
             camera: OrbitCamera::default(),
             render_params: RenderParams::default(),
             draft_mode: false,
-            // Overwritten by the page's own restored setting before anything renders in draft
-            // mode (`restorePersistedSettings` calls `set_drag_quality` right after boot); this
-            // is only what a caller sees before that, such as a Rust test.
-            drag_quality: 1.0,
             highlighted_facets: std::collections::BTreeSet::new(),
             highlight_texture,
             frosted_facets: std::collections::BTreeSet::new(),
@@ -1153,7 +1163,7 @@ impl GemApp {
             accumulation_state: params::AccumulationState::new(),
             model_generation: 0,
             environment_generation: 0,
-            frame_fence: None,
+            frame_fences: std::collections::VecDeque::new(),
             tilt_targets: Vec::new(),
             tilt_cameras: Default::default(),
             tilt_jobs: std::collections::VecDeque::new(),
@@ -1364,24 +1374,31 @@ impl GemApp {
     /// `clientWaitSync` with a zero timeout, which asks and returns rather than waits, so
     /// it never blocks the page thread.
     pub fn frame_settled(&mut self) -> bool {
-        let Some(fence) = self.frame_fence.take() else {
-            return true;
-        };
+        self.frames_in_flight() == 0
+    }
 
-        let status = self.gl.client_wait_sync_with_u32(&fence, 0, 0);
+    /// How many frames `render()` has submitted that the GPU has not finished yet, polling
+    /// their fences the way `frame_settled` does (never waiting). The page lets this reach 2
+    /// while the stone is dragged and holds it to 1 otherwise (viewport.js).
+    pub fn frames_in_flight(&mut self) -> u32 {
+        while let Some(fence) = self.frame_fences.front() {
+            let status = self.gl.client_wait_sync_with_u32(fence, 0, 0);
 
-        // ALREADY_SIGNALED and CONDITION_SATISFIED both mean done. WAIT_FAILED means the
-        // fence is no use to anyone -- a lost context, or a driver that will not honour it
-        // -- and is treated as done rather than left to stall the loop for ever. Only
-        // TIMEOUT_EXPIRED is "not yet", and only then is the fence kept for the next ask.
-        if status == Gl::TIMEOUT_EXPIRED {
-            self.frame_fence = Some(fence);
-            return false;
+            // ALREADY_SIGNALED and CONDITION_SATISFIED both mean done. WAIT_FAILED means the
+            // fence is no use to anyone -- a lost context, or a driver that will not honour it
+            // -- and is treated as done rather than left to stall the loop for ever. Only
+            // TIMEOUT_EXPIRED is "not yet", and then every later frame is not done either,
+            // since fences signal in order.
+            if status == Gl::TIMEOUT_EXPIRED {
+                break;
+            }
+
+            if let Some(done) = self.frame_fences.pop_front() {
+                self.gl.delete_sync(Some(&done));
+            }
         }
 
-        self.gl.delete_sync(Some(&fence));
-
-        true
+        self.frame_fences.len() as u32
     }
 
     /// Whether a program is still compiling, so the page should keep calling
@@ -1801,12 +1818,12 @@ impl GemApp {
         self.camera.zoom(factor);
     }
 
-    /// Enables reduced quality for interaction: scales the internal bounce count by
-    /// `drag_quality`.
+    /// Enables reduced quality for interaction: a quarter of the Monte Carlo samples per
+    /// pass (`RenderParams::draft`).
     ///
-    /// Dispersion is deliberately kept, because fire is what rotating a stone is for;
-    /// see `RenderParams::draft`. The page is expected to drop canvas resolution by the
-    /// same `drag_quality` fraction at the same time, which saves more (resolution is a
+    /// The bounce count and dispersion are deliberately kept, so a moving stone looks like
+    /// the same stone; see `RenderParams::draft`. The page drops canvas resolution by its
+    /// "drag quality" fraction at the same time, which is the real saving (resolution is a
     /// 4x-per-halving saving) and is much less noticeable on a moving image.
     ///
     /// Applied on top of the user's settings rather than overwriting them, so leaving
@@ -1815,30 +1832,11 @@ impl GemApp {
         self.draft_mode = enabled;
     }
 
-    /// Whether draft mode is on: the bounce count scaled by `drag_quality` and a quarter of
-    /// the samples (`RenderParams::draft`), which the page turns on while anything is being
-    /// moved and off again shortly after. Readable so a test can prove a drag really is
-    /// drafting.
+    /// Whether draft mode is on (`RenderParams::draft`), which the page turns on while
+    /// anything is being moved and off again shortly after. Readable so a test can prove a
+    /// drag really is drafting.
     pub fn draft_mode(&self) -> bool {
         self.draft_mode
-    }
-
-    /// Sets "drag quality": the fraction (0 to 1) of full quality kept while draft
-    /// mode is on. `RenderParams::draft` multiplies the configured bounce count by this same
-    /// fraction, and the page multiplies the canvas resolution by it too (`viewport.js`), so
-    /// the two move together linearly and 100% is indistinguishable from a still frame.
-    ///
-    /// A standing setting, not a per-interaction flag: it takes effect the next time draft
-    /// mode is entered, and changing it while already dragging (moving the settings panel's
-    /// own slider) applies to the very next frame.
-    pub fn set_drag_quality(&mut self, quality: f32) {
-        self.drag_quality = quality.clamp(0.0, 1.0);
-    }
-
-    /// The fraction `set_drag_quality` last stored. Readable so a test can prove the page's
-    /// slider actually reached Rust.
-    pub fn drag_quality(&self) -> f32 {
-        self.drag_quality
     }
 
     /// Applies a named material preset, for example "diamond" or "sapphire".
@@ -2624,14 +2622,20 @@ impl GemApp {
     /// of the task -- so without this a poll from a later timer could look at a fence
     /// whose commands were never submitted and would never signal.
     fn place_frame_fence(&mut self) {
-        if let Some(previous) = self.frame_fence.take() {
-            // Only reached when a caller renders again without waiting. Deleting the old
-            // fence rather than keeping it means `frame_settled` always refers to the
-            // most recent frame, which is the one a caller actually wants to know about.
-            self.gl.delete_sync(Some(&previous));
+        // Only reached with a full queue when a caller renders again and again without
+        // waiting. The oldest fence is dropped rather than the newest, so `frame_settled`
+        // still refers to the most recent frame, the one a caller actually wants to know
+        // about, and a fence behind it finishing first changes nothing: they signal in order.
+        while self.frame_fences.len() >= MAX_TRACKED_FRAMES {
+            if let Some(oldest) = self.frame_fences.pop_front() {
+                self.gl.delete_sync(Some(&oldest));
+            }
         }
 
-        self.frame_fence = self.gl.fence_sync(Gl::SYNC_GPU_COMMANDS_COMPLETE, 0);
+        if let Some(fence) = self.gl.fence_sync(Gl::SYNC_GPU_COMMANDS_COMPLETE, 0) {
+            self.frame_fences.push_back(fence);
+        }
+
         self.gl.flush();
     }
 
@@ -2641,7 +2645,7 @@ impl GemApp {
     /// on the host; nothing about it needs a GL context.
     fn effective_params(&self) -> RenderParams {
         if self.draft_mode {
-            self.render_params.draft(self.drag_quality)
+            self.render_params.draft()
         } else {
             self.render_params.clone()
         }
@@ -2831,6 +2835,8 @@ impl GemApp {
         gl.bind_texture(Gl::TEXTURE_2D, Some(&self.highlight_texture));
         gl.active_texture(Gl::TEXTURE0 + UNIT_FROSTED);
         gl.bind_texture(Gl::TEXTURE_2D, Some(&self.frosted_texture));
+        gl.active_texture(Gl::TEXTURE0 + UNIT_FACET_PLANES);
+        gl.bind_texture(Gl::TEXTURE_2D, Some(&self.model.facet_plane_texture));
 
         // Bound on every draw, not only on an accumulating one: an unbound unit behind a
         // live sampler uniform is the kind of thing a driver is entitled to complain
@@ -2902,6 +2908,8 @@ impl GemApp {
         // uniform, so that the index unwrapping reduces to a mask and a shift. See
         // accel::DATA_TEXTURE_WIDTH.
         self.uniform1i("uNodeCount", self.model.node_count as i32);
+        self.uniform1i("uFacetPlanes", UNIT_FACET_PLANES as i32);
+        self.uniform1i("uFacetPlaneCount", self.model.facet_plane_count as i32);
 
         self.uniform1f("uEnvIntensity", effective.env_intensity);
         self.uniform1f("uEnvRotation", effective.env_rotation);
@@ -3138,6 +3146,7 @@ impl GemApp {
         self.gl
             .delete_texture(Some(&self.model.triangle_texture));
         self.gl.delete_texture(Some(&self.model.node_texture));
+        self.gl.delete_texture(Some(&self.model.facet_plane_texture));
     }
 }
 
@@ -3438,6 +3447,29 @@ fn build_model(
         }
     };
 
+    // The convex exit test's planes, when the stone is convex; a harmless 1x1 texture that
+    // nothing reads (uFacetPlaneCount 0) otherwise.
+    let facet_planes = convex::FacetPlanes::from_mesh(&mesh);
+    let facet_plane_count = facet_planes.as_ref().map_or(0, |planes| planes.len() as u32);
+    let facet_plane_texels = facet_planes
+        .as_ref()
+        .map_or_else(|| vec![0.0f32; 4], |planes| planes.texels());
+
+    let facet_plane_texture = match gpu::create_data_texture(
+        gl,
+        facet_plane_count.max(1),
+        1,
+        &facet_plane_texels,
+    ) {
+        Ok(texture) => texture,
+        Err(error) => {
+            gl.delete_texture(Some(&triangle_texture));
+            gl.delete_texture(Some(&node_texture));
+
+            return Err(error);
+        }
+    };
+
     let model_name = if object_names.is_empty() {
         "(unnamed)".to_string()
     } else {
@@ -3447,6 +3479,8 @@ fn build_model(
     let resources = ModelResources {
         triangle_texture,
         node_texture,
+        facet_plane_texture,
+        facet_plane_count,
         texture_width: packed.texture_width,
         node_count: packed.node_count as u32,
         triangle_count: packed.triangle_count as u32,
@@ -4457,6 +4491,11 @@ mod tests {
             "uTiltColumns",
             "uTiltCount",
             "uTiltCameras",
+            // The convex exit test's facet planes (2026-09-27): only the deterministic
+            // renderer's interior march reads them; the ported path still traces the BVH. No
+            // page control sets these, so nothing is hidden for them.
+            "uFacetPlanes",
+            "uFacetPlaneCount",
         ];
         expected.sort_unstable();
 

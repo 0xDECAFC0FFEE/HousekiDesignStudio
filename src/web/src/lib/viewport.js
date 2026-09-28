@@ -57,15 +57,39 @@ let facetTurn = null;
 // converges.
 const RENDER_BUDGET = 0.7;
 
+// While the stone is being moved (2026-09-28, the user: "let the gpu work more of the time during
+// drags"), the picture gets the whole clock and a second frame may be queued behind the one being
+// drawn. Measured on an M1 Pro, a drag frame took the GPU 5-15 ms and then left it idle for a
+// median 8-10 ms: the budget's gap after each frame, plus the 4 ms (nested-timer minimum) it takes
+// the settle poll to notice the frame is done and submit the next. With two in flight the next
+// frame is already queued when the GPU finishes one. Still frames keep one at a time and the
+// budget, so a slow still frame or the Monte Carlo loop can never pile work up (T-0197): the
+// queue is bounded at two, and only for as long as `interacting` lasts.
+const DRAG_RENDER_BUDGET = 1;
+const DRAG_FRAMES_IN_FLIGHT = 2;
+
 const renderTask = budgetedTask({
   run: renderNow,
-  budget: RENDER_BUDGET,
+  budget: () => (interacting ? DRAG_RENDER_BUDGET : RENDER_BUDGET),
   // Nothing is shown while the tab is hidden, and the browser throttles its timers anyway.
   // (Guarded, because the tests exercise this module without a document.)
   paused: () => typeof document !== 'undefined' && document.hidden,
   // Guarded on the method's existence so an older wasm module still loads: without a fence the
   // loop behaves as it did before, which is wrong but not broken.
-  settled: () => !engine.app?.frame_settled || engine.app.frame_settled(),
+  settled: () => {
+    const app = engine.app;
+
+    if (!app?.frame_settled) {
+      return true;
+    }
+
+    // Older wasm modules have only `frame_settled`: one frame at a time, as before.
+    if (!app.frames_in_flight) {
+      return app.frame_settled();
+    }
+
+    return app.frames_in_flight() < (interacting ? DRAG_FRAMES_IN_FLIGHT : 1);
+  },
 });
 
 // Whether the view is not to be drawn for now (T-0261): tilt performance, while it measures. Its
@@ -111,11 +135,10 @@ function renderNow() {
 
   // Drop resolution while the user is moving. This is the single largest lever
   // available: cost is proportional to pixel count, so rendering at half scale
-  // is a 4x saving, on top of the bounce-count reduction draft mode applies in Rust
-  // (`RenderParams::draft`, driven by this same `dragQuality` fraction -- see
-  // `beginInteraction`). Multiplying the configured resolution rather than replacing it
-  // outright is what makes 100% "drag quality" indistinguishable from a still frame,
-  // matching what 100% does to the bounce count on the Rust side.
+  // is a 4x saving. It is the only thing "drag quality" changes: the bounce count is left
+  // alone (see `beginInteraction`). Multiplying the configured resolution rather than
+  // replacing it outright is what makes 100% "drag quality" indistinguishable from a still
+  // frame.
   const scale = interacting ? get(resolutionScale) * get(dragQuality) : get(resolutionScale);
   const dpr = Math.min(window.devicePixelRatio || 1, 2);
   const width = Math.max(1, Math.round(canvas.clientWidth * dpr * scale));
@@ -344,11 +367,11 @@ if (typeof document !== 'undefined') {
  * Drops quality while the user is actively moving anything, restoring it shortly after they
  * stop (2026-09-19, the user: "when the ruler is moved or the angles of the cut are changed or
  * the depth of the cut is changed or the stone is moved or anything can you make sure the
- * resolution is dropped and the internal bounces are dropped"). Draft mode scales the bounce
- * count by `dragQuality` and quarters the samples (`RenderParams::draft`, driven by whatever
- * `app.set_drag_quality` last set); the page also renders at `resolutionScale * dragQuality`
- * while `interacting`, above -- the same fraction multiplying both, linearly, so "quality
- * while dragging" is one setting rather than two that could disagree.
+ * resolution is dropped and the internal bounces are dropped"). The bounce half of that was
+ * reversed on 2026-09-28 (the user: "update the drag quality slider to not affect the
+ * internal bounce count"): draft mode now only quarters the Monte Carlo samples
+ * (`RenderParams::draft`), and the page renders at `resolutionScale * dragQuality` while
+ * `interacting`, above.
  */
 export function beginInteraction() {
   const app = engine.app;
@@ -539,6 +562,31 @@ export function setReverseDragSpin(reader) {
   reverseDragSpin = reader;
 }
 
+// How often, at most, the X and Y rotation sliders follow the stone while it is turned by a drag
+// or a double-click turn (2026-09-27). Each follow is `bumpParams()`, which asks every parameter
+// slider to re-read Rust, and Bits UI's slider measures its thumb and track (offsetWidth) to place
+// the thumb -- a forced layout of the whole page, several per slider. Profiled on an M1 Pro in
+// headless Chrome, following every pointer move took 42% of the page thread during a drag, about
+// 30 ms a move, and starved the render loop to 4-6 frames a second although each drag frame cost
+// the GPU 5-12 ms. Ten updates a second still reads as the sliders moving with the stone.
+const SLIDER_FOLLOW_MS = 100;
+let sliderFollowTimer = null;
+
+/**
+ * Brings the rotation sliders up to date within SLIDER_FOLLOW_MS, however many times it is
+ * called meanwhile. Trailing, so the last pose of a drag is always the one they end on.
+ */
+function followWithSliders() {
+  if (sliderFollowTimer !== null) {
+    return;
+  }
+
+  sliderFollowTimer = setTimeout(() => {
+    sliderFollowTimer = null;
+    bumpParams();
+  }, SLIDER_FOLLOW_MS);
+}
+
 /** Stops a turn towards a clicked facet where it is, for when the user moves the view. */
 export function cancelFacetTurn() {
   if (facetTurn !== null) {
@@ -601,7 +649,7 @@ function animateTurnTo(spinDeg, tiltDeg) {
     app.set_param('tilt', fromTilt + tiltBy * eased);
 
     // The X and Y rotation sliders follow the turn.
-    bumpParams();
+    followWithSliders();
 
     // Draft quality while it moves, like a drag; full quality returns once it stops.
     beginInteraction();
@@ -767,7 +815,7 @@ export function attachCanvasControls(canvasElement) {
     engine.app.orbit(spinSign * deltaX * scale, -deltaY * scale);
 
     // Keep the X and Y rotation sliders showing the pose the drag produced.
-    bumpParams();
+    followWithSliders();
 
     beginInteraction();
     requestRender();

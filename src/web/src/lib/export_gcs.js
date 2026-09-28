@@ -55,9 +55,6 @@ import { get } from 'svelte/store';
 /** Used when the cut name is empty or not filename-safe on its own. */
 const FALLBACK_NAME = 'stone';
 
-/** Same tolerance as `GIRDLE_ANGLE_EPSILON` in gcs.js: within this of 90 is the girdle side. */
-const GIRDLE_ANGLE_EPSILON = 1e-6;
-
 /** `.gcs` version attribute, as in every file examined. */
 const GCS_VERSION = '1000';
 
@@ -116,6 +113,9 @@ function openTag(name, attributes, selfClosing) {
  *
  * `azimuth = (tooth - originIndex) * step`; the reader takes `180 - ia` (crown) or `180 + ia`
  * (pavilion and girdle, decided by the RAW polar angle, as the reader does) to be the azimuth.
+ * "Girdle" is within `GemCadDesign.tolerances.tierAngle` of 90, the reader's own bound, read
+ * from the same place so a girdle written a hair under 90 (T-0264) is written back with the
+ * girdle's formula and reads back as the same tooth.
  */
 export function indexAngleOf(design, tier, facet, onAxis) {
   if (onAxis) {
@@ -125,7 +125,7 @@ export function indexAngleOf(design, tier, facet, onAxis) {
   const step = 360 / design.gear.teeth;
   const azimuth = (facet.index - design.gear.originIndex) * step;
   const polarAngle = globalThis.GemCadDesign.polarAngleOf(tier.angle);
-  const pavilionOrGirdle = polarAngle >= 90 - GIRDLE_ANGLE_EPSILON;
+  const pavilionOrGirdle = polarAngle >= 90 - globalThis.GemCadDesign.tolerances.tierAngle;
   const angle = pavilionOrGirdle ? azimuth - 180 : 180 - azimuth;
 
   return ((angle % 360) + 360) % 360;
@@ -296,10 +296,10 @@ export function designToGcs(design, { title, author, date, refractiveIndex, disp
     }
 
     // The tier's own name from the file wins over the id this page generates. They are the
-    // same for 27 of the corpus's 29 designs, but not always: our rule calls a tier the
-    // girdle only within TIER_ANGLE_EPSILON of 90, while Gem Cut Studio's own naming is far
-    // looser (TriZag_A's G1 sits at polar 90.0017, Random_Number_Generator_M2's G2 at
-    // 90.0020), so regenerating would rename those tiers in their own file.
+    // same for all 29 of the corpus's designs since T-0264 widened TIER_ANGLE_EPSILON to
+    // 5e-3 (before it, TriZag_A's G1 at polar 90.0017 and Random_Number_Generator_M2's G2 at
+    // 90.0020 were generated as P tiers), but a file is free to name its tiers however it
+    // likes, and regenerating would rename them in their own file.
     lines.push(`    ${openTag('tier', {
       angle: formatNumber(GemCadDesign.polarAngleOf(tier.angle)),
       depth: formatNumber(tier.distance),

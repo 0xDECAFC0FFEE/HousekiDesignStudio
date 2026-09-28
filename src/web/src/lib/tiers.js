@@ -2,13 +2,17 @@
 // the page's script).
 
 /**
- * How far a mast angle may sit from 0 or 90 and still count as the table or the girdle
- * (T-0147). GemCad-authored angles are read straight from the file's own `a` line (several
- * decimal places, e.g. "0.000000" or "-90.000000"), and design.js's own tolerances for the
- * SAME kind of comparison (`INDEX_SNAP_TOLERANCE`) are around 1e-6, so this matches that
- * order of magnitude rather than inventing a separate one.
+ * How far a mast angle may sit from 0, 90 or 180 and still count as the table, the girdle or
+ * a flat culet, in degrees (T-0147). A copy of design.js's `TIER_ANGLE_TOLERANCE`, which gcs.js
+ * and export_gcs.js read for the same girdle decision; this module is imported before
+ * `GemCadDesign` exists, so it cannot read it, and gcs_test.js holds the two equal instead.
+ *
+ * 5e-3 is half the 0.01-degree step an angle is written and set to: an angle that reads
+ * "90.00" is the girdle. It was 1e-6 until T-0264, and that filed the user's Periwinkle2.gcs
+ * girdle (written 1.04e-6 under 90) in the crown as C1. See design.js for the corpus
+ * measurement behind the bound.
  */
-export const TIER_ANGLE_EPSILON = 1e-6;
+export const TIER_ANGLE_EPSILON = 5e-3;
 
 /** True for a tier whose mast angle makes its plane vertical -- the girdle. A `.asc`/`.gem`
  * always writes -90 (GemCad's own sign convention); GemCadDesign.mastAngleOf's own comment

@@ -162,6 +162,40 @@ Deno.test("work that asks for itself again still leaves the page its share", () 
   }
 });
 
+Deno.test("a budget given as a function is read afresh for every gap", () => {
+  // Setup: self-requesting work costing 20 ms (the render loop's shape), with its budget given as
+  // a function of a flag -- the whole clock while the flag is up, half of it while it is down --
+  // which is how the render loop gives a drag the whole clock and a still frame 70% of it.
+  // Test: run 1 second of the fake clock with the flag up, then 1 second with it down, measuring
+  // the share of each second the work took.
+  // Verifies: the budget follows the flag from one run to the next: with it up the runs go back to
+  // back (share 1), and the moment it drops the page gets its half back without the task being
+  // rebuilt. A budget read once at construction would keep whichever value it started with.
+  const clock = fakeClock();
+  const cost = 20;
+  let dragging = true;
+  const { handle, runs } = task(clock, cost, { budget: () => (dragging ? 1 : 0.5) }, true);
+
+  handle.request();
+  clock.tick(1000);
+
+  const whileDragging = (runs.length * cost) / 1000;
+  const before = runs.length;
+
+  dragging = false;
+  clock.tick(1000);
+
+  const afterwards = ((runs.length - before) * cost) / 1000;
+
+  if (whileDragging < 0.97) {
+    throw new Error(`with the whole clock the work took only ${whileDragging.toFixed(2)} of it`);
+  }
+
+  if (Math.abs(afterwards - 0.5) > 0.06) {
+    throw new Error(`back at half the clock the work took ${afterwards.toFixed(2)} of it`);
+  }
+});
+
 Deno.test("a request after a quiet spell runs at once", () => {
   // Setup: work costing 20 ms at a 50% budget, run once, then nothing for a long time.
   // Test: request again after 500 ms and tick the clock by 0.

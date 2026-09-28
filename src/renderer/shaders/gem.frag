@@ -119,6 +119,11 @@ uniform highp sampler2D uTriangles;
 // A negative link marks a leaf and encodes -(shapeIndex + 1).
 uniform highp sampler2D uNodes;
 uniform int uNodeCount;
+// The stone's facet planes, one RGBA32F texel per facet id: (outward normal, offset). Only set
+// when the stone is convex; uFacetPlaneCount is 0 otherwise, and the interior march then walks
+// the BVH. See exitStone() and src/renderer/convex.rs.
+uniform highp sampler2D uFacetPlanes;
+uniform int uFacetPlaneCount;
 
 // ---------------------------------------------------------------- environment
 uniform sampler2D uEnvironment;
@@ -540,6 +545,65 @@ bool traceScene(vec3 origin, vec3 direction, float tMin, float tMax, float side,
     }
 
     return found;
+}
+
+// Compile-time bound on exitConvex's loop. Must match convex::MAX_FACET_PLANES; a test enforces
+// that. A stone with more facets has uFacetPlaneCount 0 and uses the BVH.
+const int MAX_FACET_PLANES = 1024;
+
+// Where a ray inside a convex stone leaves it: the nearest facet plane it is heading out of.
+// Mirrors convex::FacetPlanes::exit.
+//
+// This is the interior march's hot path, and the reason it is not traceScene: the BVH walk costs
+// tens of dependent texel fetches and triangle tests per bounce, and neighbouring pixels walk it
+// differently. This loop reads the same texel in the same order in every pixel, one dot-product
+// pair per facet. Measured 2026-09-27 on an M1 Pro, 1400x1400, 15 bounces, 3 channels: see
+// kb/performance-and-draft-mode.md.
+//
+// Only planes the ray heads out of (dot(n, direction) > 0) can be its exit, which is the side
+// rule hitTriangle applies to a ray from inside: the facet a bounce just reflected off faces
+// against the reflected ray and is never re-hit. `hit.triangle` is -1: nothing on the interior
+// march reads it.
+bool exitConvex(vec3 origin, vec3 direction, float tMin, out Hit hit) {
+    hit.t = FAR_DISTANCE;
+    hit.outwardNormal = vec3(0.0, 1.0, 0.0);
+    hit.facet = 0.0;
+    // Every plane is visited, so the traversal-cost debug view reads the facet count.
+    hit.nodesVisited = uFacetPlaneCount;
+    hit.triangle = -1;
+
+    bool found = false;
+
+    for (int i = 0; i < MAX_FACET_PLANES; ++i) {
+        if (i >= uFacetPlaneCount) {
+            break;
+        }
+
+        vec4 plane = texelFetch(uFacetPlanes, ivec2(i, 0), 0);
+        float along = dot(plane.xyz, direction);
+
+        if (along > 0.0) {
+            float distance = (plane.w - dot(plane.xyz, origin)) / along;
+
+            if (distance > tMin && distance < hit.t) {
+                hit.t = distance;
+                hit.outwardNormal = plane.xyz;
+                hit.facet = float(i);
+                found = true;
+            }
+        }
+    }
+
+    return found;
+}
+
+// Where a ray inside the stone leaves it: exitConvex when the stone is convex, the BVH otherwise.
+bool exitStone(vec3 origin, vec3 direction, out Hit hit) {
+    if (uFacetPlaneCount > 0) {
+        return exitConvex(origin, direction, INTERIOR_T_MIN, hit);
+    }
+
+    return traceScene(origin, direction, INTERIOR_T_MIN, FAR_DISTANCE, RAY_FROM_INSIDE, hit);
 }
 
 // ---------------------------------------------------------------- environment
@@ -1052,7 +1116,7 @@ vec3 traceInterior(vec3 entryPoint, vec3 viewDirection, vec3 entryNormal,
         // instead of taking it for an exit (T-0032). That same rule, and not the minimum distance,
         // is what keeps the march from re-hitting the facet it just left; see INTERIOR_T_MIN,
         // which is deliberately far smaller than the nudge that starts the ray inside the surface.
-        if (!traceScene(origin, direction, INTERIOR_T_MIN, FAR_DISTANCE, RAY_FROM_INSIDE, interior)) {
+        if (!exitStone(origin, direction, interior)) {
             // A watertight stone cannot leak, so this only fires on numerical edge
             // cases. Dropping the remaining energy is the safe response: adding it
             // to the pixel would show up as a bright speckle.
@@ -1539,7 +1603,7 @@ void traceInteriorTilt(vec3 entryPoint, vec3 viewDirection, vec3 entryNormal,
 
         Hit interior;
 
-        if (!traceScene(origin, direction, INTERIOR_T_MIN, FAR_DISTANCE, RAY_FROM_INSIDE, interior)) {
+        if (!exitStone(origin, direction, interior)) {
             exhausted = false;
             break;
         }

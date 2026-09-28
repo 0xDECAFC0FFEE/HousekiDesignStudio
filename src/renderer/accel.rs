@@ -1551,10 +1551,14 @@ mod tests {
             ),
             "main in gem.frag must trace the primary ray as a ray from outside"
         );
+        // The interior march goes through exitStone, which walks the BVH as a ray from inside
+        // whenever the stone is not convex (and exitConvex, whose plane test applies the same side
+        // rule, when it is; see convex.rs).
         assert!(
-            shader.contains(
-                "traceScene(origin, direction, INTERIOR_T_MIN, FAR_DISTANCE, RAY_FROM_INSIDE, interior)"
-            ),
+            shader.contains("if (!exitStone(origin, direction, interior)) {")
+                && shader.contains(
+                    "traceScene(origin, direction, INTERIOR_T_MIN, FAR_DISTANCE, RAY_FROM_INSIDE, hit)"
+                ),
             "traceInterior in gem.frag must trace as a ray from inside"
         );
     }
@@ -1608,10 +1612,12 @@ mod tests {
             interior_t_min,
             surface_epsilon
         );
+        // Both of exitStone's routes: the BVH for a stone that is not convex, the facet planes
+        // for one that is.
         assert!(
             shader.contains(
-                "traceScene(origin, direction, INTERIOR_T_MIN, FAR_DISTANCE, RAY_FROM_INSIDE, interior)"
-            ),
+                "traceScene(origin, direction, INTERIOR_T_MIN, FAR_DISTANCE, RAY_FROM_INSIDE, hit)"
+            ) && shader.contains("exitConvex(origin, direction, INTERIOR_T_MIN, hit)"),
             "the interior march in gem.frag must trace from INTERIOR_T_MIN"
         );
         assert!(

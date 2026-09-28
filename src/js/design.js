@@ -146,6 +146,39 @@
      * meet-point solved facets. */
     var NORMAL_AGREEMENT_TOLERANCE = 1e-2;
 
+    /* How far a tier's angle may sit from 90 (or from 0 or 180) and still be
+     * the girdle (or the table, or a flat culet), in degrees. The one rule for
+     * "is this the girdle", shared by gcs.js (which index_angle mirror formula
+     * a facet uses), web/src/lib/export_gcs.js (its inverse) and
+     * web/src/lib/tiers.js (`TIER_ANGLE_EPSILON`, a copy that gcs_test.js
+     * holds equal to this, since tiers.js cannot read it at import time).
+     *
+     * THE BOUND IS SET BY THE FORMAT'S ANGLE PRECISION, NOT BY FLOAT NOISE. An
+     * angle means something only to 0.01 degrees -- GemCad writes it to two
+     * decimals, a mast is set no finer, and the page shows two decimals -- so
+     * an angle within half that step of 90 reads "90.00" and is the girdle.
+     *
+     * This was 1e-6 (in gcs.js, export_gcs.js and tiers.js alike), calibrated
+     * on the residue the corpus happened to show, and it refused the user's
+     * Periwinkle2.gcs (T-0264): its girdle is written 89.999998960684408, 1.04e-6
+     * under 90, because Gem Cut Studio's geometry for that file carries noise
+     * of about 1e-8 in every normal. Read as crown, its facets took the crown
+     * index_angle formula and failed the cross-check by 32 teeth. It is the
+     * mistake INDEX_SNAP_TOLERANCE and NORMAL_AGREEMENT_TOLERANCE above record,
+     * made a third time.
+     *
+     * Measured (2026-09-28) across the 29 .gcs files of
+     * reference/gemology-project-designs, the startup stone and Periwinkle2:
+     * every tier within 10 degrees of 90 is one Gem Cut Studio itself names a
+     * girdle (G1, G2...), every one uses the girdle's index_angle convention,
+     * and they sit up to 2.0e-3 from 90 (Random_Number_Generator_M2's G2 at
+     * 90.0020, TriZag_A's G1 at 90.0017). The steepest crown tier is 55
+     * degrees. Across all 593 readable corpus designs, .asc/.gem included, no
+     * tier sits between 5e-3 and 1 degree of 0, 90 or 180, so the only tiers
+     * this bound classifies differently from 1e-6 are those two girdles, which
+     * the page used to number P2/P3 against the files' own G names. */
+    var TIER_ANGLE_TOLERANCE = 5e-3;
+
     /* ---------------------------------------------------------------- *
      * Polar <-> Cartesian
      * ---------------------------------------------------------------- */
@@ -1136,7 +1169,8 @@
         sortTierFacets: sortTierFacets,
         tolerances: {
             indexSnap: INDEX_SNAP_TOLERANCE,
-            normalAgreement: NORMAL_AGREEMENT_TOLERANCE
+            normalAgreement: NORMAL_AGREEMENT_TOLERANCE,
+            tierAngle: TIER_ANGLE_TOLERANCE
         }
     };
 }());
