@@ -51,9 +51,10 @@ deepest parts.</li>
 
 <div class="note"><p>The Deterministic renderer's own tooltip names these by name: Snell's law,
 total internal reflection ("TIR"), Beer-Lambert ("BL") absorption and the full Fresnel
-equations.</p></div>
+equations. It also says how it draws frosted facets (see <a href="#frosted-facets">Frosted
+facets</a> below).</p></div>
 
-<p>Its one simplification is <strong>fire</strong> &ndash; the rainbow-coloured flashes a stone throws
+<p>Its main simplification is <strong>fire</strong> &ndash; the rainbow-coloured flashes a stone throws
 when it bends different colours of light by slightly different amounts (called dispersion). The
 Deterministic renderer traces only three fixed colours (a red, a green and a blue) rather than
 the whole visible spectrum, so its fire shows up as a handful of coloured edges rather than a
@@ -178,6 +179,43 @@ settle the way the Monte Carlo renderer's does.</p>
 
 <p>A slider's own readout can be clicked to type an exact number: type the value and press
 <kbd>Enter</kbd> to apply it, or <kbd>Escape</kbd> to cancel.</p>
+
+<h2 id="frosted-facets">Frosted facets</h2>
+
+<p>A tier marked frosted is drawn frosted here too. To frost one, select its row in the cutting
+instructions and click <span class="ui">Frosted</span> in the row of buttons under them (see
+<a href="editing-tiers.html#the-tier-toolbar">the tier toolbar</a>); click it again to unmark the
+tier.</p>
+
+<p>The Deterministic renderer draws each frosted facet as a surface that scatters light evenly:
+the facet shows the average of the light reaching it, as one smooth shade with no grain, and the
+picture is finished at once, as it always is here. Light that meets a frosted facet from inside
+the stone is scattered the same way instead of bouncing on, so a frosted pavilion turns the whole
+stone milky and hides its pattern of reflections, and a frosted table becomes an even, cloudy
+window.</p>
+
+<figure><img src="images/deterministic-renderer/frosted-pavilion.webp" alt="The stone in the Deterministic renderer with its pavilion frosted: the reflections inside the stone are gone, and the crown's facets show as soft, even shades" loading="lazy">
+<figcaption>The pavilion frosted, in the Deterministic renderer.</figcaption></figure>
+
+<figure><img src="images/deterministic-renderer/frosted-table.webp" alt="The stone in the Deterministic renderer with only its table frosted: the table is an even, cloudy shade while the facets around it sparkle as usual" loading="lazy">
+<figcaption>Only the table frosted: an even, cloudy shade in the middle of the stone.</figcaption></figure>
+
+<p>This is a simpler picture of frosting than the <a href="monte-carlo-renderer.html">Monte
+Carlo renderer</a>'s, which draws a frosted facet as truly rough glass: there the shading can
+change gently across one facet, and the image takes time to settle. Use the Monte Carlo
+renderer when you want the most faithful look of a frosted design, and the Deterministic
+renderer to turn it and compare it quickly.</p>
+
+<figure><img src="images/deterministic-renderer/frosted-pavilion-monte-carlo.webp" alt="The same stone with its pavilion frosted, in the Monte Carlo renderer after it has settled, for comparison" loading="lazy">
+<figcaption>The same frosted pavilion in the Monte Carlo renderer, left to settle, for
+comparison.</figcaption></figure>
+
+<p>A stone with frosted facets is quicker to draw than a polished one here, not slower: light
+stops at a frosted facet rather than bouncing on through the stone, so turning a frosted stone
+stays smooth.</p>
+
+<div class="note"><p>On a browser that cannot do the extra step this needs, every frosted facet
+shows the same shade instead: the average of all the light around the stone.</p></div>
 
 <h2>The Flat renderer</h2>
 

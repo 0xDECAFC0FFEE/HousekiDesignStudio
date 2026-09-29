@@ -17,21 +17,23 @@
   // view to the pose under it, and the values at that pose are read off beside each curve's
   // switch.
   //
-  // The graph is drawn by tilt_performance.js's graphSvg, as text, at the card's own width in
-  // pixels (not scaled from a fixed viewBox, which would shrink its labels in a narrow pane), and
-  // the Download button saves the same drawing (graphImageSvg) as a PNG.
+  // The graph is TiltGraph.svelte, shared with the manual optimizer's graph since T-0285 so the two
+  // read the pointer alike: tilt_performance.js's graphSvg, drawn as text at the card's own width
+  // in pixels (not scaled from a fixed viewBox, which would shrink its labels in a narrow pane). The
+  // Download button saves the same drawing (graphImageSvg) as a PNG.
   import { get } from 'svelte/store';
   import { Button } from '$lib/components/ui/button/index.js';
   import { Switch } from '$lib/components/ui/switch/index.js';
   import { Slider } from '$lib/components/ui/slider/index.js';
   import DownloadIcon from '@lucide/svelte/icons/download';
   import PanelSection from './PanelSection.svelte';
+  import TiltGraph from './TiltGraph.svelte';
   import {
     tiltPerformance, tiltProgress, exitTiltPerformance, pointAtPose, setTiltRange,
   } from '../lib/tilt_performance_mode.js';
   import {
-    CURVES, GRAPH_MARGIN, TILT_RANGE_MIN, TILT_RANGE_MAX, graphSvg, graphImageSvg, poseAtGraphX,
-    sampleNearest,
+    CURVES, TILT_RANGE_MIN, TILT_RANGE_MAX, SCREEN_PALETTE, graphImageSvg, sampleNearest,
+    formatPercent as percent,
   } from '../lib/tilt_performance.js';
   import { engine, cutMeta } from '../lib/stores.js';
   import { saveFileAs } from '../lib/export_file.js';
@@ -47,26 +49,15 @@
     head: 'How much of the light the stone would return is blocked by your own head, within the head shadow half-angle set in the render settings. Lower is better.',
   };
 
-  // The graph's colours: Gem Cut Studio's grey, yellow, orange and pink, taken from the Nord
-  // palette (kb/the-nord-palette-and-its-shader-mirror.md) and set on #tilt-panel below; the grid
-  // and labels are the cards' own edge and muted colours.
-  const SCREEN_PALETTE = {
-    iso: 'var(--tilt-iso)',
-    cos: 'var(--tilt-cos)',
-    window: 'var(--tilt-window)',
-    head: 'var(--tilt-head)',
-    grid: 'var(--tilt-grid)',
-    middle: 'var(--panel-edge)',
-    axis: 'var(--muted)',
-    cursor: 'var(--accent)',
-    surface: 'var(--panel)',
-  };
+  // The graph's colours (tilt_performance.js's SCREEN_PALETTE): Gem Cut Studio's grey, yellow,
+  // orange and pink, taken from the Nord palette (kb/the-nord-palette-and-its-shader-mirror.md) and
+  // set by base.css's `.tilt-palette` on #tilt-panel; the grid and labels are the cards' own edge
+  // and muted colours.
 
   // Which curves are drawn, and whether the table's dotted twins are. All on, as in Gem Cut
   // Studio's own graphs.
   let shown = $state({ iso: true, cos: true, window: true, head: true });
   let showTable = $state(true);
-  let graphWidth = $state(0);
   let saving = $state(false);
   let panel;
   // The slider's two thumbs, [-start, end]: bound, so a thumb pushed past its limit can be put
@@ -91,31 +82,12 @@
   // everything else read `tilt`, which changes once the sweep is done (tilt_performance_mode.js).
   const running = $derived(tilt.open && $tiltProgress.measured < $tiltProgress.total);
   const cursorSample = $derived(tilt.cursor ? sampleNearest(tilt.samples, tilt.cursor, tilt.range) : null);
-  const graph = $derived(graphWidth > GRAPH_MARGIN.left + GRAPH_MARGIN.right
-    ? graphSvg({
-      samples: tilt.samples, range: tilt.range, shown, showTable, cursor: tilt.cursor,
-      width: graphWidth, palette: SCREEN_PALETTE, font: 'inherit', mono: 'var(--font-mono)',
-    })
-    : null);
 
   function label(key) {
     const curve = CURVES.find(each => each.key === key);
 
     // As Gem Cut Studio names it: the head shadow curve carries the angle it was measured with.
     return key === 'head' ? `${curve.label} (${Math.round(tilt.headShadow)}°)` : curve.label;
-  }
-
-  function percent(value) {
-    return value === undefined || value === null ? '—' : `${(value * 100).toFixed(1)}%`;
-  }
-
-  /** The pointer over the graph: the view turns to the pose under it, once the sweep is done. */
-  function pointed(event) {
-    const box = event.currentTarget.getBoundingClientRect();
-    const plotWidth = box.width - GRAPH_MARGIN.left - GRAPH_MARGIN.right;
-    const fraction = (event.clientX - box.left - GRAPH_MARGIN.left) / plotWidth;
-
-    pointAtPose(poseAtGraphX(fraction, tilt.range));
   }
 
   /**
@@ -214,17 +186,12 @@
   }
 </script>
 
-<div id="tilt-panel" bind:this={panel}>
+<div id="tilt-panel" class="tilt-palette" bind:this={panel}>
   <PanelSection title="Tilt performance" id="tilt-graph-section">
-    <!-- svelte-ignore a11y_no_static_element_interactions -->
-    <div id="tilt-graph" role="img" aria-label="Tilt performance graph" bind:clientWidth={graphWidth}
-      class:tilt-graph-busy={running}
-      style:height="{graph?.height ?? 0}px"
-      onpointermove={pointed} onpointerdown={pointed}>
-      {#if graph}
-        <svg width={graph.width} height={graph.height} aria-hidden="true">{@html graph.markup}</svg>
-      {/if}
-    </div>
+    <!-- The pointer over it turns the view to the pose under it, once the sweep is done
+         (pointAtPose), and the cursor stays there after the pointer leaves, as the view does. -->
+    <TiltGraph id="tilt-graph" label="Tilt performance graph" samples={tilt.samples} range={tilt.range}
+      {shown} {showTable} cursor={tilt.cursor} busy={running} onpoint={pointAtPose} />
 
     <div class="tilt-status" id="tilt-status">
       {#if running}
@@ -286,15 +253,8 @@
 </div>
 
 <style>
-  /* The curves' colours: Gem Cut Studio's grey, yellow, orange and pink, taken from the Nord
-     palette. ISO is the text colour, so it stays visible on the light theme's pale pane. The grid
-     is the cards' edge colour, softened so the curves stay in front of it. */
+  /* The curves' colours are base.css's `.tilt-palette`, shared with the manual optimizer's graph. */
   #tilt-panel {
-    --tilt-iso: var(--text);
-    --tilt-cos: #ebcb8b;
-    --tilt-window: #d08770;
-    --tilt-head: #b48ead;
-    --tilt-grid: color-mix(in srgb, var(--panel-edge) 55%, transparent);
     width: 100%;
     height: 100%;
     background: var(--panel);
@@ -304,28 +264,6 @@
     overflow-y: auto;
     display: flex;
     flex-direction: column;
-  }
-
-  :global(:root[data-theme="light"]) #tilt-panel {
-    --tilt-cos: #c29a3a;
-  }
-
-  #tilt-graph {
-    position: relative;
-    width: 100%;
-    cursor: crosshair;
-    touch-action: none;
-  }
-
-  /* Pointing turns the stone only once every tilt is measured (tilt_performance_mode.js). */
-  #tilt-graph.tilt-graph-busy {
-    cursor: progress;
-  }
-
-  #tilt-graph svg {
-    display: block;
-    position: absolute;
-    inset: 0;
   }
 
   .tilt-status {

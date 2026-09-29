@@ -209,24 +209,24 @@ float gLuxSkyVisibility = 1.0;
 bool gLuxPathHitStone = false;
 
 // -----------------------------------------------------------------------------
-// gLuxPathWaveLength / gLuxPathTinted -- the one wavelength an eye path carries through a
-// dispersive stone (T-0092, 2026-09-25).
+// gLuxPathWaveLength -- the one wavelength an eye path carries through a dispersive stone
+// (T-0092, 2026-09-25).
 //
 // Upstream LuxCore draws a new wavelength at every transmission and evaluates reflection
 // at an undispersed index; both are upstream-acknowledged bugs (LuxCore issues #262 and #47)
 // that made the stone lose light and blur its fire. The user chose to fix them, so the path
 // now keeps one wavelength (nm, uniform over upstream's own 380-780 range), which
-// glass.glsl's GlassMaterial_Sample uses for both Fresnel terms at every surface.
-// gLuxPathTinted records that the wavelength's WaveLength2RGB tint has been folded into the
-// throughput, which happens once, at the path's first transmission. See the header of
-// glass.glsl for the full argument and the measurements.
+// glass.glsl's GlassMaterial_Sample uses for both Fresnel terms at every surface. Its
+// WaveLength2RGB tint multiplies the whole path, applied by entry.glsl once the path is
+// traced (T-0263, 2026-09-28; until then it was folded in at the path's first transmission,
+// tracked by a `gLuxPathTinted` flag, which left entry reflections untinted). See the header
+// of glass.glsl for the full argument and the measurements.
 //
-// Globals for the same reason gLuxPathHitStone is one: the chain between entry.glsl and
-// glass.glsl is ported code whose signatures this project does not widen. Both are set per
-// eye path by entry.glsl's sample loop, and only read or written by glass.glsl.
+// A global for the same reason gLuxPathHitStone is one: the chain between entry.glsl and
+// glass.glsl is ported code whose signatures this project does not widen. Set per eye path
+// by entry.glsl's sample loop, and read by glass.glsl and entry.glsl.
 // -----------------------------------------------------------------------------
 float gLuxPathWaveLength = 580.0;
-bool gLuxPathTinted = false;
 
 // -----------------------------------------------------------------------------
 // gLuxPathExitNormal -- the world-space outward geometric normal of the last stone facet
@@ -350,8 +350,9 @@ float luxHorizonDistance(vec3 origin, vec3 direction) {
 // facet count, with no fixed cap. The page sends the facets of every tier whose Frosted flag
 // is on, and re-sends them after every rebuild, because facet ids belong to one mesh.
 //
-// Read only here, and only by the ported path: a frosted facet is LuxCore's RoughGlassMaterial
-// (lux/roughglass.glsl) instead of GlassMaterial, and pathtracer.glsl's BSDF_Init asks through
+// Read only here, and only by the ported path: a frosted facet is RoughGlassMaterial
+// (lux/roughglass.glsl; LuxCore's slot, a GGX rough dielectric since T-0269) instead of
+// GlassMaterial, and pathtracer.glsl's BSDF_Init asks through
 // the LUX_FACET_IS_FROSTED integration point below. The deterministic renderer (gem.frag) does
 // not read it and draws every facet polished; that is the user's scope for T-0183.
 //
@@ -368,5 +369,18 @@ bool luxFacetIsFrosted(float facet) {
 }
 
 #define LUX_FACET_IS_FROSTED(facet) luxFacetIsFrosted(facet)
+
+// -----------------------------------------------------------------------------
+// FROSTED FACETS' ENERGY COMPENSATION TABLE.                                   T-0271
+//
+// The single-scattering albedo of the frosted facets' BSDF, which lux/roughglass.glsl divides
+// the BSDF by (RoughGlassMaterial_SingleScatteringAlbedo). A 64 x 64 RGBA32F data texture,
+// value in red: 64 columns of eye cosine, 32 rows of relative index for an eye outside the
+// stone and 32 more for an eye inside it. Uploaded once, from the checked-in table in
+// src/renderer/frosted_albedo.rs, by GemApp::new; it never changes. Read with texelFetch and
+// interpolated in the shader, because WebGL2 does not promise linear filtering of float
+// textures.
+// -----------------------------------------------------------------------------
+uniform highp sampler2D uFrostedAlbedo;
 
 #endif // LUX_HOST_GLSL

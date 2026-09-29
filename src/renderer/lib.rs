@@ -32,18 +32,28 @@
 //! The shader's own logic is not covered the same way, and no test compiles `gem.frag`
 //! (T-0037):
 //! - with tested Rust mirrors: traversal, triangle intersection, the camera rays, the
-//!   lighting frame, the observer and the leak test;
+//!   lighting frame, the observer and the leak test; and, for the Monte Carlo renderer, the
+//!   frosted facets' GGX rough dielectric (`rough_glass`, test-only, T-0269) and its energy
+//!   compensation table (`frosted_albedo`, T-0271);
 //! - with none: Fresnel, refraction, the interior loop and the rest of `arrivingLight`.
 
 pub mod accel;
 pub mod camera;
 pub mod convex;
 pub mod env_map;
+// The frosted facets' single-scattering albedo table, which the shader divides by (T-0271).
+mod frosted_albedo;
+// Frosted facets in the deterministic renderer: the per-facet radiance cache (T-0270).
+pub mod frost;
 pub mod gpu;
 pub mod loader;
 pub mod mesh;
 pub mod params;
+#[cfg(test)]
+mod rough_glass;
 pub mod tilt;
+// Off-screen previews of other stones, for the manual optimizer's grid (T-0273).
+mod thumbnails;
 
 use accel::Accel;
 use camera::OrbitCamera;
@@ -167,10 +177,18 @@ const fn glsl_line_code(source: &[u8], line_start: usize) -> (usize, usize) {
 /// numbers still match the files and `glsl_function_signatures`' column-zero rule still sees
 /// what it sees in the files. `shipped_shader_is_the_source_without_its_comments` checks the
 /// result against an independent, line-by-line implementation.
+///
+/// **The two constants carry `#[allow(long_running_const_eval)]`** (T-0270). Stripping walks
+/// every byte of the shaders in constant evaluation, and rustc's deny-by-default lint calls
+/// that "taking a long time" past a fixed step count: the frosted facets' shader text took the
+/// fragment shader over it. The work is linear in the source and runs once per build, so the
+/// lint is a false alarm here, and any future growth of the shaders would trip it again.
 macro_rules! glsl_without_comments {
     ($source:expr) => {{
         const SOURCE: &[u8] = $source.as_bytes();
+        #[allow(long_running_const_eval)]
         const LENGTH: usize = glsl_code_length(SOURCE);
+        #[allow(long_running_const_eval)]
         const CODE: [u8; LENGTH] = glsl_code::<LENGTH>(SOURCE);
 
         match core::str::from_utf8(&CODE) {
@@ -248,12 +266,33 @@ pub enum ProgramKind {
     LuxCore,
     /// `renderFlat()`: the stone as an opaque surface.
     Flat,
+    /// `renderHandWritten()` with the frosted facets compiled in (T-0270): what the deterministic
+    /// renderer draws a stone with frosted facets with. A separate program because the frosted
+    /// code, even never taken, cost a polished frame a fifth of its time (gem.frag's
+    /// `FROSTED_PROGRAM`), so a stone with nothing frosted keeps the plain program. Linked the
+    /// first time a frosted stone is drawn deterministically; until it is, `Deterministic` stands
+    /// in and the frosted facets show polished.
+    DeterministicFrosted,
 }
 
 impl ProgramKind {
     /// Every kind, in `index` order.
-    pub const ALL: [ProgramKind; 3] =
-        [ProgramKind::Deterministic, ProgramKind::LuxCore, ProgramKind::Flat];
+    pub const ALL: [ProgramKind; 4] = [
+        ProgramKind::Deterministic,
+        ProgramKind::LuxCore,
+        ProgramKind::Flat,
+        ProgramKind::DeterministicFrosted,
+    ];
+
+    /// `self`, or the frosted deterministic program when `self` is the deterministic one and
+    /// the stone has frosted facets. Every other kind draws frosted facets its own way (Monte
+    /// Carlo) or not at all (flat), so is returned as it is.
+    pub fn with_frosted(self, frosted: bool) -> ProgramKind {
+        match (self, frosted) {
+            (ProgramKind::Deterministic, true) => ProgramKind::DeterministicFrosted,
+            _ => self,
+        }
+    }
 
     /// The program a frame with these settings draws with.
     ///
@@ -274,6 +313,7 @@ impl ProgramKind {
             ProgramKind::Deterministic => 0,
             ProgramKind::LuxCore => 1,
             ProgramKind::Flat => 2,
+            ProgramKind::DeterministicFrosted => 3,
         }
     }
 
@@ -283,6 +323,9 @@ impl ProgramKind {
             ProgramKind::Deterministic => "GEM_PROGRAM_DETERMINISTIC",
             ProgramKind::LuxCore => "GEM_PROGRAM_LUXCORE",
             ProgramKind::Flat => "GEM_PROGRAM_FLAT",
+            // Not tested by lux/entry.glsl, whose main() runs renderHandWritten for any define
+            // but the other two; gem.frag reads it (FROSTED_PROGRAM).
+            ProgramKind::DeterministicFrosted => "GEM_PROGRAM_FROSTED",
         }
     }
 
@@ -292,6 +335,7 @@ impl ProgramKind {
             ProgramKind::Deterministic => "deterministic",
             ProgramKind::LuxCore => "Monte Carlo",
             ProgramKind::Flat => "flat",
+            ProgramKind::DeterministicFrosted => "deterministic with frosted facets",
         }
     }
 }
@@ -739,7 +783,7 @@ const WELD_EPSILON_SCALE: f32 = 1e-5;
 const ENVIRONMENT_WIDTH: u32 = 1024;
 const ENVIRONMENT_HEIGHT: u32 = 512;
 
-/// Texture units. Fixed rather than allocated, since there are only seven.
+/// Texture units. Fixed rather than allocated, since there are only twelve (WebGL2 guarantees 16).
 const UNIT_TRIANGLES: u32 = 0;
 const UNIT_NODES: u32 = 1;
 const UNIT_ENVIRONMENT: u32 = 2;
@@ -750,14 +794,26 @@ const UNIT_ACCUMULATION: u32 = 3;
 /// cap that could silently drop facets; see `GemApp::upload_highlight_texture`.
 const UNIT_HIGHLIGHT: u32 = 4;
 /// One texel per facet id, red channel 1.0 frosted / 0.0 polished (T-0183), built exactly like
-/// the highlight texture; read only by the ported LuxCore path (`uFrostedTexture` in
-/// `lux/host.glsl`). See `GemApp::set_frosted_facets`.
+/// the highlight texture; read by the ported LuxCore path (`uFrostedTexture` in
+/// `lux/host.glsl`) and, since T-0270, by the deterministic one (`uFrostMask` in `gem.frag`). See
+/// `GemApp::set_frosted_facets`.
 const UNIT_FROSTED: u32 = 5;
 /// Tilt performance's cameras, one row per pose of a batch (T-0261); bound only while it draws.
 const UNIT_TILT_CAMERAS: u32 = 6;
 /// The stone's facet planes (`uFacetPlanes`), for the interior march's convex exit test; see
 /// `convex::FacetPlanes`.
 const UNIT_FACET_PLANES: u32 = 7;
+/// The frosted facets' single-scattering albedo table (`uFrostedAlbedo` in `lux/host.glsl`,
+/// T-0271), which `lux/roughglass.glsl` divides the frosted BSDF by. Uploaded once from
+/// `frosted_albedo::texels()`; it never changes.
+const UNIT_FROSTED_ALBEDO: u32 = 8;
+/// Where each facet's frosted-cache rays start and which way it faces (`uFacetFrames`, T-0270);
+/// see `frost::facet_frame_texels`.
+const UNIT_FACET_FRAMES: u32 = 9;
+/// The frosted facets' per-facet cache (`uFrostCache`, T-0270), and the per-ray image its
+/// pre-pass averages (`uFrostCacheRays`). See `GemApp::draw_frost_cache`.
+const UNIT_FROST_CACHE: u32 = 10;
+const UNIT_FROST_CACHE_RAYS: u32 = 11;
 
 /// Most frames whose fences `GemApp` keeps (`frame_fences`). The page lets two be in flight
 /// while dragging; one more is headroom for a caller that renders without asking.
@@ -779,6 +835,10 @@ struct ModelResources {
     /// How many planes `facet_plane_texture` holds: 0 when the stone is not convex, which makes
     /// the shader's interior march walk the BVH instead (`uFacetPlaneCount`).
     facet_plane_count: u32,
+    /// A point on each facet and its outward normal, for the frosted cache's rays
+    /// (`uFacetFrames`, T-0270): built for every stone, convex or not, since the frosted facets
+    /// cannot lean on the convex exit test's planes (`frost::facet_frame_texels`).
+    facet_frame_texture: WebGlTexture,
     texture_width: u32,
     node_count: u32,
     triangle_count: u32,
@@ -796,6 +856,34 @@ struct ModelResources {
     /// Where the model file's own coordinates land in the world (`FileFrame`), for
     /// `project_file_points`.
     file_frame: FileFrame,
+}
+
+/// The two float images of the frosted facets' pre-pass (T-0270), sized to one stone's facet
+/// count: the per-ray image the first draw writes and the per-facet cache the second averages it
+/// into. See `GemApp::draw_frost_cache`.
+struct FrostCache {
+    rays: gpu::FloatTarget,
+    cache: gpu::FloatTarget,
+    facets: u32,
+}
+
+impl FrostCache {
+    fn delete(&self, gl: &Gl) {
+        self.rays.delete(gl);
+        self.cache.delete(gl);
+    }
+}
+
+/// What each of the frosted facets' two texture units holds during a draw (T-0270), as
+/// `(cache unit holds the cache, rays unit holds the rays)`; a unit that does not gets the
+/// frosted mask, a harmless texture.
+///
+/// An image may never be sampled by the draw that writes it (WebGL refuses the draw as a
+/// feedback loop, even from a sampler the shader does not read on that path), so the cache is off
+/// its unit while the pre-pass's second draw writes it, and the per-ray image off its unit while
+/// the first draw writes it. The frame reads both.
+fn frost_units_hold_their_images(pass: i32) -> (bool, bool) {
+    (pass != frost::PASS_REDUCE, pass != frost::PASS_RAYS)
 }
 
 /// A linked program and its uniform locations.
@@ -924,7 +1012,7 @@ pub struct GemApp {
     canvas: HtmlCanvasElement,
     /// One entry per `ProgramKind`, indexed by `ProgramKind::index`. The deterministic one is
     /// always `Ready`: the constructor does not return until it is.
-    programs: [ProgramState; 3],
+    programs: [ProgramState; 4],
     /// The kind the draw in progress uses, set by `render_pass` before it draws, so that
     /// `uniform1f` and friends address that program's locations.
     drawing: ProgramKind,
@@ -963,6 +1051,28 @@ pub struct GemApp {
     /// One texel per facet id, mirroring `frosted_facets` for the shader (`uFrostedTexture`),
     /// sized to the loaded model's facet count exactly as `highlight_texture` is.
     frosted_texture: WebGlTexture,
+    /// The frosted facets' single-scattering albedo table (`uFrostedAlbedo`, T-0271): fixed
+    /// data, uploaded once in `new`.
+    frosted_albedo_texture: WebGlTexture,
+    /// Each row's mean radiance of the lighting now loaded (`EnvironmentMap::latitude_means`),
+    /// from which each frame's frosted fallback constant is worked out (`frost::sphere_fill`,
+    /// `uFrostFill`, T-0270).
+    environment_latitudes: Vec<Vector3<f32>>,
+    /// The frosted facets' pre-pass images (T-0270), made the first time a frosted stone is drawn
+    /// and remade when the facet count changes; `None` before that, or when they cannot be made.
+    frost_cache: Option<FrostCache>,
+    /// Why the frosted cache cannot be made, once it has failed: the browser cannot render into
+    /// a float image. Kept so it is not retried every frame; frosted facets then take the
+    /// fallback constant (option E).
+    frost_cache_error: Option<String>,
+    /// False to make the deterministic renderer use the fallback constant as a browser without
+    /// float render targets would; for tests and diagnosis (`set_frost_cache_allowed`).
+    frost_cache_allowed: bool,
+    /// Which draw the program is making (`uFrostPass`): `frost::PASS_FRAME` except inside
+    /// `draw_frost_cache`.
+    frost_pass: i32,
+    /// Whether the cache holds this frame's values (`uFrostCacheReady`): set by the pre-pass.
+    frost_cache_ready: bool,
     /// The dop the cutting assistant glues the rough to (T-0234), in the model file's own
     /// coordinates, or `None` whenever that mode is closed. See `set_dop`.
     dop: Option<Dop>,
@@ -1023,6 +1133,12 @@ pub struct GemApp {
     /// `model_generation` it was built for: built once per stone rather than once per pose.
     tilt_table: Option<(u64, WebGlTexture)>,
     tilt_result: Vec<f32>,
+
+    /// The manual optimizer's preview stones and their read-back (T-0273); see `thumbnails`.
+    thumbnails: thumbnails::Thumbnails,
+    /// Backing pixels per CSS pixel for the wireframe's line width while a preview is drawn
+    /// (`uWireframePixelScale`), which has no canvas of its own to measure; `None` otherwise.
+    pixel_scale_override: Option<f32>,
 }
 
 #[wasm_bindgen]
@@ -1062,6 +1178,7 @@ impl GemApp {
             ProgramState::Ready(deterministic),
             ProgramState::Unlinked,
             ProgramState::Unlinked,
+            ProgramState::Unlinked,
         ];
 
         // A vertex array must be bound to draw, even though the vertex shader reads no
@@ -1072,6 +1189,7 @@ impl GemApp {
 
         let environment =
             generate_environment(LightingModel::Studio, None).map_err(|e| js_error(&e))?;
+        let environment_latitudes = environment.latitude_means();
         let environment_texture = gpu::create_environment_texture(
             &gl,
             environment.width,
@@ -1102,6 +1220,12 @@ impl GemApp {
             &std::collections::BTreeSet::new(),
         )
         .map_err(|e| js_error(&e))?;
+
+        // The frosted facets' energy compensation table (T-0271): the same for every stone.
+        let (albedo_width, albedo_height, albedo_texels) = frosted_albedo::texels();
+        let frosted_albedo_texture =
+            gpu::create_data_texture(&gl, albedo_width, albedo_height, &albedo_texels)
+                .map_err(|e| js_error(&e))?;
 
         // No depth or blending: the whole image is one full-screen triangle, and
         // every pixel is fully determined by its own trace. The accumulation pass adds to
@@ -1157,6 +1281,13 @@ impl GemApp {
             highlight_texture,
             frosted_facets: std::collections::BTreeSet::new(),
             frosted_texture,
+            frosted_albedo_texture,
+            environment_latitudes,
+            frost_cache: None,
+            frost_cache_error: None,
+            frost_cache_allowed: true,
+            frost_pass: frost::PASS_FRAME,
+            frost_cache_ready: false,
             dop: None,
             accumulation,
             accumulation_status,
@@ -1169,6 +1300,8 @@ impl GemApp {
             tilt_jobs: std::collections::VecDeque::new(),
             tilt_table: None,
             tilt_result: Vec::new(),
+            thumbnails: thumbnails::Thumbnails::default(),
+            pixel_scale_override: None,
         })
     }
 
@@ -1435,10 +1568,7 @@ impl GemApp {
     pub fn link_current_program(&mut self) -> bool {
         let effective = self.effective_params();
 
-        self.prepare_program(
-            ProgramKind::for_params(effective.renderer, effective.debug_mode),
-            true,
-        )
+        self.prepare_program(self.wanted_program(&effective), true)
     }
 
     /// Whether the program the current settings draw with can be used without a link: it is
@@ -1449,7 +1579,7 @@ impl GemApp {
     /// compile with nothing on screen to say why.
     pub fn current_program_ready(&self) -> bool {
         let effective = self.effective_params();
-        let kind = ProgramKind::for_params(effective.renderer, effective.debug_mode);
+        let kind = self.wanted_program(&effective);
 
         matches!(
             self.programs[kind.index()],
@@ -1486,13 +1616,17 @@ impl GemApp {
         // at all; `poll_program_links` tells the page when to ask again. Without
         // KHR_parallel_shader_compile (Firefox) the link cannot be polled, so this call blocks
         // until it is done and nothing is substituted.
-        let wanted = ProgramKind::for_params(effective.renderer, effective.debug_mode);
+        //
+        // The frosted deterministic program (T-0270) is stood in for the same way, by the plain
+        // one: frosted facets show polished for the length of its first compile.
+        let wanted = self.wanted_program(&effective);
 
-        if !self.prepare_program(wanted, false) {
+        self.drawing = if self.prepare_program(wanted, false) {
+            wanted
+        } else {
             effective.renderer = params::Renderer::Deterministic;
-        }
-
-        self.drawing = ProgramKind::for_params(effective.renderer, effective.debug_mode);
+            ProgramKind::for_params(effective.renderer, effective.debug_mode)
+        };
 
         self.resize_canvas(width, height);
 
@@ -1503,6 +1637,13 @@ impl GemApp {
             // ported path later cannot resume a sum taken under settings that were never
             // recorded against it.
             self.accumulation_state.reset();
+
+            // The frosted facets' per-facet values, drawn before the frame that reads them
+            // (T-0270). Only the frosted deterministic program reads them; it is drawing only
+            // when a facet is frosted.
+            self.frost_cache_ready = self.drawing == ProgramKind::DeterministicFrosted
+                && self.draw_frost_cache(width, height, &effective);
+
             self.draw_to_canvas(width, height, &effective, LUX_PASS_DIRECT, 0, 1);
 
             return;
@@ -1719,11 +1860,14 @@ impl GemApp {
     /// `set_highlighted_facets` takes); replaces whatever was frosted before, and an empty
     /// slice clears it. T-0183.
     ///
-    /// A frosted facet is drawn by the Monte Carlo renderer (the ported LuxCore path) as
-    /// LuxCore's RoughGlass material -- a rough dielectric surface with single-scattering
-    /// microfacets, of roughness `FROSTED_FACET_ROUGHNESS` in `lux/entry.glsl` -- instead of
-    /// polished glass, whether the path meets it from outside the stone or from inside. The
-    /// deterministic and flat renderers ignore it.
+    /// A frosted facet is drawn by the Monte Carlo renderer (the ported LuxCore path) as a
+    /// rough dielectric surface with single-scattering microfacets -- GGX, sampled from its
+    /// visible normals, since T-0269 (`lux/roughglass.glsl`), of roughness
+    /// `FROSTED_FACET_ROUGHNESS` in `lux/entry.glsl` -- instead of
+    /// polished glass, whether the path meets it from outside the stone or from inside. Since
+    /// T-0270 the deterministic renderer draws it too, as a surface that scatters light evenly
+    /// and shows the average light reaching it, one value per facet worked out each frame in a
+    /// pre-pass (`frost`, `draw_frost_cache`). The flat renderer ignores it.
     ///
     /// Mirrors `set_highlighted_facets` exactly: one texel per facet id, sized to the current
     /// model's facet count with no cap, cleared whenever a new stone loads or the model axis
@@ -1740,6 +1884,41 @@ impl GemApp {
     /// back what `set_frosted_facets` stored.
     pub fn frosted_facets(&self) -> Vec<u32> {
         self.frosted_facets.iter().copied().collect()
+    }
+
+    /// How the deterministic renderer draws frosted facets (T-0270), in one line: "cache" when
+    /// the last frame drew them from the per-facet cache, "fallback: <why>" when they took the
+    /// lighting's sphere average instead, or "none frosted". Worth reading when a frosted facet
+    /// looks flat and uniform in the deterministic renderer: that is the fallback, on a browser
+    /// that cannot render into a float image.
+    pub fn frost_status(&self) -> String {
+        if frost::frosted_facet_count(self.model.diagnostics.facet_count, &self.frosted_facets) == 0 {
+            return "none frosted".to_string();
+        }
+
+        if self.frost_cache_ready {
+            return "cache".to_string();
+        }
+
+        match &self.programs[ProgramKind::DeterministicFrosted.index()] {
+            ProgramState::Ready(_) => {}
+            ProgramState::Failed(error) => return format!("polished: the frosted program failed: {}", error),
+            _ => return "polished: the frosted program is not linked yet".to_string(),
+        }
+
+        match (&self.frost_cache_error, self.frost_cache_allowed) {
+            (_, false) => "fallback: the cache is turned off (set_frost_cache_allowed)".to_string(),
+            (Some(error), _) => format!("fallback: {}", error),
+            (None, true) => "fallback: no deterministic frame drawn yet".to_string(),
+        }
+    }
+
+    /// For tests and diagnosis: `false` makes the deterministic renderer draw frosted facets with
+    /// the fallback constant (option E, the lighting averaged over the sphere), exactly as on a
+    /// browser that cannot render into a float image, where the per-facet cache cannot be made.
+    /// `true`, the default, uses the cache wherever it can be made.
+    pub fn set_frost_cache_allowed(&mut self, allowed: bool) {
+        self.frost_cache_allowed = allowed;
     }
 
     /// Rebuilds `uFrostedTexture` from `self.frosted_facets` and the current model's facet
@@ -2651,6 +2830,16 @@ impl GemApp {
         }
     }
 
+    /// The program a frame with these settings wants: `ProgramKind::for_params`, with the
+    /// deterministic program swapped for its frosted variant when the stone has a frosted facet
+    /// (T-0270).
+    fn wanted_program(&self, effective: &RenderParams) -> ProgramKind {
+        let frosted =
+            frost::frosted_facet_count(self.model.diagnostics.facet_count, &self.frosted_facets) > 0;
+
+        ProgramKind::for_params(effective.renderer, effective.debug_mode).with_frosted(frosted)
+    }
+
     /// Whether this frame accumulates across passes rather than standing on its own.
     ///
     /// All three conditions are needed, and each fails differently if forgotten. The
@@ -2784,6 +2973,83 @@ impl GemApp {
         self.draw_trace(width, height, effective, pass, seed, pass_count);
     }
 
+    /// The frosted facets' pre-pass (T-0270): fills the per-facet cache the frame about to be
+    /// drawn at `width` x `height` reads, and says whether it did. False means the frame takes
+    /// the fallback constant instead: the browser cannot render into a float image (remembered in
+    /// `frost_cache_error`, not retried), or a test turned the cache off.
+    ///
+    /// Two small draws of the deterministic program, each with the frame's own uniforms (its
+    /// camera, lighting and material) so the values are this frame's:
+    ///
+    /// 1. `frost::PASS_RAYS` into the per-ray image, facet count x (2 rows x channels x
+    ///    `frost::CACHE_RAYS`): a fragment per cache ray (`renderFrostCacheRay`), so the rays of a
+    ///    facet run side by side rather than one after another in one fragment -- the exploration
+    ///    measured that serial version at ~50 ms of latency for a frosted table alone;
+    /// 2. `frost::PASS_REDUCE` into the cache, facet count x 2: each facet's mean
+    ///    (`renderFrostCacheReduce`).
+    ///
+    /// Redrawn every frame, like the frame itself: the values depend on the view (the facet as
+    /// the eye sees it, and the lighting when it follows the view). Measured cost is in
+    /// kb/frosted-facets-in-the-deterministic-renderer-opt.md.
+    fn draw_frost_cache(&mut self, width: u32, height: u32, effective: &RenderParams) -> bool {
+        if !self.frost_cache_allowed || self.frost_cache_error.is_some() {
+            return false;
+        }
+
+        let facets = self.model.diagnostics.facet_count.max(1);
+
+        if self.frost_cache.as_ref().map(|cache| cache.facets) != Some(facets) {
+            if let Some(old) = self.frost_cache.take() {
+                old.delete(&self.gl);
+            }
+
+            let made = gpu::FloatTarget::new(&self.gl, facets, frost::RAY_IMAGE_HEIGHT).and_then(|rays| {
+                match gpu::FloatTarget::new(&self.gl, facets, frost::CACHE_ROWS) {
+                    Ok(cache) => Ok(FrostCache { rays, cache, facets }),
+                    Err(error) => {
+                        rays.delete(&self.gl);
+                        Err(error)
+                    }
+                }
+            });
+
+            match made {
+                Ok(cache) => self.frost_cache = Some(cache),
+                Err(error) => {
+                    web_sys::console::warn_1(&JsValue::from_str(&format!(
+                        "gem renderer: frosted facets fall back to the lighting's average: {}",
+                        error
+                    )));
+                    self.frost_cache_error = Some(error);
+
+                    return false;
+                }
+            }
+        }
+
+        let channels = if effective.spectral_samples <= 1 { 1 } else { frost::DISPERSIVE_CHANNELS };
+        let ray_rows = frost::CACHE_ROWS * channels * frost::CACHE_RAYS;
+
+        if let Some(cache) = self.frost_cache.as_ref() {
+            cache.rays.bind(&self.gl);
+        }
+
+        self.frost_pass = frost::PASS_RAYS;
+        self.draw_trace_in((facets, ray_rows), width, height, effective, LUX_PASS_DIRECT, 0, 1);
+
+        if let Some(cache) = self.frost_cache.as_ref() {
+            cache.cache.bind(&self.gl);
+        }
+
+        self.frost_pass = frost::PASS_REDUCE;
+        self.draw_trace_in((facets, frost::CACHE_ROWS), width, height, effective, LUX_PASS_DIRECT, 0, 1);
+
+        self.frost_pass = frost::PASS_FRAME;
+        self.gl.bind_framebuffer(Gl::FRAMEBUFFER, None);
+
+        true
+    }
+
     /// Traces the stone into whichever framebuffer is bound, one full-screen triangle.
     ///
     /// `pass` selects what the shader does with the result: trace and tone map
@@ -2835,8 +3101,33 @@ impl GemApp {
         gl.bind_texture(Gl::TEXTURE_2D, Some(&self.highlight_texture));
         gl.active_texture(Gl::TEXTURE0 + UNIT_FROSTED);
         gl.bind_texture(Gl::TEXTURE_2D, Some(&self.frosted_texture));
+        gl.active_texture(Gl::TEXTURE0 + UNIT_FROSTED_ALBEDO);
+        gl.bind_texture(Gl::TEXTURE_2D, Some(&self.frosted_albedo_texture));
         gl.active_texture(Gl::TEXTURE0 + UNIT_FACET_PLANES);
         gl.bind_texture(Gl::TEXTURE_2D, Some(&self.model.facet_plane_texture));
+        gl.active_texture(Gl::TEXTURE0 + UNIT_FACET_FRAMES);
+        gl.bind_texture(Gl::TEXTURE_2D, Some(&self.model.facet_frame_texture));
+
+        // The frosted cache's images (T-0270), except while one is the target being drawn (see
+        // `frost_units_hold_their_images`), and the frosted mask on both before they exist.
+        let (cache_on_unit, rays_on_unit) = frost_units_hold_their_images(self.frost_pass);
+
+        gl.active_texture(Gl::TEXTURE0 + UNIT_FROST_CACHE);
+        gl.bind_texture(
+            Gl::TEXTURE_2D,
+            Some(match self.frost_cache.as_ref() {
+                Some(cache) if cache_on_unit => &cache.cache.texture,
+                _ => &self.frosted_texture,
+            }),
+        );
+        gl.active_texture(Gl::TEXTURE0 + UNIT_FROST_CACHE_RAYS);
+        gl.bind_texture(
+            Gl::TEXTURE_2D,
+            Some(match self.frost_cache.as_ref() {
+                Some(cache) if rays_on_unit => &cache.rays.texture,
+                _ => &self.frosted_texture,
+            }),
+        );
 
         // Bound on every draw, not only on an accumulating one: an unbound unit behind a
         // live sampler uniform is the kind of thing a driver is entitled to complain
@@ -2979,7 +3270,8 @@ impl GemApp {
         self.uniform1i("uWireframe", if effective.wireframe { 1 } else { 0 });
         self.uniform1f(
             "uWireframePixelScale",
-            wireframe_pixel_scale(height, self.canvas.client_height()),
+            self.pixel_scale_override
+                .unwrap_or_else(|| wireframe_pixel_scale(height, self.canvas.client_height())),
         );
         self.uniform1i("uHighlightTexture", UNIT_HIGHLIGHT as i32);
         self.uniform1i("uToneMapMode", effective.tone_map_mode.as_u32() as i32);
@@ -2992,6 +3284,23 @@ impl GemApp {
 
         self.uniform4f("uDopStart", dop_start[0], dop_start[1], dop_start[2], dop_start[3]);
         self.uniform4f("uDopEnd", dop_end[0], dop_end[1], dop_end[2], dop_end[3]);
+
+        // Frosted facets in the deterministic renderer (T-0270); see `frost` and
+        // `draw_frost_cache`. The mask is the Monte Carlo renderer's own texture, on its unit.
+        self.uniform1i("uFrostMask", UNIT_FROSTED as i32);
+        self.uniform1i(
+            "uFrostedFacetCount",
+            frost::frosted_facet_count(self.model.diagnostics.facet_count, &self.frosted_facets) as i32,
+        );
+        self.uniform1i("uFacetFrames", UNIT_FACET_FRAMES as i32);
+        self.uniform1i("uFrostCache", UNIT_FROST_CACHE as i32);
+        self.uniform1i("uFrostCacheRays", UNIT_FROST_CACHE_RAYS as i32);
+        self.uniform1i("uFrostCacheReady", if self.frost_cache_ready { 1 } else { 0 });
+        self.uniform1i("uFrostPass", self.frost_pass);
+
+        let fill = frost::sphere_fill(&self.environment_latitudes, effective);
+
+        self.uniform3f("uFrostFill", fill.x, fill.y, fill.z);
 
         self.set_lux_uniforms(effective, width, height, pass, seed, pass_count);
     }
@@ -3030,6 +3339,8 @@ impl GemApp {
 
         // Which facets are rough glass (T-0183); see `set_frosted_facets` and lux/host.glsl.
         self.uniform1i("uFrostedTexture", UNIT_FROSTED as i32);
+        // What the frosted BSDF divides by to keep its energy (T-0271); lux/roughglass.glsl.
+        self.uniform1i("uFrostedAlbedo", UNIT_FROSTED_ALBEDO as i32);
 
         // The ported sampler jitters within the pixel, so it needs the film size to turn
         // `pixelX + rnd` back into normalised device coordinates. This is the same size the
@@ -3098,6 +3409,7 @@ impl GemApp {
         self.gl.delete_texture(Some(&self.environment_texture));
 
         self.environment_texture = texture;
+        self.environment_latitudes = environment.latitude_means();
         self.environment_generation += 1;
         self.render_params.lighting_model = model;
 
@@ -3147,6 +3459,7 @@ impl GemApp {
             .delete_texture(Some(&self.model.triangle_texture));
         self.gl.delete_texture(Some(&self.model.node_texture));
         self.gl.delete_texture(Some(&self.model.facet_plane_texture));
+        self.gl.delete_texture(Some(&self.model.facet_frame_texture));
     }
 }
 
@@ -3161,6 +3474,11 @@ impl Drop for GemApp {
         self.gl.delete_texture(Some(&self.environment_texture));
         self.gl.delete_texture(Some(&self.highlight_texture));
         self.gl.delete_texture(Some(&self.frosted_texture));
+        self.gl.delete_texture(Some(&self.frosted_albedo_texture));
+
+        if let Some(cache) = self.frost_cache.take() {
+            cache.delete(&self.gl);
+        }
 
         if let Some(targets) = self.accumulation.as_ref() {
             targets.delete(&self.gl);
@@ -3180,11 +3498,20 @@ impl Drop for GemApp {
             self.gl.delete_texture(Some(&texture));
         }
 
+        let gl = self.gl.clone();
+
+        self.thumbnails.release(&gl);
+
         self.gl.delete_vertex_array(Some(&self.vertex_array));
 
         for state in std::mem::replace(
             &mut self.programs,
-            [ProgramState::Unlinked, ProgramState::Unlinked, ProgramState::Unlinked],
+            [
+                ProgramState::Unlinked,
+                ProgramState::Unlinked,
+                ProgramState::Unlinked,
+                ProgramState::Unlinked,
+            ],
         ) {
             match state {
                 ProgramState::Ready(linked) => self.gl.delete_program(Some(&linked.program)),
@@ -3470,6 +3797,19 @@ fn build_model(
         }
     };
 
+    // Where each facet's frosted-cache rays start (T-0270), for every stone, convex or not.
+    let (frame_width, frame_texels) = frost::facet_frame_texels(&mesh);
+    let facet_frame_texture = match gpu::create_data_texture(gl, frame_width, 2, &frame_texels) {
+        Ok(texture) => texture,
+        Err(error) => {
+            gl.delete_texture(Some(&triangle_texture));
+            gl.delete_texture(Some(&node_texture));
+            gl.delete_texture(Some(&facet_plane_texture));
+
+            return Err(error);
+        }
+    };
+
     let model_name = if object_names.is_empty() {
         "(unnamed)".to_string()
     } else {
@@ -3481,6 +3821,7 @@ fn build_model(
         node_texture,
         facet_plane_texture,
         facet_plane_count,
+        facet_frame_texture,
         texture_width: packed.texture_width,
         node_count: packed.node_count as u32,
         triangle_count: packed.triangle_count as u32,
@@ -4214,11 +4555,13 @@ mod tests {
     /// transmission at that wavelength's index.                                    T-0092
     ///
     /// Setup: the text of the three files that carry the fix -- `lux/host.glsl` (which
-    /// declares the per-path globals `gLuxPathWaveLength` and `gLuxPathTinted`),
-    /// `lux/entry.glsl` (which draws the wavelength and clears the tint flag at the start
-    /// of every eye path) and `lux/glass.glsl` (whose `GlassMaterial_Sample` uses them).
+    /// declares the per-path global `gLuxPathWaveLength`), `lux/entry.glsl` (which draws the
+    /// wavelength at the start of every eye path) and `lux/glass.glsl` (whose
+    /// `GlassMaterial_Sample` uses it). Where the wavelength's colour tint goes is a separate
+    /// decision (T-0263), pinned by
+    /// `the_ported_path_tints_the_whole_path_with_its_wavelength` below.
     ///
-    /// Test: the globals are declared; the sample loop sets both; `GlassMaterial_Sample`
+    /// Test: the global is declared; the sample loop sets it; `GlassMaterial_Sample`
     /// computes one index `lnt` from the path's wavelength and hands that same `lnt` to
     /// BOTH Fresnel evaluations; and nothing in glass.glsl draws its own wavelength from a
     /// BSDF sample any more (upstream's `mix(380.0, 780.0, u0)`).
@@ -4239,17 +4582,14 @@ mod tests {
         let glass = shader_file("src/renderer/shaders/lux/glass.glsl");
 
         assert!(
-            host.contains("float gLuxPathWaveLength = 580.0;")
-                && host.contains("bool gLuxPathTinted = false;"),
-            "lux/host.glsl must declare the per-path wavelength state gLuxPathWaveLength \
-             and gLuxPathTinted"
+            host.contains("float gLuxPathWaveLength = 580.0;"),
+            "lux/host.glsl must declare the per-path wavelength state gLuxPathWaveLength"
         );
 
         assert!(
-            entry.contains("gLuxPathWaveLength = mix(380.0, 780.0, Sampler_GetSample(")
-                && entry.contains("gLuxPathTinted = false;"),
-            "lux/entry.glsl's sample loop must draw each eye path's wavelength and clear \
-             its tint flag, or one sample's wavelength leaks into the next"
+            entry.contains("gLuxPathWaveLength = mix(380.0, 780.0, Sampler_GetSample("),
+            "lux/entry.glsl's sample loop must draw each eye path's wavelength, or one \
+             sample's wavelength leaks into the next"
         );
 
         let sample = glass
@@ -4278,6 +4618,95 @@ mod tests {
             !without_comments(glass).contains("mix(380.0, 780.0, u0)"),
             "lux/glass.glsl must not draw a wavelength per surface from a BSDF sample; the \
              path's wavelength comes from entry.glsl"
+        );
+    }
+
+    /// The ported path multiplies the WHOLE eye path by its wavelength's WaveLength2RGB tint,
+    /// entry reflection included, instead of folding the tint in at the path's first
+    /// transmission.                                                               T-0263
+    ///
+    /// Setup: the comment-stripped code of the three files involved. `lux/glass.glsl` is
+    /// where LuxCore puts the tint (on every transmission) and where this port put it from
+    /// T-0092 to T-0263 (on the first transmission only, remembered by a `gLuxPathTinted`
+    /// flag). `lux/entry.glsl` is where it goes now, around the call that traces one eye
+    /// path. `lux/host.glsl` declared the flag. Comments are stripped because all three
+    /// files describe the old placement in prose on purpose, and prose must not satisfy or
+    /// fail a check about code.
+    ///
+    /// Test, in three parts:
+    /// 1. `GlassMaterial_Sample` (the only place a BSDF event's value is built for polished
+    ///    facets) never calls `GlassMaterial_WaveLength2RGB`, so neither its reflection nor
+    ///    its transmission is tinted -- a tint there would be applied twice, or to half the
+    ///    light again;
+    /// 2. `gLuxPathTinted` appears in the code of none of the three files, so nothing can be
+    ///    tracking "has this path taken its tint yet" any more;
+    /// 3. in `luxRenderPixel`, the traced path's radiance is multiplied by the tint of
+    ///    `gLuxPathWaveLength` under the gate `glass.cauchyB > 0.0 && gLuxPathHitStone`,
+    ///    AFTER `PathTracer_RenderEyePath` returns and BEFORE it is added to the pixel's
+    ///    total. Order matters: tinting `total` after the loop would use only the last
+    ///    sample's wavelength, and tinting before the trace is not possible (the gate needs
+    ///    to know whether the path met the stone).
+    ///
+    /// Verifies the user's decision of 2026-09-28. The old placement never tinted light the
+    /// entry facet mirrors; blue wavelengths mirror more and transmit less, so the blue
+    /// channel's weight fell on less light, and colourless rutile tilted 23 degrees in a
+    /// closed white furnace read 2.4 levels of 255 low in blue
+    /// (`tools/light_transport/run.py`, kb/light-transport-benchmarks-furnace-fresnel-plate.md).
+    /// Because a path's radiance is linear in its starting throughput, multiplying the result
+    /// is the same as starting the camera ray at the tint, which is the "consistent spectral"
+    /// model the benchmark scores against. Pixels need a browser and a GPU, so this is the
+    /// part `cargo test` can hold in place; a zero-dispersion view cannot show the change at
+    /// all, which is also why the gate keeps `cauchyB > 0.0`.
+    #[test]
+    fn the_ported_path_tints_the_whole_path_with_its_wavelength() {
+        let host = without_comments(shader_file("src/renderer/shaders/lux/host.glsl"));
+        let entry = without_comments(shader_file("src/renderer/shaders/lux/entry.glsl"));
+        let glass = without_comments(shader_file("src/renderer/shaders/lux/glass.glsl"));
+
+        // Part 1: the BSDF builds untinted reflection and transmission.
+        let sample = glass
+            .split("bool GlassMaterial_Sample(")
+            .nth(1)
+            .and_then(|rest| rest.split("\n}\n").next())
+            .expect("lux/glass.glsl should still define GlassMaterial_Sample");
+        assert!(
+            !sample.contains("GlassMaterial_WaveLength2RGB("),
+            "GlassMaterial_Sample must not tint reflection or transmission; entry.glsl \
+             tints the whole path (T-0263). Body was:\n{}",
+            sample
+        );
+
+        // Part 2: the first-transmission bookkeeping is gone from the code.
+        for (name, code) in [("host", &host), ("entry", &entry), ("glass", &glass)] {
+            assert!(
+                !code.contains("gLuxPathTinted"),
+                "lux/{}.glsl still uses gLuxPathTinted, the flag that applied the tint at \
+                 the first transmission only",
+                name
+            );
+        }
+
+        // Part 3: the tint is applied to each traced path's radiance, gated, in order.
+        let pixel = entry
+            .split("vec3 luxRenderPixel() {")
+            .nth(1)
+            .and_then(|rest| rest.split("\n}\n").next())
+            .expect("lux/entry.glsl should still define luxRenderPixel");
+        let position = |needle: &str| {
+            pixel.find(needle).unwrap_or_else(|| {
+                panic!("luxRenderPixel should contain `{}`. Body was:\n{}", needle, pixel)
+            })
+        };
+        let trace = position("vec3 pathRadiance = PathTracer_RenderEyePath(");
+        let gate = position("if (glass.cauchyB > 0.0 && gLuxPathHitStone) {");
+        let tint = position("pathRadiance *= GlassMaterial_WaveLength2RGB(gLuxPathWaveLength);");
+        let accumulate = position("total += pathRadiance;");
+        assert!(
+            trace < gate && gate < tint && tint < accumulate,
+            "luxRenderPixel must trace the path, then (only for a dispersive stone the path \
+             met) multiply its radiance by the wavelength's tint, then add it to the total. \
+             Body was:\n{}",
+            pixel
         );
     }
 
@@ -4496,6 +4925,19 @@ mod tests {
             // page control sets these, so nothing is hidden for them.
             "uFacetPlanes",
             "uFacetPlaneCount",
+            // Frosted facets in the deterministic renderer (T-0270): its own name for the frosted
+            // mask (the ported path reads the same texture as uFrostedTexture), the per-facet
+            // cache and the pre-pass that fills it, and the fallback constant. The ported path
+            // traces frosted facets as rough glass instead. No page control sets these, so
+            // nothing is hidden for them.
+            "uFrostMask",
+            "uFrostedFacetCount",
+            "uFacetFrames",
+            "uFrostCache",
+            "uFrostCacheReady",
+            "uFrostCacheRays",
+            "uFrostFill",
+            "uFrostPass",
         ];
         expected.sort_unstable();
 
@@ -5187,25 +5629,28 @@ mod tests {
         assert_eq!(empty.len(), 4);
     }
 
-    /// The frosted mask must reach the ported path, and only the ported path.
+    /// The frosted mask must reach both the ported path and, since T-0270, the deterministic one,
+    /// as one texture.
     ///
-    /// Setup: the text of `lux/host.glsl`, `lux/pathtracer.glsl` and `gem.frag`, and the
-    /// production `lux_ignored_uniforms`.
+    /// Setup: the text of `lux/host.glsl`, `lux/pathtracer.glsl`, `gem.frag` and this file, and
+    /// the production `lux_ignored_uniforms`.
     ///
     /// Test: host.glsl declares `uFrostedTexture`, reads it with `texelFetch` at the facet id
     /// and wires `LUX_FACET_IS_FROSTED` to that lookup; pathtracer.glsl keeps a guarded
     /// standalone default for the macro and calls it from `BSDF_Init` with the hit's facet;
-    /// `gem.frag` never names `uFrostedTexture`; and the list of `gem.frag` uniforms the
-    /// ported path ignores is unchanged by it.
+    /// `gem.frag` reads its own `uFrostMask` the same way, and never names `uFrostedTexture`
+    /// (the two files are one translation unit, and a second declaration would not compile);
+    /// both samplers are pointed at `UNIT_FROSTED`; and `uFrostedTexture` is still the ported
+    /// path's, not one of `gem.frag`'s.
     ///
-    /// Verifies the whole chain from `set_frosted_facets` to the material choice, which fails
+    /// Verifies the whole chain from `set_frosted_facets` to both renderers, which fails
     /// silently if any link breaks: without the `#define` the standalone `false` wins and no
-    /// facet is ever frosted, with no error; and a read in `gem.frag` would mean the
-    /// deterministic renderer -- which T-0183 leaves as it was -- had started to depend on it.
+    /// facet is ever frosted in Monte Carlo; with the deterministic sampler on another unit, it
+    /// would read some other per-facet texture as the mask and frost the wrong facets.
     /// (`every_shader_uniform_is_set_and_every_set_uniform_is_declared` separately checks that
-    /// `lib.rs` sets the uniform.)
+    /// `lib.rs` sets both uniforms.)
     #[test]
-    fn the_frosted_mask_reaches_the_ported_path_and_not_the_deterministic_one() {
+    fn the_frosted_mask_reaches_the_ported_path_and_the_deterministic_one() {
         let host = shader_file("src/renderer/shaders/lux/host.glsl");
         let pathtracer = shader_file("src/renderer/shaders/lux/pathtracer.glsl");
         let gem = shader_file("src/renderer/shaders/gem.frag");
@@ -5226,14 +5671,138 @@ mod tests {
             "BSDF_Init must choose the material from the hit facet's mask texel"
         );
 
+        let gem_code = super::strip_glsl_comments(gem);
+
         assert!(
-            !super::identifier_occurs(&super::strip_glsl_comments(gem), "uFrostedTexture"),
-            "gem.frag (the deterministic and flat renderers) must not read the frosted mask"
+            !super::identifier_occurs(&gem_code, "uFrostedTexture"),
+            "gem.frag must read the mask under its own name, uFrostMask"
         );
+        assert!(gem_code.contains("uniform highp sampler2D uFrostMask;"));
+        assert!(
+            gem_code.contains("texelFetch(uFrostMask, ivec2(int(facet + 0.5), 0), 0).r > 0.5"),
+            "gem.frag must read the mask one texel per facet id, as host.glsl does"
+        );
+
+        let rust = include_str!("lib.rs");
+
+        assert!(rust.contains("self.uniform1i(\"uFrostedTexture\", UNIT_FROSTED as i32);"));
+        assert!(rust.contains("self.uniform1i(\"uFrostMask\", UNIT_FROSTED as i32);"));
         assert!(
             !super::lux_ignored_uniforms().contains(&"uFrostedTexture"),
             "uFrostedTexture is declared by the ported path, not by gem.frag"
         );
+    }
+
+    /// While the frosted pre-pass draws into one of its images, that image is not on its unit.
+    ///
+    /// Setup: the three draws the deterministic program makes on a frosted stone: the pre-pass's
+    /// first (writing the per-ray image), its second (writing the cache) and the frame.
+    ///
+    /// Test: `frost_units_hold_their_images` for each.
+    ///
+    /// Verifies the first draw has the cache on its unit but not the per-ray image it writes,
+    /// the second the per-ray image it reads but not the cache it writes, and the frame both.
+    /// Getting this wrong is a WebGL feedback-loop error: the draw is refused, the cache keeps
+    /// stale values or zeros, and frosted facets go black or lag a frame behind the view.
+    #[test]
+    fn the_frosted_pre_pass_never_samples_the_image_it_draws_into() {
+        assert_eq!(super::frost_units_hold_their_images(super::frost::PASS_RAYS), (true, false));
+        assert_eq!(super::frost_units_hold_their_images(super::frost::PASS_REDUCE), (false, true));
+        assert_eq!(super::frost_units_hold_their_images(super::frost::PASS_FRAME), (true, true));
+    }
+
+    /// A stone with frosted facets draws deterministically with the frosted program, and only then.
+    ///
+    /// Setup: every `Renderer` crossed with every `DebugMode`, with and without a frosted facet.
+    ///
+    /// Test: `ProgramKind::for_params(...).with_frosted(...)`, the selection `wanted_program`
+    /// makes.
+    ///
+    /// Verifies that the frosted program replaces the deterministic one exactly when a facet is
+    /// frosted -- in the full view and in every debug view, which the deterministic program draws --
+    /// and that Monte Carlo and Flat are untouched (they draw frosted facets their own way, or
+    /// not at all). With nothing frosted the answer is the plain program, so a polished stone never
+    /// pays for, or waits on, the frosted one.
+    #[test]
+    fn only_a_frosted_stone_draws_with_the_frosted_program() {
+        for renderer in params::Renderer::all() {
+            for debug_mode in (0..5).map(params::DebugMode::from_u32) {
+                let plain = super::ProgramKind::for_params(renderer, debug_mode);
+
+                assert_eq!(plain.with_frosted(false), plain);
+                assert_eq!(
+                    plain.with_frosted(true),
+                    if plain == super::ProgramKind::Deterministic {
+                        super::ProgramKind::DeterministicFrosted
+                    } else {
+                        plain
+                    },
+                    "{:?} with {:?}",
+                    renderer,
+                    debug_mode
+                );
+            }
+        }
+    }
+
+    /// The deterministic renderer's frosted code is compiled only into the frosted program, and
+    /// stops the march where a frosted facet is met.
+    ///
+    /// Setup: the text of `gem.frag`, and the bodies of its `marchInterior` and
+    /// `renderHandWritten`, comments stripped.
+    ///
+    /// Test: `FROSTED_PROGRAM` is true exactly under `#ifdef GEM_PROGRAM_FROSTED`, the define of
+    /// `ProgramKind::DeterministicFrosted`; every frosted test in both functions, and the
+    /// pre-pass dispatch, is guarded by `FROSTED_PROGRAM && ...` first; the march breaks out of its
+    /// loop at a frosted facet and calls `frostedFromInside` only after the loop; `traceInterior`
+    /// and the pre-pass both march through the one `marchInterior`.
+    ///
+    /// Verifies the fast path T-0270 asked for (a stone with nothing frosted must not pay for the
+    /// feature): in the plain deterministic program every guard is constant false, so the code is
+    /// dropped at compile time. A guard on the uniform alone was measured to cost a polished frame
+    /// 12 ms of 61 (the one test in the loop 9 of those). Also that the per-pixel microfacet average
+    /// is outside the bounce loop the compiler unrolls, and that the frame and its cache trace the
+    /// stone with the same march.
+    #[test]
+    fn frosted_facets_are_compiled_only_into_the_frosted_program() {
+        let gem = super::strip_glsl_comments(shader_file("src/renderer/shaders/gem.frag"));
+
+        assert!(gem.contains(&format!(
+            "#ifdef {}\nconst bool FROSTED_PROGRAM = true;\n#else\nconst bool FROSTED_PROGRAM = false;\n#endif",
+            super::ProgramKind::DeterministicFrosted.define()
+        )));
+        assert!(gem.contains("if (FROSTED_PROGRAM && uFrostPass == FROST_PASS_RAYS) {"));
+        assert!(gem.contains("if (FROSTED_PROGRAM && uFrostPass == FROST_PASS_REDUCE) {"));
+
+        let functions = super::gem_frag_functions();
+        let body = |name: &str| {
+            super::strip_glsl_comments(
+                functions
+                    .iter()
+                    .find(|(n, _)| *n == name)
+                    .unwrap_or_else(|| panic!("gem.frag defines no {}", name))
+                    .1,
+            )
+        };
+
+        let march = body("marchInterior");
+        let frame = body("renderHandWritten");
+
+        for (name, code) in [("marchInterior", &march), ("renderHandWritten", &frame)] {
+            let tests = code.matches("facetIsFrosted(").count();
+            let guarded = code.matches("FROSTED_PROGRAM && uFrostedFacetCount > 0 && facetIsFrosted(").count();
+
+            assert!(tests > 0 && tests == guarded, "{}: {} frosted tests, {} guarded", name, tests, guarded);
+        }
+
+        let loop_end = march.find("\n    }\n").expect("marchInterior has its bounce loop");
+        let stop = march.find("frostedFromInside(").expect("marchInterior hands frosted facets on");
+
+        assert!(stop > loop_end, "frostedFromInside must be called after the bounce loop, not in it");
+        assert!(march.contains("if (FROSTED_PROGRAM && frostFacet >= 0.0) {"));
+        assert!(super::calls(&body("traceInterior"), "marchInterior"));
+        assert!(super::calls(&body("renderFrostCacheRay"), "marchInterior"));
+        assert_eq!(body("renderFrostCacheRay").matches("marchInterior(").count(), 1, "one march per cache ray");
     }
 
     /// Frosted facets must use the rough glass BSDF for every BSDF operation, and polished ones
@@ -5384,36 +5953,12 @@ mod tests {
         }
     }
 
-    /// The rough glass port must keep its two measured departures from upstream.
-    ///
-    /// Setup: the text of `lux/roughglass.glsl`, comments stripped.
-    ///
-    /// Test: the half-vector pdf is `D * cos(theta_h)` in both `SchlickDistribution_SampleH`
-    /// and `SchlickDistribution_Pdf`, and `RoughGlassMaterial_Sample`'s transmitted result
-    /// carries `* eta2`.
-    ///
-    /// Verifies the two lines that keep light sampling and BSDF sampling estimating the SAME
-    /// integral on a frosted facet (T-0183; the argument and the renders that measured both
-    /// are in the file and in kb/luxcore-roughglass-port-and-frosted-facets.md). Each looks like a stray edit
-    /// against upstream's text and would be easy to "restore" in a faithful-port pass; without
-    /// the first, every BSDF-sampled rough bounce loses a factor cos(theta_h) of its energy;
-    /// without the second, light crossing a frosted facet is off by n^2 (about 4.7 for cubic
-    /// zirconia) against light crossing a polished one. Neither error is loud: the stone just
-    /// looks a little too dark, or blotchy where frosted and polished facets meet.
-    #[test]
-    fn rough_glass_keeps_its_two_consistency_fixes() {
-        let rough = super::strip_glsl_comments(shader_file("src/renderer/shaders/lux/roughglass.glsl"));
-
-        assert!(rough.contains("pdf = d * cosTheta;"), "SampleH must report D * cos(theta_h)");
-        assert!(
-            rough.contains("return SchlickDistribution_D(roughness, wh, anisotropy) * fabs(wh.z);"),
-            "SchlickDistribution_Pdf must report D * cos(theta_h)"
-        );
-        assert!(
-            rough.contains("result = (factor / coso) * kt * (1.0 - F) * eta2;"),
-            "a rough transmission must carry the eta^2 radiance factor GlassMaterial carries"
-        );
-    }
+    // `rough_glass_keeps_its_two_consistency_fixes` (T-0183) pinned two lines of the Schlick
+    // port that T-0269 replaced with a GGX rough dielectric. Its two concerns -- Sample and
+    // Evaluate estimating the same integral, and the eta^2 radiance factor on a rough
+    // transmission -- are now checked numerically, against a float64 mirror of the new BSDF,
+    // by the tests in `rough_glass.rs` (`sample_and_evaluate_are_the_same_bsdf`,
+    // `sample_weights_are_bounded`, `the_mirror_matches_the_shader_text`).
 
     /// After a glossy transmission the path must know which side of the stone it is on from
     /// the geometry, not from the event name.

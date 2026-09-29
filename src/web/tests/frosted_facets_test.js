@@ -4,7 +4,8 @@
  * HOW TO RUN (from src/web/): deno test --allow-read --allow-env tests/   (also `deno task test`)
  *
  * A frosted tier (the tier toolbar's Frosted toggle, T-0180) is drawn by the Monte Carlo renderer
- * as rough glass on its facets. The page's half of that is telling Rust WHICH mesh facets those
+ * as rough glass on its facets, and since T-0270 by the Deterministic renderer as facets that
+ * scatter light evenly. Both read the same mask. The page's half of that is telling Rust WHICH mesh facets those
  * are, with `app.set_frosted_facets(Uint32Array)`, and keeping that list right whenever it can go
  * stale: a design load, a rebuild of the stone (which renumbers every facet), the Frosted toggle
  * and its undo and redo, and every other toolbar edit.
@@ -357,17 +358,23 @@ Deno.test("the Frosted tooltip says how the render models a frosted facet", asyn
   // Setup: a session on the startup stone, with a tier selected so the button is active.
   // Test: read the Frosted button's tooltip from the toolbar store.
   // Verifies: the user's requirement (2026-09-23) that the tip say the facets are modelled as a
-  // rough dielectric surface with single scattering, and that it still says what the list shows,
-  // which renderer shows it, and how to unmark a tier.
+  // rough dielectric surface -- since T-0271 (2026-09-28) with multiple-scattering compensation,
+  // no longer single scattering, which the tip must no longer claim -- and that it still says
+  // what the list shows, which renderer shows it, and how to unmark a tier. Since T-0270
+  // (2026-09-28) the tip must also stay true of the Deterministic renderer, which draws frosted
+  // facets differently: it must name that renderer and say what it does (scatter light evenly,
+  // the average light).
   await session();
   select(tiers.getDesign().tiers[0]);
 
   const tip = get(tiers.toolbar).frosted.tip;
 
   for (const phrase of [
-    "rough dielectric surface", "single scattering", "Monte Carlo renderer", "darker background",
+    "rough dielectric surface", "multiple-scattering compensation", "Monte Carlo renderer",
+    "darker background", "Deterministic renderer", "scatter light evenly", "average light",
     "Click again to unmark it.",
   ]) {
     assertEqual(tip.includes(phrase), true, `the tip mentions "${phrase}"`);
   }
+  assertEqual(tip.includes("single scattering"), false, "the tip no longer says single scattering");
 });

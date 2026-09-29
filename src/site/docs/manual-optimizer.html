@@ -1,18 +1,333 @@
 <h1>Manual optimizer</h1>
 
-<div class="note wip"><p>This feature is still being built. The menu item below exists, but choosing
-it does nothing yet.</p></div>
+<p>The manual optimizer shows your stone many times over, side by side, each with a slightly
+different crown height and pavilion depth, so you can compare them by eye and pick the proportions
+that look best. Every version is your own design made taller or flatter the same way
+<a href="tangent-ratio-scaling.html">Tangent ratio height scaling</a> does it: each facet turns and
+moves so all its meets still meet, and the girdle's outline, the table's size and the index teeth
+stay as they are. Under the grid, a tilt performance graph shows how much light the stone you
+picked returns as it tilts.</p>
 
-<p>Getting the most brightness and fire out of a cut usually means nudging a facet's angle a
-little, checking the render, and nudging again — the kind of hand-tuning a faceter does by eye
-rather than from a fixed formula. A manual optimizer would let you adjust a design's angles this
-way directly against the render, so you could see what each small change does to the stone's light
-return and keep whichever changes actually help.</p>
+<figure><img src="images/manual-optimizer/overview.webp" alt="The manual optimizer open on the studio's startup stone: on the left a five by five grid of small face-up pictures of the stone, labelled with crown heights down the side and pavilion depths along the top, and under it a tilt performance graph; in the middle the stone itself; on the right the optimizer's settings with Subdivisions, Crown height range and Pavilion height range sliders, the Lighting settings, and Cancel and Done." loading="lazy">
+<figcaption>The manual optimizer, just opened: the grid of heights and the tilt performance graph
+on the left, the stone in the middle, the settings on the right.</figcaption></figure>
 
-<p>None of that is built yet. In the studio's <span class="ui">Edit</span> menu, an item named
-<span class="ui">Manual optimizer</span> is already there, but it is greyed out and does nothing
-when clicked. Hovering it shows a tooltip describing what it is meant to do, ending "Not built
-yet."</p>
+<h2>Opening it</h2>
 
-<figure><img src="images/manual-optimizer/tooltip.webp" alt="Hovering Manual optimizer in the Edit menu shows a tooltip reading: Adjust the angles by hand and watch what it does to the stone's light return, keeping the changes that help. Not built yet." loading="lazy">
-<figcaption>Edit &gt; Manual optimizer, greyed out, with its tooltip shown on hover.</figcaption></figure>
+<p>Choose <span class="ui">Edit</span> &gt; <span class="ui">Manual optimizer</span> from the menu
+bar.</p>
+
+<figure class="side"><img src="images/manual-optimizer/menu.webp" alt="The Edit menu open with Manual optimizer highlighted, and its tooltip: Shows the stone in a grid with taller and flatter crowns and pavilions, so you can compare them side by side and pick the heights that look best." loading="lazy">
+<figcaption>Edit &gt; Manual optimizer, with its tooltip.</figcaption></figure>
+
+<p>The menu item is greyed out, with a tooltip saying why, when there's no design loaded (a plain
+<code>.obj</code> mesh has no facets to re-cut), or when another mode &mdash; editing a tier, scale
+height, resize girdle, the cutting assistant or tilt performance &mdash; is already open. Finish or
+leave that mode first, then open the manual optimizer.</p>
+
+<h2>What the screen shows</h2>
+
+<p>The top bar's mode readout, at its right-hand end, reads <span class="ui">Manual
+optimizer</span> while it's open.</p>
+
+<ul>
+  <li><strong>On the left</strong>, in place of the cutting instructions, is the <span
+  class="ui">Heights</span> grid, a picture of the stone in every cell, and under it the <span
+  class="ui">Tilt performance</span> graph of the stone in the middle.</li>
+  <li><strong>In the middle</strong> is the stone itself, at the heights you last picked from the
+  grid, drawn with the <a href="deterministic-renderer.html">Deterministic renderer</a> like the
+  pictures in the grid (see below). You can turn and zoom it as usual.</li>
+  <li><strong>On the right</strong>, in place of the render settings, are the optimizer's
+  settings, then the <span class="ui">Lighting</span> settings, then <span
+  class="ui">Cancel</span> and <span class="ui">Done</span>.</li>
+</ul>
+
+<h3>Reading the grid</h3>
+
+<p>Each <strong>row</strong> is a crown height and each <strong>column</strong> a pavilion depth,
+both written as a multiple of your design's own: 1.20&times; is 20% taller, 0.83&times; about a
+sixth flatter.</p>
+
+<ul>
+  <li>The <strong>top row</strong> has the tallest crowns, and they get flatter going down
+  (<span class="ui">Crown &darr; flatter</span>).</li>
+  <li>The <strong>left column</strong> has the deepest pavilions, and they get shallower going
+  right (<span class="ui">Pavilion &rarr; shallower</span>).</li>
+  <li>So the <strong>top-left</strong> cell is the tallest stone of the grid, the
+  <strong>bottom-right</strong> the flattest, and the <strong>middle</strong> cell, drawn with a
+  dashed edge, is the heights the grid is centred on &mdash; your design as it was when you opened
+  the optimizer, until you zoom the grid in (below).</li>
+  <li>The cell the stone in the middle shows has a highlighted edge.</li>
+</ul>
+
+<p>Every picture in the grid shows its stone <strong>face up</strong>, looking straight down on
+the table, the way a stone is usually judged. Turning or zooming the stone in the middle leaves the
+grid as it is.</p>
+
+<p>The grid fills in a few cells at a time, the middle first and then outwards; a bar under it
+counts the cells still being drawn, and you can use the grid while it fills. The cells are drawn
+with the <a href="deterministic-renderer.html">Deterministic renderer</a>, so they arrive quickly
+and without noise.</p>
+
+<p>So that the stone in the middle looks like the pictures in the grid, opening the optimizer
+switches the renderer to <span class="ui">Deterministic</span> if you were using <span
+class="ui">Monte Carlo</span> or <span class="ui">Flat</span>. Leaving it, with <span
+class="ui">Done</span>, <span class="ui">Cancel</span> or <kbd>Escape</kbd>, switches back to the
+renderer you had. The switch isn't a change to your design, so <span class="ui">Undo</span> doesn't
+step through it, and it doesn't change the renderer the studio remembers for next time.</p>
+
+<figure class="side"><img src="images/manual-optimizer/grid.webp" alt="Close-up of the Heights grid: five rows labelled 1.20x, 1.10x, 1.00x, 0.91x and 0.83x down the left, five columns labelled the same along the top, a face-up picture of the stone in each cell, and the middle cell outlined." loading="lazy">
+<figcaption>The grid at the starting range of 20% each way.</figcaption></figure>
+
+<div class="note"><p>The pictures are small in a narrow pane, and at 9 or 11 subdivisions too small to
+judge a stone by, with the heights along the top too cramped to read. Drag the edge between the
+grid and the stone to the right to make the pane, and every picture in it, bigger.</p></div>
+
+<figure class="side"><img src="images/manual-optimizer/grid-11-wide.webp" alt="The Heights grid at 11 subdivisions in a pane dragged to its widest: eleven rows labelled from 1.20x down to 0.83x, eleven columns labelled the same along the top, a face-up picture of the stone in each of the 121 cells, and the middle cell outlined." loading="lazy">
+<figcaption>11 subdivisions, with the pane dragged as wide as it goes: 121 pictures.</figcaption></figure>
+
+<h3>The tilt performance graph</h3>
+
+<p>Under the grid is the <span class="ui">Tilt performance</span> graph of the stone in the middle:
+the same graph, measured the same way, as the <a href="tilt-performance.html">Tilt performance
+analyzer</a> draws. The stone is tilted from face up out to 33&deg; one way (<span class="ui">Tilt
+X</span>, the left half) and then the other (<span class="ui">Tilt Y</span>, the right half), and
+the curves show how bright it looks at each tilt with even light (ISO) and with light from behind
+you (COS), how much of it windows, and how much of its light your head blocks. A solid line is the
+whole stone, a dotted one the table alone.</p>
+
+<p>Under the graph are the heights it was measured for, and each curve's value face up: the whole
+stone's, then the table's alone in brackets.</p>
+
+<figure class="side"><img src="images/manual-optimizer/tilt-graph.webp" alt="The Tilt performance card under the grid: a graph from 0% to 100% with Tilt X on the left and Tilt Y on the right, the ISO brightness curve near the top, COS brightness below it, window near the bottom and head shadow along the bottom, each with a dotted twin; under it the line Crown 1.00x, pavilion 1.00x. Face up:, and the four curves' face-up values, each with the table's value in brackets." loading="lazy">
+<figcaption>The graph of the stone in the middle, with each curve's value face up.</figcaption></figure>
+
+<p><strong>Point at the graph</strong> to read it at any tilt, as in the <a
+href="tilt-performance.html">Tilt performance analyzer</a>: a line follows the pointer with a dot
+on each curve, the line under the graph names the tilt (for example <span class="ui">Tilt X
+20&deg;</span>), and each curve's value at that tilt replaces its face-up value, the table's in
+brackets. Move the pointer off the graph and the values go back to face up. Pointing doesn't turn
+the stone in the middle, which stays as you left it. While the graph is being measured again,
+pointing at it does nothing.</p>
+
+<figure class="side"><img src="images/manual-optimizer/tilt-graph-hover.webp" alt="The same card with the pointer over the graph at 20 degrees of Tilt X: a teal line marks that tilt with a dot on each curve, the line under the graph reads Tilt X 20 degrees, and the values read ISO brightness 83.3%, COS brightness 60.6%, Window 16.7% and Head shadow 0.0%, each with the table's value in brackets." loading="lazy">
+<figcaption>Pointing at the graph at Tilt X 20&deg;: the values are read at that tilt.</figcaption></figure>
+
+<p>When you pick other heights, by clicking a cell, moving with the arrow keys or dragging across
+cells, the graph is measured again for the new stone once you stop, which takes a second or two;
+until then the last graph stays up, faded, and the line under it reads <span
+class="ui">Measuring&hellip;</span>. Clicking or arrowing from cell to cell quickly, or holding an
+arrow key down, only measures the one you stop on, and going back to heights already measured shows
+their graph at once. A change to the <span class="ui">Head shadow half-angle</span> measures it
+again too.</p>
+
+<h2>The settings</h2>
+
+<figure class="side"><img src="images/manual-optimizer/panel.webp" alt="The manual optimizer's settings: a short explanation, then a card with the Subdivisions slider at 5 x 5, Crown height range and Pavilion height range both at 20%, and Shown: Crown 1.00x, Pavilion 1.00x; below it the Lighting card; Cancel and Done at the bottom." loading="lazy">
+<figcaption>The optimizer's settings, with the Lighting settings under them.</figcaption></figure>
+
+<ul>
+  <li><span class="ui">Subdivisions</span>: how many pictures the grid has on each side &mdash;
+  3, 5, 7, 9 or 11, so 9, 25, 49, 81 or 121 pictures. It starts at 5. An odd number keeps a middle
+  cell. A bigger grid takes longer to fill, though you can keep using the studio while it
+  does.</li>
+  <li><span class="ui">Crown height range</span>: how much taller the top row's crowns are, and
+  flatter the bottom row's, than the middle row's, as a percentage from 0% to 100%. At 100% the top
+  row's crowns are <strong>twice</strong> the middle's height and the bottom row's
+  <strong>half</strong>; the rows between step evenly from one to the other. At 0% every row is
+  the same. It starts at 20%.</li>
+  <li><span class="ui">Pavilion height range</span>: the same for the pavilion, across the
+  columns: at 100% the left column's pavilions are twice the middle's depth and the right column's
+  half.</li>
+  <li><span class="ui">Shown</span>: the crown and pavilion heights of the stone in the middle, as
+  multiples of the design you opened the optimizer on. These are what <span class="ui">Done</span>
+  keeps.</li>
+</ul>
+
+<p>Drag a slider and the grid changes when you let go; or click its reading to type an exact
+value, and press <kbd>Enter</kbd>. With a slider focused, the arrow keys move it a step at a time
+(one step of <span class="ui">Subdivisions</span> is to the next odd number: 3 to 5, 5 to 7, and so
+on up to 11).</p>
+
+<figure class="side"><img src="images/manual-optimizer/grid-range.webp" alt="The grid with both ranges at 50%: the rows are labelled 1.50x, 1.22x, 1.00x, 0.82x and 0.67x and the columns the same, each cell a face-up picture of the stone." loading="lazy">
+<figcaption>Both ranges at 50%: the top row's crowns are 1.5&times; the middle's, the bottom row's
+0.67&times;.</figcaption></figure>
+
+<h3>Lighting</h3>
+
+<p>The <span class="ui">Lighting</span> card is the render settings' own Lighting section: the
+lighting model, <span class="ui">Flat background</span>, <span class="ui">Head shadow color</span>,
+<span class="ui">Head shadow half-angle</span> and <span class="ui">Separate window color</span>. They
+are the same settings, not a copy of them: a change here lights the stone in the middle and every
+picture in the grid, and is still there in the render settings after you leave the optimizer. The
+grid redraws a moment after you change one.</p>
+
+<h2>Picking heights</h2>
+
+<h3>Click a cell to see it in the middle</h3>
+
+<p>Click any cell and the stone in the middle changes to that cell's heights, drawn at full size,
+so you can look at it closely, turn it and compare it with the others.
+The grid itself stays as it is, so you can click from cell to cell. The tilt performance graph is
+measured again for the stone you clicked.</p>
+
+<p>Clicking a cell also puts the grid's keyboard cursor, a ring, on it. From there the arrow keys
+move from cell to cell, and the stone in the middle follows each step straight away, just as if
+you had clicked the cell (see <a href="#from-the-keyboard">From the keyboard</a> below).</p>
+
+<figure><img src="images/manual-optimizer/after-click.webp" alt="The studio after clicking the top row's fourth cell: that cell is highlighted, Shown reads Crown 1.20x, Pavilion 0.91x, the stone in the middle has the new heights, and the tilt performance graph under the grid has been measured for it." loading="lazy">
+<figcaption>After clicking the cell in the top row, fourth column: the stone in the middle and the
+graph under the grid are now of a 1.20&times; crown and a 0.91&times; pavilion.</figcaption></figure>
+
+<h3>Drag across cells to zoom the grid in on them</h3>
+
+<p>Press on one cell and drag to another, and the cells between them are lit as a rectangle. When
+you let go, the grid zooms in on that rectangle: its top-left cell becomes the grid's new
+top-left (the tallest stone), its bottom-right cell the new bottom-right (the flattest), and the
+grid is centred on the rectangle's middle. The subdivisions stay the same, so the same number of
+pictures now covers a narrower spread of heights, and the two range sliders show the new
+spreads. The stone in the middle changes to the new centre.</p>
+
+<figure class="side"><img src="images/manual-optimizer/selecting.webp" alt="The grid while a rectangle is dragged from the top-left cell to the cell in the third row, fourth column: the twelve cells between them are tinted and outlined." loading="lazy">
+<figcaption>Dragging from the top-left cell to the third row's fourth cell.</figcaption></figure>
+
+<figure><img src="images/manual-optimizer/after-rectangle.webp" alt="The studio after letting go: the grid now runs from 1.20x to 1.00x down the rows and 1.20x to 0.91x across the columns, the ranges have narrowed, and Shown and the tilt performance graph are of the grid's new middle cell." loading="lazy">
+<figcaption>After letting go: the grid spans just the heights of the rectangle, centred on its
+middle.</figcaption></figure>
+
+<p>A rectangle with an even number of rows or columns has its middle between two cells; the new
+centre is then half-way between their heights. A rectangle only one column wide leaves every column
+the same pavilion depth (a pavilion range of 0%), and one row tall every row the same crown height;
+raise the range slider again to spread them out.</p>
+
+<p>To go back to a wider grid, use <span class="ui">Undo</span> (below), or raise the range
+sliders.</p>
+
+<h3 id="from-the-keyboard">From the keyboard</h3>
+
+<p>The grid has a keyboard cursor: a ring round one cell, the cell the stone in the middle shows.
+Click a cell, or <kbd>Tab</kbd> to the grid, and the arrow keys work on the grid. If nothing else
+has the keyboard, the first arrow key you press just brings the cursor to the grid, on the cell
+shown, without changing anything; the next ones move it.</p>
+
+<ul>
+  <li><kbd>&uarr;</kbd> <kbd>&darr;</kbd> <kbd>&larr;</kbd> <kbd>&rarr;</kbd> move the cursor one
+  cell at a time, and the stone in the middle takes the new cell's heights at once, as a click on
+  it would. The grid stays as it is. The cursor stops at the edges of the grid.</li>
+  <li>Hold an arrow key down to run along a row or column. The stone in the middle keeps up as best
+  it can and ends on the cell you stop on; the tilt performance graph is measured only for that
+  one.</li>
+  <li><kbd>Enter</kbd> and <kbd>Space</kbd> do nothing on the grid.</li>
+  <li>Hold <kbd>Shift</kbd> and press the arrow keys to light a rectangle from the cell the cursor
+  was on, the way dragging across cells does. The stone in the middle doesn't change while you do.
+  Let go of <kbd>Shift</kbd> and the grid zooms in on it, exactly as if you had dragged it with the
+  mouse.</li>
+  <li><kbd>Escape</kbd> while you are still holding <kbd>Shift</kbd> drops the rectangle without
+  zooming in, and the cursor goes back to the cell it started from. Without a rectangle,
+  <kbd>Escape</kbd> leaves the optimizer as usual.</li>
+</ul>
+
+<figure><img src="images/manual-optimizer/after-arrows.webp" alt="The studio after clicking the top row's fourth cell and pressing the down and left arrow keys: the keyboard cursor ring and the highlighted edge are on the second row's third cell, Shown reads Crown 1.10x, Pavilion 1.00x, and the stone in the middle and the tilt performance graph are of those heights." loading="lazy">
+<figcaption>After a click on the top row's fourth cell, then <kbd>&darr;</kbd> and
+<kbd>&larr;</kbd>: the stone in the middle is the second row's third cell.</figcaption></figure>
+
+<figure class="side"><img src="images/manual-optimizer/keyboard.webp" alt="The Heights grid with the keyboard cursor, a ring, on one cell and a rectangle of four cells lit from it with Shift and the arrow keys." loading="lazy">
+<figcaption>A rectangle grown with <kbd>Shift</kbd> and the arrow keys, the cursor ring on its
+last cell.</figcaption></figure>
+
+<p>While the cursor is in the grid, these keys work only on the grid: they don't turn the stone,
+move through the cutting instructions or trigger anything else in the studio.</p>
+
+<div class="note"><p>While the manual optimizer is open, the cutting instructions are hidden and
+the design can't be edited any other way: it holds the whole design until you leave with
+<span class="ui">Done</span>, <span class="ui">Cancel</span>, or <kbd>Escape</kbd>.</p></div>
+
+<h2>Keeping or discarding the change</h2>
+
+<ul>
+  <li><span class="ui">Done</span> keeps the heights shown in the middle, as one step of the
+  studio's <span class="ui">Undo</span>, and brings back the cutting instructions and the render
+  settings. The cutting instructions show the new angles.</li>
+  <li><span class="ui">Cancel</span> puts every facet back exactly as it was when you opened the
+  optimizer, and records nothing.</li>
+  <li><kbd>Escape</kbd> does the same as <span class="ui">Cancel</span>, unless you are typing a
+  value into a slider's reading, when it only cancels the typing, or growing a rectangle with
+  <kbd>Shift</kbd>, when it only drops the rectangle.</li>
+</ul>
+
+<p>Changes to the <span class="ui">Lighting</span> settings are kept either way: they are render
+settings, not part of the design. Whichever way you leave, the renderer goes back to the one you
+had before you opened the optimizer.</p>
+
+<h2>Undo and redo</h2>
+
+<p>While the optimizer is open, <span class="ui">Undo</span> and <span class="ui">Redo</span>
+&mdash; the <span class="ui">Edit</span> menu's items, and <kbd>Cmd</kbd>+<kbd>Z</kbd> /
+<kbd>Ctrl</kbd>+<kbd>Z</kbd> and <kbd>Shift</kbd>+<kbd>Cmd</kbd>+<kbd>Z</kbd> /
+<kbd>Ctrl</kbd>+<kbd>Shift</kbd>+<kbd>Z</kbd> (or <kbd>Ctrl</kbd>+<kbd>Y</kbd>) &mdash; step
+through your changes in the optimizer, one at a time: each cell clicked, each rectangle, and each
+slider let go or value typed. Moving through the grid with the arrow keys is one step however many
+cells you cross, so one <span class="ui">Undo</span> takes you back to the cell you started from;
+a click, a rectangle or a slider starts a new step. Undoing a rectangle brings the wider grid
+back.</p>
+
+<p>After <span class="ui">Done</span>, the whole session is one step of the studio's own Undo:
+<kbd>Cmd</kbd>+<kbd>Z</kbd> / <kbd>Ctrl</kbd>+<kbd>Z</kbd> puts the design back as it was before
+you opened the optimizer, however many cells you clicked on the way.</p>
+
+<h2>Every gesture and shortcut</h2>
+
+<table>
+  <tr><th>Gesture / key</th><th>Where</th><th>Does</th></tr>
+  <tr><td>Click</td><td><span class="ui">Edit</span> &gt; <span class="ui">Manual optimizer</span></td>
+  <td>Opens the manual optimizer</td></tr>
+  <tr><td>Click</td><td>A cell of the grid</td><td>Shows that cell's heights in the middle and puts
+  the keyboard cursor on it; the grid stays</td></tr>
+  <tr><td>Drag from one cell to another</td><td>The grid</td><td>Zooms the grid in on the cells
+  between them</td></tr>
+  <tr><td><kbd>&uarr;</kbd> <kbd>&darr;</kbd> <kbd>&larr;</kbd> <kbd>&rarr;</kbd></td><td>The grid</td>
+  <td>Moves the keyboard cursor one cell and shows that cell's heights in the middle; stops at the
+  edges</td></tr>
+  <tr><td><kbd>&uarr;</kbd> <kbd>&darr;</kbd> <kbd>&larr;</kbd> <kbd>&rarr;</kbd></td><td>Anywhere
+  with nothing else focused</td><td>Brings the keyboard cursor to the grid, on the cell shown;
+  changes nothing</td></tr>
+  <tr><td><kbd>Tab</kbd></td><td>The page</td><td>Moves the focus to the grid's cursor cell</td></tr>
+  <tr><td>Point</td><td>The tilt performance graph</td><td>Shows each curve's value at the tilt
+  under the pointer</td></tr>
+  <tr><td><kbd>Shift</kbd>+arrow keys, then let go of <kbd>Shift</kbd></td><td>The grid</td>
+  <td>Lights a rectangle from the cursor's cell, then zooms the grid in on it</td></tr>
+  <tr><td><kbd>Escape</kbd> with <kbd>Shift</kbd> held</td><td>The grid, while growing a
+  rectangle</td><td>Drops the rectangle</td></tr>
+  <tr><td>Drag</td><td>The edge between the grid and the stone</td><td>Makes the grid's pane, and
+  its pictures, wider or narrower</td></tr>
+  <tr><td>Drag, or <kbd>&larr;</kbd> <kbd>&rarr;</kbd></td><td><span class="ui">Subdivisions</span>
+  slider</td><td>3, 5, 7, 9 or 11 pictures a side</td></tr>
+  <tr><td>Drag, or <kbd>&larr;</kbd> <kbd>&rarr;</kbd></td><td><span class="ui">Crown height
+  range</span>, <span class="ui">Pavilion height range</span></td><td>The spread of heights, 0% to
+  100%, 1% a step</td></tr>
+  <tr><td>Click</td><td>A slider's reading</td><td>Opens a text box to type an exact value;
+  <kbd>Enter</kbd> applies it</td></tr>
+  <tr><td>Drag, scroll, <span class="ui">Top</span>, <span class="ui">Side</span></td><td>The stone
+  in the middle</td><td>Turns or zooms the stone; the grid stays face up</td></tr>
+  <tr><td>Click</td><td><span class="ui">Done</span></td><td>Keeps the heights shown, as one step of
+  Undo, and leaves</td></tr>
+  <tr><td>Click</td><td><span class="ui">Cancel</span></td><td>Puts the design back and
+  leaves</td></tr>
+  <tr><td><kbd>Escape</kbd></td><td>Anywhere, outside a text box</td><td>The same as <span
+  class="ui">Cancel</span></td></tr>
+  <tr><td><kbd>Cmd</kbd>+<kbd>Z</kbd> / <kbd>Ctrl</kbd>+<kbd>Z</kbd></td><td>Anywhere, outside a
+  text box</td><td>Undo: the optimizer's last change while it is open, the whole session after
+  <span class="ui">Done</span></td></tr>
+  <tr><td><kbd>Shift</kbd>+<kbd>Cmd</kbd>+<kbd>Z</kbd> / <kbd>Ctrl</kbd>+<kbd>Shift</kbd>+<kbd>Z</kbd>,
+  or <kbd>Ctrl</kbd>+<kbd>Y</kbd></td><td>Anywhere, outside a text box</td><td>Redo</td></tr>
+</table>
+
+<h2>See also</h2>
+
+<ul>
+  <li><a href="tangent-ratio-scaling.html">Tangent ratio height scaling</a>, which changes the
+  crown and pavilion heights the same way, one exact ratio at a time, with gauges.</li>
+  <li><a href="tilt-performance.html">Tilt performance analyzer</a>, the full tilt performance
+  tool: the same graph, with pointing that also turns the stone to the tilt, curves you can switch
+  off, other tilt ranges and a download.</li>
+</ul>

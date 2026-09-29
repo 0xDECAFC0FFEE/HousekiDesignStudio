@@ -511,6 +511,53 @@ impl AccumulationTargets {
     }
 }
 
+/// One small `RGBA32F` image the renderer draws into and then reads with `texelFetch`: the
+/// frosted facets' per-facet cache and its per-ray image (T-0270). Like `AccumulationTargets`,
+/// it fails rather than draws black when the browser cannot render to a float texture.
+pub struct FloatTarget {
+    pub texture: WebGlTexture,
+    pub framebuffer: WebGlFramebuffer,
+    pub width: u32,
+    pub height: u32,
+}
+
+impl FloatTarget {
+    /// Allocates one at this size, enabling `EXT_color_buffer_float` first (asking for it is
+    /// what turns float rendering on) and checking the framebuffer is complete.
+    pub fn new(gl: &Gl, width: u32, height: u32) -> Result<FloatTarget, String> {
+        if gl
+            .get_extension(FLOAT_RENDER_TARGET_EXTENSION)
+            .ok()
+            .flatten()
+            .is_none()
+        {
+            return Err(format!(
+                "this browser does not support {}, so RGBA32F cannot be rendered to",
+                FLOAT_RENDER_TARGET_EXTENSION
+            ));
+        }
+
+        let (texture, framebuffer) = create_float_target(gl, width, height)?;
+
+        Ok(FloatTarget {
+            texture,
+            framebuffer,
+            width: width.max(1),
+            height: height.max(1),
+        })
+    }
+
+    /// Makes this the framebuffer the next draw goes into.
+    pub fn bind(&self, gl: &Gl) {
+        gl.bind_framebuffer(Gl::FRAMEBUFFER, Some(&self.framebuffer));
+    }
+
+    pub fn delete(&self, gl: &Gl) {
+        gl.delete_texture(Some(&self.texture));
+        gl.delete_framebuffer(Some(&self.framebuffer));
+    }
+}
+
 /// One `RGBA32F` texture with a framebuffer pointing at it, checked complete.
 fn create_float_target(
     gl: &Gl,
@@ -717,6 +764,11 @@ impl ReadbackTarget {
             width,
             height,
         })
+    }
+
+    /// The target's size in pixels, `(width, height)`.
+    pub fn size(&self) -> (u32, u32) {
+        (self.width, self.height)
     }
 
     /// Binds the target for drawing, with the viewport set to cover it.

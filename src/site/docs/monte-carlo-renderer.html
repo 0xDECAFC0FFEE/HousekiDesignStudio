@@ -4,7 +4,7 @@
 a finished picture in one pass, it builds the image up sample by sample, starting grainy and
 sharpening the longer the stone is left alone. It traces colour across the whole visible
 spectrum rather than a handful of fixed colours, which gives it smoother, more natural fire, and
-it is the only renderer that can show frosted facets.</p>
+it draws frosted facets as truly rough glass.</p>
 
 <figure><img src="images/monte-carlo-renderer/converged.webp" alt="The studio's startup stone rendered with the Monte Carlo renderer, left to settle into a smooth, detailed image" loading="lazy">
 <figcaption>The stone the studio opens with, in the Monte Carlo renderer, left to settle.</figcaption></figure>
@@ -31,6 +31,10 @@ adding more samples on top of each other, and the noise fades as more accumulate
 the <span class="ui">Tracing</span> settings reports progress as a percentage and how long it has
 been running, ending "(converged)" once it stops improving &ndash; for example, "100% complete, over
 12 seconds (converged)."</p>
+
+<p>On a stone with fire, the first few samples also look darker and warmer in colour than the
+settled image, because each sample sees the stone in just one colour of light. The true colours
+come through within a few dozen samples.</p>
 
 <figure><img src="images/monte-carlo-renderer/grainy-early.webp" alt="The stone in the Monte Carlo renderer moments after switching to it, a noisy, grainy image" loading="lazy">
 <figcaption>Moments after switching to the Monte Carlo renderer: one sample in, still noisy.</figcaption></figure>
@@ -102,8 +106,8 @@ be clicked to type an exact number: type the value and press <kbd>Enter</kbd> to
 
 <h2>Frosted facets</h2>
 
-<p>The Monte Carlo renderer is the only one that can show a facet as frosted: rough rather than
-glass-smooth, so it scatters light instead of reflecting and refracting it cleanly. To frost a
+<p>A frosted facet is rough rather than glass-smooth, so it scatters light instead of reflecting
+and refracting it cleanly. The Monte Carlo renderer draws it as a truly rough surface. To frost a
 facet, select the tier it belongs to in the cutting instructions on the left &ndash; click its
 row, or use <kbd>&uarr;</kbd>/<kbd>&darr;</kbd> to move the selection to it &ndash; then click
 <span class="ui">Frosted</span> in the row of buttons under the cutting instructions. The tier's
@@ -121,5 +125,7 @@ Frosted button &ndash; below it.</figcaption></figure>
 <figcaption>The frosted tier's facets, rendered by the Monte Carlo renderer: cloudy rather than
 glass-clear.</figcaption></figure>
 
-<div class="note"><p>Frosted facets are only ever shown by the Monte Carlo renderer. Switching to
-Deterministic or Flat draws every facet polished, whether or not it is marked frosted.</p></div>
+<div class="note"><p>The <a href="deterministic-renderer.html#frosted-facets">Deterministic
+renderer</a> draws frosted facets too, in a simpler way: each one as a single even shade, at once
+and with no grain. The Flat renderer draws every facet the same, whether or not it is marked
+frosted.</p></div>

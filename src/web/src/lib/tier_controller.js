@@ -690,11 +690,17 @@ const TOOL_TIPS = {
   preform: 'Marks the selected tier as a preform, used to set up meetpoints: its teeth are ' +
     'shown in braces {}. It is still cut into the stone as usual. Click again to unmark it.',
   // T-0183 (the user, 2026-09-23: the tip must say the facets are modelled as a rough dielectric
-  // surface with single scattering).
+  // surface with single scattering). T-0271 (2026-09-28, the user: "add T-0271") added
+  // multiple-scattering energy compensation, so "single scattering" became
+  // "multiple-scattering compensation". T-0270 (2026-09-28) added the Deterministic renderer's
+  // sentence, leaving the Monte Carlo one as it was: that renderer draws each frosted facet as
+  // one value per facet, the light reaching it averaged and scattered evenly (gem.frag's frosted
+  // facets section), not as a rough dielectric.
   frosted: 'Marks the selected tier as frosted: its angle and teeth get a darker background in ' +
     'the list, and in the Monte Carlo renderer its facets are modelled as a rough dielectric ' +
-    'surface with single scattering (a microfacet model), so they look frosted. Click again to ' +
-    'unmark it.',
+    'surface with multiple-scattering compensation (a microfacet model), so they look frosted. ' +
+    'In the Deterministic renderer they scatter light evenly, showing the average light ' +
+    'reaching each facet. Click again to unmark it.',
   // The only button here that is about the DESIGN rather than the selected tier (2026-09-19,
   // the user: "a comments button to the instructions menu that opens up a dialog for header and
   // footer comments"), so it needs no selection and never carries SELECT_FIRST_TIP.

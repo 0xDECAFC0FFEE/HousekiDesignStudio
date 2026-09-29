@@ -17,7 +17,9 @@
   import { pickers } from '../lib/pickers.js';
   import Slider from './Slider.svelte';
 
-  let { name, label, tip, rowId = undefined, rowStyle = undefined } = $props();
+  // `id` is the slider's element id: the parameter's name, unless a second copy of the same slider
+  // needs another (the manual optimizer's lighting controls, T-0273).
+  let { name, id = name, label, tip, rowId = undefined, rowStyle = undefined } = $props();
 
   const app = engine.app;
   const persisted = PERSISTED_PARAM_SETTINGS.includes(name);
@@ -90,5 +92,5 @@
   }
 </script>
 
-<Slider id={name} {label} {tip} spec={SLIDER_SPECS[name]} {value} {text} {oninput} {onchange}
+<Slider {id} {label} {tip} spec={SLIDER_SPECS[name]} {value} {text} {oninput} {onchange}
   readoutRead={() => app.get_param(name)} readoutWrite={write} {rowId} {rowStyle} />

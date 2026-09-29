@@ -253,9 +253,10 @@ between the pane and the render to widen it, up to 560px).</p>
   wrapped in curly braces on the row. It's still cut normally &mdash; the braces are a note that
   this tier is kept for its meetpoints, not that it's skipped.</td></tr>
   <tr><td><span class="ui">Frosted</span></td><td>Marks the tier's facets as rough (frosted)
-  glass; its angle and teeth get a darker background on the row. Only the Monte Carlo renderer
-  actually draws a frosted facet as rough; the deterministic renderer shows it as an ordinary
-  polished facet.</td></tr>
+  glass; its angle and teeth get a darker background on the row. The Monte Carlo renderer draws a
+  frosted facet as truly rough glass; the Deterministic renderer draws it as one even shade that
+  scatters light evenly (see <a href="deterministic-renderer.html#frosted-facets">Frosted
+  facets</a>).</td></tr>
   <tr><td><span class="ui">Comments</span></td><td>Opens a dialog for the whole design's own
   header and footer comments &mdash; not the selected tier's notes, which are edited in the pane
   itself (see above). It's active whenever a design is loaded, with no tier selected.</td></tr>
@@ -373,9 +374,10 @@ than one tier &mdash; which is why they live in a menu instead of the tier toolb
   href="girdle-resizing.html">Girdle resizing</a>.</li>
   <li><span class="ui">Scale height</span> opens its own mode; see <a
   href="tangent-ratio-scaling.html">Tangent ratio height scaling</a>.</li>
-  <li><span class="ui">Rotate by index</span>, <span class="ui">Reverse index order</span>,
-  <span class="ui">Flip crown and pavilion</span> and <span class="ui">Manual optimizer</span> are
-  greyed out &mdash; not built yet.</li>
+  <li><span class="ui">Manual optimizer</span> opens its own mode; see <a
+  href="manual-optimizer.html">Manual optimizer</a>.</li>
+  <li><span class="ui">Rotate by index</span>, <span class="ui">Reverse index order</span> and
+  <span class="ui">Flip crown and pavilion</span> are greyed out &mdash; not built yet.</li>
 </ul>
 
 <div class="note"><p>To follow a whole design tier by tier at the machine, rather than edit it, see

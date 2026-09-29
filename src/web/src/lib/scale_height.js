@@ -116,6 +116,14 @@ export function sameGauges(a, b) {
  *
  * `same` says whether two states are equal; resize girdle mode (T-0237), whose state is a single
  * ratio, passes its own.
+ *
+ * `amend(state)` (T-0285) carries on the step `commit` last recorded instead of adding another:
+ * the current state is replaced by `state`, and the redo side cleared. The manual optimizer uses it
+ * for a run of arrow keys, which is one step however many cells it crosses. It answers what it
+ * did: 'amended'; 'dropped' when `state` is the state before that step, so the step came to
+ * nothing and is taken off (the caller's next change is then a new step); or null when `state` is
+ * the current state already, or there is no step to carry on (at the bottom of the stack; call
+ * `commit` instead).
  */
 export function createGaugeHistory(initial, same = sameGauges) {
   const states = [initial];
@@ -133,6 +141,23 @@ export function createGaugeHistory(initial, same = sameGauges) {
       states.push(state);
       at += 1;
       return true;
+    },
+
+    amend(state) {
+      if (at === 0 || same(state, states[at])) {
+        return null;
+      }
+
+      states.length = at + 1;
+
+      if (same(state, states[at - 1])) {
+        states.length = at;
+        at -= 1;
+        return 'dropped';
+      }
+
+      states[at] = state;
+      return 'amended';
     },
 
     undo() {

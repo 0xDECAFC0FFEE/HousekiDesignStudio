@@ -680,6 +680,36 @@ impl EnvironmentMap {
             f16::from_bits(self.texels[base + 2]).to_f32(),
         )
     }
+
+    /// The mean radiance of each row, zenith first: one value per band of latitude, the
+    /// average round the vertical axis.
+    ///
+    /// For the frosted facets' fallback constant (`frost::sphere_fill`, T-0270), which needs the
+    /// lighting averaged over the sphere with a different rule above and below the horizon and
+    /// inside the head shadow's cone -- all bands of latitude about the lighting's zenith, which is
+    /// this map's +Y. A rotation of the environment about the vertical does not change a row's
+    /// mean, so this is computed once per environment, not per frame.
+    pub fn latitude_means(&self) -> Vec<Vector3<f32>> {
+        let width = self.width as usize;
+
+        (0..self.height as usize)
+            .map(|row| {
+                let mut sum = Vector3::<f64>::zeros();
+
+                for column in 0..width {
+                    let base = (row * width + column) * CHANNELS;
+
+                    sum += Vector3::new(
+                        f16::from_bits(self.texels[base]).to_f64(),
+                        f16::from_bits(self.texels[base + 1]).to_f64(),
+                        f16::from_bits(self.texels[base + 2]).to_f64(),
+                    );
+                }
+
+                (sum / width.max(1) as f64).cast::<f32>()
+            })
+            .collect()
+    }
 }
 
 /// Maps a direction to equirectangular texture coordinates.

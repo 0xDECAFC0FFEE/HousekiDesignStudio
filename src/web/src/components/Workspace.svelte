@@ -44,6 +44,8 @@
   import { editing } from '../lib/edit_mode.js';
   import { fullscreen } from '../lib/fullscreen.js';
   import { tiltPerformance } from '../lib/tilt_performance_mode.js';
+  import ManualOptimizerGrid from './ManualOptimizerGrid.svelte';
+  import { manualOptimizer } from '../lib/manual_optimizer_mode.js';
   import { beginPaneScoot, endPaneScoot } from '../lib/viewport.js';
   import {
     readSetting, writeSetting, INSTRUCTIONS_WIDTH_SETTING, INSTRUCTIONS_WIDTH_MIN,
@@ -251,8 +253,10 @@
          stacks the right-hand column's layers: both stay mounted, the one not in use
          `visibility: hidden`, so the instructions keep their scroll and folds. -->
     <div id="left-stack">
-      <div class="panel-layer" class:panel-layer-off={$tiltPerformance.open}><InstructionsPane /></div>
+      <div class="panel-layer" class:panel-layer-off={$tiltPerformance.open || $manualOptimizer.open}><InstructionsPane /></div>
       <div class="panel-layer" class:panel-layer-off={!$tiltPerformance.open}><TiltPerformancePanel /></div>
+      <!-- Edit > Manual optimizer's grid of previews (T-0273), the same way. -->
+      <div class="panel-layer" class:panel-layer-off={!$manualOptimizer.open}><ManualOptimizerGrid /></div>
     </div>
   </Resizable.Pane>
 

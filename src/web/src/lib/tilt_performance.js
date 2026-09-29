@@ -147,6 +147,23 @@ export function poseAtGraphX(fraction, range = DEFAULT_RANGE) {
     : { axis: 'y', angle: ((clamped - middle) / (1 - middle)) * range.y };
 }
 
+/**
+ * The pose under the pointer, `offsetX` pixels from the left edge of a graph `width` pixels wide
+ * (as graphSvg draws it, margins included): the pose the plot shows there, held to the plot's
+ * ends when the pointer is over a margin. Tools > Tilt performance's graph and the manual
+ * optimizer's both read the pointer with it (TiltGraph.svelte), so they agree on every pixel.
+ */
+export function poseAtPointer(offsetX, width, range = DEFAULT_RANGE) {
+  const plotWidth = Math.max(width - GRAPH_MARGIN.left - GRAPH_MARGIN.right, 1);
+
+  return poseAtGraphX((offsetX - GRAPH_MARGIN.left) / plotWidth, range);
+}
+
+/** A curve's value as the readouts beside both graphs show it: "83.4%", or a dash for none. */
+export function formatPercent(value) {
+  return value === undefined || value === null ? '—' : `${(value * 100).toFixed(1)}%`;
+}
+
 /** The spin and tilt that show a pose of the graph, for the view. */
 export function viewPose({ axis, angle }) {
   return axis === 'x' ? { spin: 0, tilt: angle } : { spin: Y_SPIN, tilt: angle };
@@ -239,6 +256,23 @@ export function graphHeight(width) {
 
   return plotHeight + GRAPH_MARGIN.top + GRAPH_MARGIN.bottom;
 }
+
+/**
+ * The graph's colours on screen, for `graphSvg`'s `palette`: the curves' own, set by base.css's
+ * `.tilt-palette` on the element that draws the graph, and the cards' edge, muted, accent and pane
+ * colours. Tools > Tilt performance's panel and the manual optimizer's graph both draw with it.
+ */
+export const SCREEN_PALETTE = Object.freeze({
+  iso: 'var(--tilt-iso)',
+  cos: 'var(--tilt-cos)',
+  window: 'var(--tilt-window)',
+  head: 'var(--tilt-head)',
+  grid: 'var(--tilt-grid)',
+  middle: 'var(--panel-edge)',
+  axis: 'var(--muted)',
+  cursor: 'var(--accent)',
+  surface: 'var(--panel)',
+});
 
 const PERCENT_LINES = [0, 20, 40, 60, 80, 100];
 

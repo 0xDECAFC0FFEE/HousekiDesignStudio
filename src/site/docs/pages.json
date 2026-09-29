@@ -68,8 +68,7 @@
         {
           "slug": "manual-optimizer",
           "title": "Manual optimizer",
-          "summary": "Tune a design's angles for brightness by hand.",
-          "wip": true
+          "summary": "Compare the stone at many crown and pavilion heights side by side, and keep the best."
         },
         {
           "slug": "tilt-performance",

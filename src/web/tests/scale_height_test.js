@@ -416,6 +416,42 @@ Deno.test("the local undo stack steps back and forward through finished changes"
   assertEqual(sameGauges(history.current(), INITIAL_GAUGES), true, "current is the start again");
 });
 
+Deno.test("amend carries on the last step instead of adding one, and drops it when it comes back", () => {
+  // Setup: a stack starting at 1x/1x (`amend` was added for the manual optimizer's arrow keys,
+  // T-0285, where a run of arrow steps is one step of the mode's undo; it lives here because the
+  // optimizer's undo is this same stack).
+  // Test: amend with nothing committed; commit a change a, amend it to b and then to c; undo; then
+  // commit again and amend back to the state before that commit; and amend to the current state.
+  // Verifies: at the bottom of the stack amend does nothing (null) -- there is no step to carry on,
+  // the caller commits instead; amending replaces the top state, so after a -> b -> c ONE undo goes
+  // straight back to the start (the run is one step); amending clears the redo side as a commit
+  // does; amending back to the state below the step takes the step off ('dropped'), so no undo is
+  // left that would change nothing; and an amend to the state already shown is nothing (null).
+  const history = createGaugeHistory(INITIAL_GAUGES);
+  const a = { pavilion: 1.1, crown: 1, lock: false };
+  const b = { pavilion: 1.2, crown: 1, lock: false };
+  const c = { pavilion: 1.2, crown: 1.1, lock: false };
+
+  assertEqual(history.amend(a), null, "nothing to amend at the bottom of the stack");
+  assertEqual(history.canUndo(), false, "and nothing was recorded");
+
+  history.commit(a);
+  assertEqual(history.amend(b), "amended", "a becomes b");
+  assertEqual(history.amend(c), "amended", "b becomes c");
+  assertEqual(history.current(), c, "c is shown");
+  assertEqual(history.undo(), INITIAL_GAUGES, "one undo takes the whole run back");
+  assertEqual(history.canUndo(), false, "and it was one step");
+  assertEqual(history.redo(), c, "redo brings the run's end back");
+
+  history.undo();
+  history.commit(a);
+  assertEqual(history.canRedo(), false, "a new commit dropped the redo side");
+  assertEqual(history.amend(a), null, "amending to what is shown is nothing");
+  assertEqual(history.amend({ ...INITIAL_GAUGES }), "dropped", "back to where the step started: dropped");
+  assertEqual([history.canUndo(), history.canRedo()], [false, false], "no step left, and nothing to redo");
+  assertEqual(sameGauges(history.current(), INITIAL_GAUGES), true, "the start is shown");
+});
+
 // ---- the mode itself, driven through its own functions with the edit history wired in
 
 /**

@@ -22,6 +22,9 @@
   import ResizeGirdlePanel from './components/ResizeGirdlePanel.svelte';
   import { tiltPerformance, exitTiltPerformance } from './lib/tilt_performance_mode.js';
   import { resizeGirdleOpen, cancelResizeGirdleMode } from './lib/resize_girdle_mode.js';
+  // Edit > Manual optimizer (T-0273): its settings panel, and its Cancel for Escape.
+  import ManualOptimizerPanel from './components/ManualOptimizerPanel.svelte';
+  import { manualOptimizer, cancelManualOptimizer } from './lib/manual_optimizer_mode.js';
   import { fullscreen, exitFullscreen } from './lib/fullscreen.js';
   import { eventTargetTakesText, eventTargetIsEditable, eventTargetActivatesOnEnter } from './lib/keys.js';
   import { get } from 'svelte/store';
@@ -148,6 +151,9 @@
     } else if ($resizeGirdleOpen) {
       // Resize girdle (T-0237), likewise: never open together with either of the others.
       cancelResizeGirdleMode();
+    } else if ($manualOptimizer.open) {
+      // The manual optimizer (T-0273): its Cancel's twin, as for scale height.
+      cancelManualOptimizer();
     } else if ($tiltPerformance.open && !$fullscreen) {
       // Tilt performance (T-0261): Done's twin, as for the cutting assistant. Not while
       // fullscreen hides its pane (it is in the left pane, which fullscreen hides, and the render
@@ -192,12 +198,14 @@
         <!-- Not swapped out for tilt performance (T-0261), whose panel takes the LEFT pane
              instead (Workspace.svelte): the user, "tilt performance mode should leave the render
              details on the right side of the screen". -->
-        <div class="panel-layer" class:panel-layer-off={$editing || $scaleHeightOpen || $cutting.open || $resizeGirdleOpen}><SettingsPanel /></div>
+        <div class="panel-layer" class:panel-layer-off={$editing || $scaleHeightOpen || $cutting.open || $resizeGirdleOpen || $manualOptimizer.open}><SettingsPanel /></div>
         <div class="panel-layer" class:panel-layer-off={!$editing}><EditPanel /></div>
         <div class="panel-layer" class:panel-layer-off={!$scaleHeightOpen}><ScaleHeightPanel /></div>
         <div class="panel-layer" class:panel-layer-off={!$cutting.open}><CuttingAssistantPanel /></div>
         <!-- Resize girdle mode's panel (T-0237), a fifth layer. -->
         <div class="panel-layer" class:panel-layer-off={!$resizeGirdleOpen}><ResizeGirdlePanel /></div>
+        <!-- The manual optimizer's settings (T-0273), a sixth layer; its grid takes the left pane. -->
+        <div class="panel-layer" class:panel-layer-off={!$manualOptimizer.open}><ManualOptimizerPanel /></div>
       </div>
     {/snippet}
   </Workspace>

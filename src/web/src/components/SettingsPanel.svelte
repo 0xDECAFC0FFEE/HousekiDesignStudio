@@ -14,39 +14,29 @@
   // <select> (kb/svelte-port-of-the-web-front-end.md). Bits UI's Select is not one.
   import { get } from 'svelte/store';
   import {
-    engine, ready, error, renderer, lightingModel, materialPreset, luxProgress, accumulationTarget,
+    engine, ready, error, renderer, materialPreset, luxProgress, accumulationTarget,
     resolutionScale, dragQuality,
   } from '../lib/stores.js';
-  import {
-    RENDERER_HINTS, SLIDER_SPECS, HIDDEN_LIGHTING_MODELS, ANALYTICAL_LIGHTING_MODELS, snapToSpec,
-  } from '../lib/panel_config.js';
+  import { RENDERER_HINTS, SLIDER_SPECS, snapToSpec } from '../lib/panel_config.js';
   import { writeSetting } from '../lib/settings.js';
   import {
-    changeMaterial, neutraliseMaterial, selectRenderer, selectLightingModel, syncHiddenControls,
-    stoneColorOpened, stoneColorClosed, loadModelFile, LUX_TARGET_SETTING, RESOLUTION_SETTING,
-    DRAG_QUALITY_SETTING, USE_BACKGROUND_SETTING, BACKGROUND_COLOR_SETTING,
-    USE_WINDOW_COLOR_SETTING, WINDOW_COLOR_SETTING, HEAD_SHADOW_COLOR_SETTING, WIREFRAME_SETTING,
+    changeMaterial, selectRenderer, syncHiddenControls, stoneColorOpened, stoneColorClosed,
+    loadModelFile, LUX_TARGET_SETTING, RESOLUTION_SETTING, DRAG_QUALITY_SETTING, WIREFRAME_SETTING,
   } from '../lib/session.js';
-  import { writeSettingColor } from '../lib/settings.js';
   import { requestRender, syncLuxProgress } from '../lib/viewport.js';
   import { fullscreen, toggleFullscreen } from '../lib/fullscreen.js';
-  import { listen, listeners } from '../lib/native.js';
+  import { listen } from '../lib/native.js';
   import ParamSlider from './ParamSlider.svelte';
   import Slider from './Slider.svelte';
   import ColorSetting from './ColorSetting.svelte';
   import PanelSection from './PanelSection.svelte';
   import SettingSwitch from './SettingSwitch.svelte';
+  import LightingSettings from './LightingSettings.svelte';
   import * as Select from '$lib/components/ui/select/index.js';
-  import * as NativeSelect from '$lib/components/ui/native-select/index.js';
   import { Button } from '$lib/components/ui/button/index.js';
   import { Label } from '$lib/components/ui/label/index.js';
   import MaximizeIcon from '@lucide/svelte/icons/maximize';
   import MinimizeIcon from '@lucide/svelte/icons/minimize';
-
-  // The two pickers with a checkbox re-send the color Rust already holds when it is toggled, and
-  // then ask their swatch to catch up.
-  let backgroundPicker;
-  let windowPicker;
 
   // Once the controls exist: hide whatever the selected renderer ignores (T-0126), and show how
   // far the LuxCore accumulation has got (or clear it).
@@ -110,7 +100,6 @@
   {@const app = engine.app}
   {@const materialNames = app.material_names().split('\n')}
   {@const rendererNames = app.renderer_names().split('\n')}
-  {@const lightingNames = app.lighting_model_names().split('\n')}
 
   <PanelSection title="Material">
     <!-- Controlled by `materialPreset`: a preset Rust refuses never reaches the store, so the
@@ -256,81 +245,10 @@
   </PanelSection>
 
   <PanelSection id="fieldset-lighting" title="Lighting">
-    <!-- A dropdown rather than a slider: switching model regenerates and re-uploads the
-         environment texture, which is far too expensive to run on every step of a drag. The
-         studio rig is not offered, so while it is the model in use the dropdown shows no
-         selection. A NativeSelect (a real <select>), for the reason at the top of this file. -->
-    <NativeSelect.Root id="lightingModel" class="w-full"
-      selectClass="h-7 py-0 text-xs hover:border-[var(--accent)] dark:hover:border-[var(--accent)]"
-      value={String($lightingModel)}
-      data-tip="What lights the stone. Skybox image: a photographed room. Angle rings: colors light by how steeply it arrives (red from overhead, then cyan, yellow and magenta towards the horizon), to show which angles a cut uses. Isometric: even white light from everywhere above. Cosine: brightest overhead, fading towards the horizon."
-      {@attach listeners({ change: event => selectLightingModel(event.currentTarget) })}>
-      {#each lightingNames as name, index}
-        {#if !HIDDEN_LIGHTING_MODELS.includes(String(index))}
-          <NativeSelect.Option value={String(index)}>{name}</NativeSelect.Option>
-        {/if}
-      {/each}
-    </NativeSelect.Root>
-    <!-- The assessment models' colors only mean something on a neutral stone; the studio rig and
-         the skybox are ordinary lighting. -->
-    <div id="analytical-warning"
-      style:display={ANALYTICAL_LIGHTING_MODELS.includes(String($lightingModel)) ? 'block' : 'none'}>
-      <Button variant="outline" size="sm" class="mt-1.5 w-full text-xs font-normal" id="neutralise"
-        onclick={neutraliseMaterial}
-        data-tip="Analytical model. The stone's own color multiplies the lighting, so a reading is only meaningful on a colorless, non-dispersive stone. This zeroes the absorption and dispersion.">Neutralise material</Button>
-    </div>
-
-    <!-- Every picker reads its color from Rust, like the sliders, so the two cannot drift. The
-         switches re-send the color Rust already holds rather than one kept here, so a script
-         that sets a color through `gemApp` and then toggles a switch (tools/gcs_compare's
-         gcs_views.py does) keeps its color, and the swatch catches up. -->
-    <ColorSetting bind:this={backgroundPicker} id="backgroundColor" label="Flat background"
-      swatchLabel="Background color"
-      tip="Shows a plain color behind the stone instead of the lighting. It also colors light seen through the back of the stone, unless the separate window color is on."
-      checkboxId="useBackground" checked={app.background_enabled()}
-      oncheck={checked => {
-        app.set_background(checked, ...app.background_color());
-        writeSetting(USE_BACKGROUND_SETTING, String(checked));
-        backgroundPicker.refresh();
-        requestRender();
-      }}
-      read={() => app.background_color()}
-      write={rgb => {
-        app.set_background(document.getElementById('useBackground').checked, ...rgb);
-        writeSettingColor(BACKGROUND_COLOR_SETTING, rgb);
-        requestRender();
-      }} />
-
-    <ColorSetting id="headShadowColor" rowId="headShadowColor-row" label="Head shadow color"
-      swatchLabel="Head shadow color"
-      tip="The color of light blocked by your head, including the small dot at the centre of the table when the stone faces you. Black is realistic; a bright color shows which facets depend on that light."
-      read={() => app.head_shadow_color()}
-      write={rgb => {
-        app.set_head_shadow_color(...rgb);
-        writeSettingColor(HEAD_SHADOW_COLOR_SETTING, rgb);
-        requestRender();
-      }} />
-
-    <ParamSlider name="headShadowHalfAngle" rowId="headShadowHalfAngle-row" rowStyle="margin-top:10px"
-      label="Head shadow half-angle"
-      tip="Your head blocks some of the light behind you. This sets how wide that shadow is, as half the angle of the cone it covers; 0 turns it off. Facets that rely on light from straight behind you go dark." />
-
-    <ColorSetting bind:this={windowPicker} id="windowColor" rowId="windowColor-row"
-      label="Separate window color" swatchLabel="Window color"
-      tip="Colors light that comes through the back of the stone, called a window or leak, so leaks are easy to find. Off, that light shows the flat background, or the lighting."
-      checkboxId="useWindowColor" checked={app.window_color_enabled()}
-      oncheck={checked => {
-        app.set_window_color(checked, ...app.window_color());
-        writeSetting(USE_WINDOW_COLOR_SETTING, String(checked));
-        windowPicker.refresh();
-        requestRender();
-      }}
-      read={() => app.window_color()}
-      write={rgb => {
-        app.set_window_color(document.getElementById('useWindowColor').checked, ...rgb);
-        writeSettingColor(WINDOW_COLOR_SETTING, rgb);
-        requestRender();
-      }} />
+    <!-- The lighting model, the background, head shadow and window colours: one component since
+         T-0273, which the manual optimizer's panel draws too. This copy keeps the ids the tools
+         and GemApp::hidden_controls name. -->
+    <LightingSettings />
   </PanelSection>
 
   <!-- The lighting always follows the view (GCS's convention) and the optical axis is always the

@@ -59,7 +59,9 @@ export const PERSISTED_PARAM_SETTINGS = ['maxBounces', 'headShadowHalfAngle', 'l
  *     three fixed indices (n - d/2, n, n + d/2 into red, green, blue).
  *   - Monte Carlo: `src/shaders/lux/glass.glsl` (Fresnel, Snell, TIR, the Cauchy index),
  *     `lux/volume.glsl` (the RGB Beer-Lambert filter), `lux/pathtracer.glsl`, and
- *     `lux/roughglass.glsl` for the frosted facets (LuxCore's single-scattering RoughGlass).
+ *     `lux/roughglass.glsl` for the frosted facets (a GGX rough dielectric since T-0269, in
+ *     the slot of LuxCore's RoughGlass, with multiple-scattering energy compensation since
+ *     T-0271).
  * The equation forms were checked against outside references too -- the unpolarised Fresnel
  * reflectance as the mean of the two polarisations, and two-term Cauchy over the gemmological
  * B (686.7 nm) to G (430.8 nm) interval -- and both match what the code does. The forms, the
@@ -68,15 +70,22 @@ export const PERSISTED_PARAM_SETTINGS = ['maxBounces', 'headShadowHalfAngle', 'l
  * The rest of the implementation comparison -- the shared BVH, LuxCore's R + T != 1 quirk, the
  * measured agreement with the oracle -- is still in kb/architecture.md's "Two renderers" and
  * kb/wiring-the-luxcore-port-in-behind-a-runtime-togg.md.
+ *
+ * **The Deterministic tip's last sentence is T-0270's (2026-09-28)**, added when that renderer
+ * began drawing frosted facets: each one as a single value, the light reaching it averaged and
+ * scattered evenly (gem.frag's frosted facets section, `frostedFromInside` and the per-facet
+ * cache), which is not the Monte Carlo renderer's rough dielectric. Worded after the Monte
+ * Carlo tip's frosted sentence, in plain words, with no equations.
  */
 export const RENDERER_HINTS = [
   'Deterministic Whitted-style real time raytracing simulating Snell’s law, TIR, BL ' +
     'absorption and the full Fresnel equations. Models dispersion as three fixed wavelengths ' +
-    'instead of a distribution.',
+    'instead of a distribution. Supports frosted facets, drawn as surfaces that scatter light ' +
+    'evenly, each showing the average light reaching it.',
   'Monte Carlo path tracing that simulates Snell’s law, TIR, BL absorption and the full ' +
     'Fresnel equations. Models dispersion by randomly sampling wavelengths across the visible ' +
     'spectrum instead of using three fixed ones. Supports frosted facets, modelled as rough ' +
-    'dielectric surfaces with single scattering.',
+    'dielectric surfaces with multiple-scattering compensation.',
   'No rendering at all: the stone is a flat, opaque surface in the stone color, with no ' +
     'light, reflection or fire. Instant, and with the facet wireframe on it is a clean ' +
     'drawing of the facets.',

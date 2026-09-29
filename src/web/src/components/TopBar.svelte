@@ -43,6 +43,8 @@
   import { resizeGirdleOpen, enterResizeGirdleMode } from '../lib/resize_girdle_mode.js';
   // Tools > Tilt performance (T-0261), likewise.
   import { tiltPerformance, enterTiltPerformance } from '../lib/tilt_performance_mode.js';
+  // Edit > Manual optimizer (T-0273), likewise.
+  import { manualOptimizer, enterManualOptimizer } from '../lib/manual_optimizer_mode.js';
   // T-0204/T-0205/T-0207 originally wired these three through onSelect={() => import(...)},
   // a dynamic import, each deliberately avoiding this file's own top-level import lines so three
   // concurrent agents' edits could never collide on the same line. That safely built and tested
@@ -220,7 +222,7 @@
   // already open -- one session at a time, as edit mode has it. A greyed item that cannot say
   // why is exactly what T-0208's tips were written against.
   const SCALE_HEIGHT_TIP = 'Makes the crown or the pavilion taller or flatter, each by its own ratio: every facet turns so the tangent of its angle is multiplied by the ratio, and moves so its meets still meet. The girdle stays where it is.';
-  const scaleHeightInert = $derived(!$tierView.hasDesign || $editing !== null || $scaleHeightOpen || $cutting.open || $resizeGirdleOpen || $tiltPerformance.open);
+  const scaleHeightInert = $derived(!$tierView.hasDesign || $editing !== null || $scaleHeightOpen || $cutting.open || $resizeGirdleOpen || $tiltPerformance.open || $manualOptimizer.open);
   const scaleHeightTip = $derived(
     !$tierView.hasDesign ? `${SCALE_HEIGHT_TIP} There is no design loaded to scale.`
       : $editing !== null ? `${SCALE_HEIGHT_TIP} Finish editing the tier first: Done, or Cancel.`
@@ -228,12 +230,13 @@
           : $cutting.open ? `${SCALE_HEIGHT_TIP} Close the cutting assistant first: Done, or Escape.`
             : $resizeGirdleOpen ? `${SCALE_HEIGHT_TIP} Finish resizing the girdle first: Done, or Cancel.`
               : $tiltPerformance.open ? `${SCALE_HEIGHT_TIP} ${CLOSE_TILT_TIP}`
-                : SCALE_HEIGHT_TIP);
+                : $manualOptimizer.open ? `${SCALE_HEIGHT_TIP} ${CLOSE_OPTIMIZER_TIP}`
+                  : SCALE_HEIGHT_TIP);
 
   // Tools > Cutting assistant (T-0234): live, and inert, saying why, in the same cases as scale
   // height -- no design to walk through, or another mode open -- or while it is already open.
   const CUTTING_TIP = 'Walks you through cutting the stone from a rough, one facet at a time: each step shows the angle and tooth to set and the rock as it will look once that facet is cut, on its dop. The design is not changed.';
-  const cuttingInert = $derived(!$tierView.hasDesign || $editing !== null || $scaleHeightOpen || $cutting.open || $resizeGirdleOpen || $tiltPerformance.open);
+  const cuttingInert = $derived(!$tierView.hasDesign || $editing !== null || $scaleHeightOpen || $cutting.open || $resizeGirdleOpen || $tiltPerformance.open || $manualOptimizer.open);
   const cuttingTip = $derived(
     !$tierView.hasDesign ? `${CUTTING_TIP} There is no design loaded to cut.`
       : $editing !== null ? `${CUTTING_TIP} Finish editing the tier first: Done, or Cancel.`
@@ -241,11 +244,12 @@
           : $cutting.open ? `${CUTTING_TIP} It is already open.`
             : $resizeGirdleOpen ? `${CUTTING_TIP} Finish resizing the girdle first: Done, or Cancel.`
               : $tiltPerformance.open ? `${CUTTING_TIP} ${CLOSE_TILT_TIP}`
-                : CUTTING_TIP);
+                : $manualOptimizer.open ? `${CUTTING_TIP} ${CLOSE_OPTIMIZER_TIP}`
+                  : CUTTING_TIP);
 
   // Edit > Resize girdle (T-0237), the same way: what it does, then why it is inert when it is.
   const RESIZE_GIRDLE_TIP = 'Cuts every facet deeper or shallower by the same ratio while the girdle facets stay where they are, so the girdle band grows or shrinks against the rest of the stone. Every angle stays as cut.';
-  const resizeGirdleInert = $derived(!$tierView.hasDesign || $editing !== null || $scaleHeightOpen || $cutting.open || $resizeGirdleOpen || $tiltPerformance.open);
+  const resizeGirdleInert = $derived(!$tierView.hasDesign || $editing !== null || $scaleHeightOpen || $cutting.open || $resizeGirdleOpen || $tiltPerformance.open || $manualOptimizer.open);
   const resizeGirdleTip = $derived(
     !$tierView.hasDesign ? `${RESIZE_GIRDLE_TIP} There is no design loaded to resize.`
       : $editing !== null ? `${RESIZE_GIRDLE_TIP} Finish editing the tier first: Done, or Cancel.`
@@ -253,20 +257,37 @@
           : $cutting.open ? `${RESIZE_GIRDLE_TIP} Close the cutting assistant first: Done, or Escape.`
             : $resizeGirdleOpen ? `${RESIZE_GIRDLE_TIP} It is already open.`
               : $tiltPerformance.open ? `${RESIZE_GIRDLE_TIP} ${CLOSE_TILT_TIP}`
-                : RESIZE_GIRDLE_TIP);
+                : $manualOptimizer.open ? `${RESIZE_GIRDLE_TIP} ${CLOSE_OPTIMIZER_TIP}`
+                  : RESIZE_GIRDLE_TIP);
 
   // Tools > Tilt performance (T-0261): live for any stone, a plain .obj included, and inert,
   // saying why, while another mode is open or it already is.
   const CLOSE_TILT_TIP = 'Close tilt performance first: Done, or Escape.';
   const TILT_TIP = 'How much light the stone returns as it is tilted up to 33° (or as far as you choose) one way and then the other, the way it is actually looked at rather than only straight on: brightness under even and under overhead light, the see-through window, and the head shadow, for the whole stone and for the table.';
-  const tiltInert = $derived($editing !== null || $scaleHeightOpen || $cutting.open || $resizeGirdleOpen || $tiltPerformance.open);
+  const tiltInert = $derived($editing !== null || $scaleHeightOpen || $cutting.open || $resizeGirdleOpen || $tiltPerformance.open || $manualOptimizer.open);
   const tiltTip = $derived(
     $editing !== null ? `${TILT_TIP} Finish editing the tier first: Done, or Cancel.`
       : $scaleHeightOpen ? `${TILT_TIP} Finish scaling the height first: Done, or Cancel.`
         : $cutting.open ? `${TILT_TIP} Close the cutting assistant first: Done, or Escape.`
           : $resizeGirdleOpen ? `${TILT_TIP} Finish resizing the girdle first: Done, or Cancel.`
             : $tiltPerformance.open ? `${TILT_TIP} It is already open.`
-              : TILT_TIP);
+              : $manualOptimizer.open ? `${TILT_TIP} ${CLOSE_OPTIMIZER_TIP}`
+                : TILT_TIP);
+
+  // Edit > Manual optimizer (T-0273): live with a design loaded, and inert, saying why, while
+  // another mode is open or it already is.
+  const CLOSE_OPTIMIZER_TIP = 'Finish the manual optimizer first: Done, or Cancel.';
+  const OPTIMIZER_TIP = 'Shows the stone in a grid with taller and flatter crowns and pavilions, so you can compare them side by side and pick the heights that look best.';
+  const optimizerInert = $derived(!$tierView.hasDesign || $editing !== null || $scaleHeightOpen || $cutting.open || $resizeGirdleOpen || $tiltPerformance.open || $manualOptimizer.open);
+  const optimizerTip = $derived(
+    !$tierView.hasDesign ? `${OPTIMIZER_TIP} There is no design loaded to optimize.`
+      : $editing !== null ? `${OPTIMIZER_TIP} Finish editing the tier first: Done, or Cancel.`
+        : $scaleHeightOpen ? `${OPTIMIZER_TIP} Finish scaling the height first: Done, or Cancel.`
+          : $cutting.open ? `${OPTIMIZER_TIP} Close the cutting assistant first: Done, or Escape.`
+            : $resizeGirdleOpen ? `${OPTIMIZER_TIP} Finish resizing the girdle first: Done, or Cancel.`
+              : $tiltPerformance.open ? `${OPTIMIZER_TIP} ${CLOSE_TILT_TIP}`
+                : $manualOptimizer.open ? `${OPTIMIZER_TIP} It is already open.`
+                  : OPTIMIZER_TIP);
 
   // Mode status (moved here from two places, 2026-09-24): SettingsPanel's own pinned footer,
   // "Mode: Overview" (added 2026-09-22, the user: "at the bottom of the render settings section
@@ -297,7 +318,8 @@
         : $cutting.open ? 'Cutting assistant'
           : $resizeGirdleOpen ? 'Resizing girdle'
             : $tiltPerformance.open ? 'Tilt performance'
-              : 'Overview');
+              : $manualOptimizer.open ? 'Manual optimizer'
+                : 'Overview');
 </script>
 
 <svelte:document onkeydown={onDocumentKeydown} />
@@ -418,11 +440,12 @@
           onSelect={() => { if (!scaleHeightInert) enterScaleHeightMode(); }}
           >Scale height</Menubar.Item>
         <!-- Manual optimizer (T-0208), moved here from Tools on 2026-09-23 (the user: "can you
-             move the manual optimizer to the edit menu"): it changes the design's angles, which
-             makes it an edit rather than a window onto the design. Inert for now. -->
-        <Menubar.Item id="menu-item-manual-optimizer" {@attach ariaDisabled(() => true)}
-          class="{ITEM} {INERT}"
-          data-tip="Adjust the angles by hand and watch what it does to the stone's light return, keeping the changes that help. {PLACEHOLDER_TIP}"
+             move the manual optimizer to the edit menu"): it changes the design's heights, which
+             makes it an edit rather than a window onto the design. Live since T-0273: it opens
+             manual_optimizer_mode.js. -->
+        <Menubar.Item id="menu-item-manual-optimizer" {@attach ariaDisabled(() => optimizerInert)}
+          class="{ITEM} {INERT}" data-tip={optimizerTip}
+          onSelect={() => { if (!optimizerInert) enterManualOptimizer(); }}
           >Manual optimizer</Menubar.Item>
       </Menubar.Content>
     </Menubar.Menu>

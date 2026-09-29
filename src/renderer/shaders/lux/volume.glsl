@@ -107,8 +107,9 @@
 // Upstream's `GlassMaterial_EvalSpecularTransmission` samples ONE random wavelength per
 // transmission event and folds its saturated RGB tint into the throughput
 // (`lkt = kt * GlassMaterial_WaveLength2RGB(waveLength)`). (This port now keeps one wavelength
-// for the whole path and folds the tint in once -- T-0092, glass.glsl's header -- which
-// changes nothing below: the tint is still RGB, and the absorption still sees only RGB.)
+// for the whole path -- T-0092 -- and applies its tint to the whole path in entry.glsl --
+// T-0263, glass.glsl's header -- which changes nothing below: the tint is still RGB, and the
+// absorption still sees only RGB.)
 // It is natural to expect a volume to then evaluate its absorption AT that wavelength.
 // **LuxCore does not, and cannot.**
 //

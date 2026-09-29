@@ -73,17 +73,20 @@ resizing the girdle, the cutting assistant or tilt performance.</p>
   <a href="girdle-resizing.html">Girdle resizing</a>.</td></tr>
   <tr><td><span class="ui">Scale height</span></td><td>Opens tangent-ratio height scaling. See
   <a href="tangent-ratio-scaling.html">Tangent ratio height scaling</a>.</td></tr>
-  <tr><td><span class="ui">Rotate by index</span>, <span class="ui">Reverse index order</span>,
-  <span class="ui">Flip crown and pavilion</span>, <span class="ui">Manual optimizer</span></td>
-  <td>Greyed out, with a tooltip explaining what each will do; not built yet. See
-  <a href="rotation-by-index.html">Rotation by index</a>,
-  <a href="crown-pavilion-flipping.html">Crown and pavilion flipping</a> and
+  <tr><td><span class="ui">Manual optimizer</span></td><td>Opens a grid of the stone at many crown
+  and pavilion heights, to compare and pick from. See
   <a href="manual-optimizer.html">Manual optimizer</a>.</td></tr>
+  <tr><td><span class="ui">Rotate by index</span>, <span class="ui">Reverse index order</span>,
+  <span class="ui">Flip crown and pavilion</span></td>
+  <td>Greyed out, with a tooltip explaining what each will do; not built yet. See
+  <a href="rotation-by-index.html">Rotation by index</a> and
+  <a href="crown-pavilion-flipping.html">Crown and pavilion flipping</a>.</td></tr>
 </table>
 
 <div class="note"><p>A greyed-out item that opens a mode (<span class="ui">Resize girdle</span>,
-<span class="ui">Scale height</span>) says why in its tooltip: usually because another mode, such
-as editing a tier, is already open. Only one mode can be open at a time.</p></div>
+<span class="ui">Scale height</span>, <span class="ui">Manual optimizer</span>) says why in its
+tooltip: usually because another mode, such as editing a tier, is already open. Only one mode can
+be open at a time.</p></div>
 
 <h3>The Tools menu</h3>
 
@@ -183,7 +186,8 @@ in the same order.</p>
   <tr><td><span class="ui">Preform</span></td><td>Marks the tier as a preform, used to set up
   meetpoints — its teeth then show in curly braces. It is still cut into the stone as usual.</td></tr>
   <tr><td><span class="ui">Frosted</span></td><td>Marks the tier as frosted: it darkens in the
-  list, and in the Monte Carlo renderer its facets render as frosted glass.</td></tr>
+  list, and its facets render as frosted glass in the Monte Carlo and Deterministic
+  renderers.</td></tr>
   <tr><td><span class="ui">Comments</span></td><td>Opens a dialog for the design's own header and
   footer comments, and its shape, size and refractive-index range — the free-text fields a
   GemCad file carries. <kbd>Cmd</kbd>/<kbd>Ctrl</kbd>+<kbd>Enter</kbd> saves;

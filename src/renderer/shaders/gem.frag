@@ -1066,43 +1066,252 @@ bool refractRay(vec3 incident, vec3 normal, float eta, out vec3 transmitted) {
     return true;
 }
 
-// Marches one wavelength band through the interior of the stone.
+// ---------------------------------------------------------------- frosted facets (T-0270)
 //
-// `channelMask` selects which colour channels this pass contributes to: (1,1,1)
-// traces all three together with a single refractive index (no dispersion), while a
-// unit basis vector traces one channel with its own index (dispersion on).
+// A frosted facet is rough glass: microfacets tilted about the facet's plane, which send one
+// ray into a spread of directions. The Monte Carlo renderer follows that spread
+// (lux/roughglass.glsl, GGX of roughness FROSTED_FACET_ROUGHNESS). This renderer follows one
+// ray, so it treats a frosted facet as a scatterer with ONE VALUE PER FACET, worked out in a
+// small pre-pass before the frame (option F of T-0270, chosen by the user on 2026-09-28; the
+// measurements are in kb/frosted-facets-in-the-deterministic-renderer-opt.md):
 //
-// Returns the radiance gathered by light that entered here and left through some
-// facet, having possibly reflected internally many times on the way.
-vec3 traceInterior(vec3 entryPoint, vec3 viewDirection, vec3 entryNormal,
-                   float refractiveIndex, vec3 channelMask, out int bounceCount) {
-    bounceCount = 0;
+//   * The pre-pass (GemApp::draw_frost_cache, then renderFrostCacheRay and
+//     renderFrostCacheReduce below) traces FROST_CACHE_RAYS fixed rays from each frosted facet,
+//     each ray in its own fragment, as polished glass, and averages them into uFrostCache, one
+//     texel per facet in each of two rows:
+//       FROST_ROW_INSIDE   the light reaching the facet from inside the stone, cosine-weighted
+//                          over the inner hemisphere: what a ray reflected back inside off the
+//                          facet carries;
+//       FROST_ROW_OUTSIDE  everything the facet sends towards the eye when it is seen from
+//                          outside: its rough reflection of the lighting, plus the light it
+//                          lets out of the stone along the camera ray's transmitted spread.
+//   * The frame stops a ray at the first frosted facet it meets. A camera ray that lands on one
+//     shows its FROST_ROW_OUTSIDE value. A ray inside the stone that reaches one gathers what
+//     escapes through the rough surface (averaged over FROST_TAPS microfacets, per pixel, since
+//     it depends on the angle the ray arrives at) plus the share that goes back inside, which
+//     takes the facet's FROST_ROW_INSIDE value instead of being traced further.
+//
+// Nothing past a frosted facet is traced per pixel, so a stone with frosted facets draws faster
+// than a polished one. Every pixel still traces one ray through its centre (T-0052); the
+// pre-pass is per facet. The known limits, accepted by the user: one flat value per facet;
+// light scattered evenly back inside rather than in a GGX lobe; and a ray from one frosted
+// facet that meets another takes frostFill() there (one bounce between frosted facets).
+//
+// Where the browser cannot render into a float image, there is no cache (uFrostCacheReady 0)
+// and every frosted facet takes frostFill(), the lighting averaged over the sphere (option E).
+//
+// ALL OF IT IS COMPILED ONLY INTO THE FROSTED PROGRAM. Every frosted test is guarded by
+// FROSTED_PROGRAM, a compile-time constant that is true only where GemApp inserts the
+// GEM_PROGRAM_FROSTED define (ProgramKind::DeterministicFrosted, the program it draws a stone
+// with frosted facets with). In the ordinary deterministic program the guards are constant
+// false and the compiler drops the code, so a polished stone draws exactly as it did before.
+// Guarding on the uniform alone was not enough: measured (T-0270, M1 Pro, 2000x1600, nothing
+// frosted), the one frosted test inside the bounce loop cost a polished frame 9 ms of 61, and
+// the call after the loop 3 ms more, though neither branch was ever taken.
+#ifdef GEM_PROGRAM_FROSTED
+const bool FROSTED_PROGRAM = true;
+#else
+const bool FROSTED_PROGRAM = false;
+#endif
 
-    // Entering the stone: air to gem.
-    float etaEntering = 1.0 / refractiveIndex;
-    vec3 interiorDirection;
+// The frosted mask: the same texture as lux/host.glsl's uFrostedTexture (GemApp binds both to
+// UNIT_FROSTED), one texel per facet id, red 1.0 where the facet is frosted. Declared under its
+// own name because the two files are one translation unit and each owns its declarations.
+uniform highp sampler2D uFrostMask;
+// How many of the stone's facets are frosted; 0 turns every frosted-facet test off.
+uniform int uFrostedFacetCount;
+// Per facet id, two RGBA32F texels: row 0 a point on the facet (frost::facet_frames' anchor) and
+// its area, row 1 its outward normal. What the pre-pass starts each facet's rays from.
+uniform highp sampler2D uFacetFrames;
+// The cache: facet count x 2, FROST_ROW_INSIDE and FROST_ROW_OUTSIDE, radiance per channel.
+uniform highp sampler2D uFrostCache;
+// 1 when uFrostCache holds this frame's values, 0 when there is none (no float render target).
+uniform int uFrostCacheReady;
+// Option E's constant, frost::sphere_fill: the lighting averaged over the sphere, before the
+// stone's colour. Radiance.
+uniform vec3 uFrostFill;
+// Which draw this is: the frame, or one of the pre-pass's two draws.
+uniform int uFrostPass;
+// The pre-pass's per-ray image, read by its second draw. See renderFrostCacheRay.
+uniform highp sampler2D uFrostCacheRays;
 
-    if (!refractRay(viewDirection, entryNormal, etaEntering, interiorDirection)) {
-        // Unreachable when entering a denser medium, but guarded so a nonsensical
-        // refractive index cannot produce garbage.
-        return vec3(0.0);
+// uFrostPass values. Must match frost::PASS_* in src/renderer/frost.rs; a test enforces that.
+const int FROST_PASS_FRAME = 0;
+const int FROST_PASS_RAYS = 1;
+const int FROST_PASS_REDUCE = 2;
+
+const int FROST_ROW_INSIDE = 0;
+const int FROST_ROW_OUTSIDE = 1;
+const int FROST_CACHE_ROWS = 2;
+
+// Rays per facet, row and channel in the pre-pass, and the channels it traces separately with
+// dispersion on. Must match frost::CACHE_RAYS and frost::DISPERSIVE_CHANNELS; a test enforces
+// that.
+const int FROST_CACHE_RAYS = 64;
+const int FROST_CACHE_CHANNELS = 3;
+
+// Microfacet normals averaged over per pixel where a ray inside the stone meets a frosted facet.
+// Must match frost::TAPS; a test enforces that.
+const int FROST_TAPS = 8;
+
+// The microfacets' GGX roughness (alpha). Must equal FROSTED_FACET_ROUGHNESS in lux/entry.glsl,
+// the user's 0.2 (T-0183), so both renderers frost alike; a test enforces that.
+const float FROST_ROUGHNESS = 0.2;
+
+bool facetIsFrosted(float facet) {
+    return texelFetch(uFrostMask, ivec2(int(facet + 0.5), 0), 0).r > 0.5;
+}
+
+// Option E: the lighting averaged over the sphere, through the stone's colour over a unit
+// distance, as the out-of-bounces shade is (see traceInterior's end).
+vec3 frostFill() {
+    return uFrostFill * exp(-uAbsorption);
+}
+
+// A frosted facet's cached value, FROST_ROW_INSIDE or FROST_ROW_OUTSIDE. frostFill() when there
+// is no cache, and inside the pre-pass itself, which is still drawing it.
+vec3 frostCacheValue(float facet, int row) {
+    if (uFrostPass != FROST_PASS_FRAME || uFrostCacheReady == 0) {
+        return frostFill();
     }
 
-    float cosEntry = -dot(viewDirection, entryNormal);
-    float entryReflectance = fresnelReflectance(cosEntry, etaEntering);
+    return texelFetch(uFrostCache, ivec2(int(facet + 0.5), row), 0).rgb;
+}
 
-    // Only the transmitted fraction enters. The reflected fraction is handled by the
-    // caller as a surface highlight.
-    vec3 throughput = channelMask * (1.0 - entryReflectance);
+// Point k of a `count`-point Fibonacci lattice on the unit square: the same fixed points in
+// every pixel and every frame, so nothing about a frosted facet is noisy.
+vec2 frostLatticePoint(int k, int count) {
+    return vec2((float(k) + 0.5) / float(count), fract(float(k) * 0.6180339887498949));
+}
+
+// An orthonormal basis (t, b) about unit `n`. Duff et al., "Building an Orthonormal Basis,
+// Revisited", JCGT 6(1), 2017.
+void frostBasis(vec3 n, out vec3 t, out vec3 b) {
+    float s = n.z >= 0.0 ? 1.0 : -1.0;
+    float a = -1.0 / (s + n.z);
+    float c = n.x * n.y * a;
+
+    t = vec3(1.0 + s * n.x * n.x * a, s * c, -s * n.x);
+    b = vec3(c, s + n.y * n.y * a, -n.y);
+}
+
+// A GGX microfacet normal seen from `ve` (local frame, z up, ve.z > 0), from the distribution of
+// visible normals at the lattice point `u`: Heitz, "Sampling the GGX Distribution of Visible
+// Normals", JCGT 7(4), 2018, listing 1.
+vec3 frostVisibleNormal(vec3 ve, float alpha, vec2 u) {
+    vec3 vh = normalize(vec3(alpha * ve.x, alpha * ve.y, ve.z));
+    float lensq = vh.x * vh.x + vh.y * vh.y;
+    vec3 t1 = lensq > 0.0 ? vec3(-vh.y, vh.x, 0.0) * inversesqrt(lensq) : vec3(1.0, 0.0, 0.0);
+    vec3 t2 = cross(vh, t1);
+    float r = sqrt(u.x);
+    float phi = TAU * u.y;
+    float p1 = r * cos(phi);
+    float p2 = r * sin(phi);
+    float s = 0.5 * (1.0 + vh.z);
+
+    p2 = (1.0 - s) * sqrt(max(1.0 - p1 * p1, 0.0)) + s * p2;
+
+    vec3 nh = p1 * t1 + p2 * t2 + sqrt(max(0.0, 1.0 - p1 * p1 - p2 * p2)) * vh;
+
+    return normalize(vec3(alpha * nh.x, alpha * nh.y, max(0.0, nh.z)));
+}
+
+// Smith's masking for GGX, for a direction at `cosTheta` to the facet's normal.
+float frostSmithG1(float cosTheta) {
+    float c2 = max(cosTheta * cosTheta, 1e-8);
+    float tan2 = max(1.0 - c2, 0.0) / c2;
+
+    return 2.0 / (1.0 + sqrt(1.0 + FROST_ROUGHNESS * FROST_ROUGHNESS * tan2));
+}
+
+// The microfacet normal at lattice point `u` for a ray travelling along `direction` that meets a
+// frosted facet whose normal on the ray's side is `facing`.
+vec3 frostMicronormal(vec3 direction, vec3 facing, vec2 u) {
+    vec3 t;
+    vec3 b;
+    frostBasis(facing, t, b);
+
+    vec3 v = -direction;
+    vec3 local = normalize(vec3(dot(v, t), dot(v, b), max(dot(v, facing), 1e-4)));
+    vec3 m = frostVisibleNormal(local, FROST_ROUGHNESS, u);
+
+    return normalize(m.x * t + m.y * b + m.z * facing);
+}
+
+// The light a ray inside the stone picks up where it meets frosted `facet` at `position`,
+// travelling along `direction`, the facet facing `outwardNormal`, in one channel of index
+// `refractiveIndex`. Averaged over FROST_TAPS microfacets taken from the visible normals (each
+// weighted by its Fresnel term and Smith's masking of the way it leaves): the part that
+// refracts out through the rough surface looks the lighting up where it goes, so frosting lets
+// light out past the critical angle, which is most of what it does to a stone; the part that
+// reflects back inside takes the facet's cached FROST_ROW_INSIDE value.
+//
+// Divided by the taps' total weight rather than by their number, so the facet keeps all the
+// light it scatters: the weights of a single-scattering microfacet surface add up to less than
+// one (light that would bounce between microfacets is dropped), and the Monte Carlo renderer
+// puts that energy back (T-0271, multiple-scattering compensation). Measured against it (T-0270):
+// with the plain average the cache was 11-22 display levels too dark on a frosted pavilion.
+vec3 frostedFromInside(vec3 position, vec3 direction, vec3 outwardNormal, float facet,
+                       float refractiveIndex) {
+    vec3 facing = -outwardNormal;
+    vec3 escaped = vec3(0.0);
+    float stays = 0.0;
+    float weights = 0.0;
+
+    for (int k = 0; k < FROST_TAPS; ++k) {
+        vec3 m = frostMicronormal(direction, facing, frostLatticePoint(k, FROST_TAPS));
+        float fresnel = fresnelReflectance(max(dot(-direction, m), 0.0), refractiveIndex);
+        vec3 transmitted;
+
+        if (fresnel < 1.0 && refractRay(direction, m, refractiveIndex, transmitted)
+                && dot(transmitted, outwardNormal) > 0.0) {
+            transmitted = normalize(transmitted);
+
+            float weight = (1.0 - fresnel) * frostSmithG1(dot(transmitted, outwardNormal));
+
+            escaped += weight * arrivingLight(position, transmitted, outwardNormal);
+            weights += weight;
+        }
+
+        vec3 reflected = reflect(direction, m);
+
+        if (dot(reflected, outwardNormal) < 0.0) {
+            float weight = fresnel * frostSmithG1(-dot(reflected, outwardNormal));
+
+            stays += weight;
+            weights += weight;
+        }
+    }
+
+    return (escaped + stays * frostCacheValue(facet, FROST_ROW_INSIDE)) / max(weights, 1e-6);
+}
+
+// The interior march, from `origin` just inside the surface along unit `direction`, with
+// `throughput` of light still carried (per channel; zero in the channels this pass does not
+// trace). traceInterior, below, starts it where a camera ray enters the stone; the frosted
+// facets' pre-pass (renderFrostCacheRay) starts it on a frosted facet. One definition, so the
+// frame and the cache cannot trace the stone differently.
+//
+// Returns the radiance gathered by light that left through some facet, having possibly
+// reflected internally many times on the way.
+//
+// A frosted facet (T-0270) ends the march: what happens there is frostedFromInside's, done
+// once after the loop rather than inside it, so the loop the compiler unrolls carries only the
+// test (a mask lookup, skipped on a uniform when nothing is frosted).
+vec3 marchInterior(vec3 origin, vec3 direction, float refractiveIndex, vec3 throughput,
+                   out int bounceCount) {
+    bounceCount = 0;
+
     vec3 gathered = vec3(0.0);
-
-    // Start just inside the surface so the first trace cannot re-hit this facet.
-    vec3 origin = entryPoint - entryNormal * SURFACE_EPSILON;
-    vec3 direction = normalize(interiorDirection);
 
     // Whether the march ends because the bounce budget ran out while light remained, as
     // opposed to missing the stone or the light dying away. Only that case is filled in.
     bool exhausted = true;
+
+    // The frosted facet the march stopped at, or -1 if it did not: one float carried through the
+    // loop. Where the facet was met stays in `origin`, the way the ray was going in `direction`,
+    // and the facet's normal is read back after the loop (uFacetFrames).
+    float frostFacet = -1.0;
 
     for (int bounce = 0; bounce < MAX_BOUNCE_LIMIT; ++bounce) {
         if (bounce >= uMaxBounces) {
@@ -1140,6 +1349,15 @@ vec3 traceInterior(vec3 entryPoint, vec3 viewDirection, vec3 entryNormal,
 
         if (dot(direction, outwardNormal) < 0.0) {
             outwardNormal = -outwardNormal;
+        }
+
+        // A frosted facet: stop here and let frostedFromInside, after the loop, work out what
+        // this facet gives back. Not "exhausted": the light was accounted for, not run out of.
+        if (FROSTED_PROGRAM && uFrostedFacetCount > 0 && facetIsFrosted(interior.facet)) {
+            frostFacet = interior.facet;
+            origin = surfacePoint;
+            exhausted = false;
+            break;
         }
 
         // The face the ray arrived from is the inner one.
@@ -1185,6 +1403,32 @@ vec3 traceInterior(vec3 entryPoint, vec3 viewDirection, vec3 entryNormal,
         origin = surfacePoint - outwardNormal * SURFACE_EPSILON;
     }
 
+    // The frosted facet the march stopped at, if any (T-0270), with the throughput that reached
+    // it, the last segment's absorption included.
+    //
+    // Inside the pre-pass, this is a SECOND frosted facet, and the whole of what arrives there
+    // takes frostFill(), not frostedFromInside's split. Measured (T-0270, frosted pavilion vs
+    // Monte Carlo): the split, whose escaping part sees the dark background below the stone
+    // while the part sent back gets only one bounce's worth of light, left the cache too dark
+    // (44% of the gap closed under Studio against 66%); the one-bounce truncation needs the
+    // brighter constant to stand in for the light that would build up between frosted facets.
+    if (FROSTED_PROGRAM && frostFacet >= 0.0) {
+        if (uFrostPass == FROST_PASS_FRAME) {
+            vec3 frostNormal = texelFetch(uFacetFrames, ivec2(int(frostFacet + 0.5), 1), 0).xyz;
+
+            // The ray leaves through the facet, so its normal points along the ray (as the loop
+            // makes sure of outwardNormal).
+            if (dot(direction, frostNormal) < 0.0) {
+                frostNormal = -frostNormal;
+            }
+
+            gathered += throughput * frostedFromInside(origin, direction, frostNormal,
+                                                       frostFacet, refractiveIndex);
+        } else {
+            gathered += throughput * frostFill();
+        }
+    }
+
     // Out of bounces with light still inside: fill it in rather than discard it.
     //
     // Follows Gem Cut Studio, which colours such areas "a slightly darker tint of the gem
@@ -1215,6 +1459,182 @@ vec3 traceInterior(vec3 entryPoint, vec3 viewDirection, vec3 entryNormal,
     }
 
     return gathered;
+}
+
+// Marches one wavelength band through the interior of the stone.
+//
+// `channelMask` selects which colour channels this pass contributes to: (1,1,1)
+// traces all three together with a single refractive index (no dispersion), while a
+// unit basis vector traces one channel with its own index (dispersion on).
+//
+// Returns the radiance gathered by light that entered here and left through some
+// facet, having possibly reflected internally many times on the way.
+vec3 traceInterior(vec3 entryPoint, vec3 viewDirection, vec3 entryNormal,
+                   float refractiveIndex, vec3 channelMask, out int bounceCount) {
+    bounceCount = 0;
+
+    // Entering the stone: air to gem.
+    float etaEntering = 1.0 / refractiveIndex;
+    vec3 interiorDirection;
+
+    if (!refractRay(viewDirection, entryNormal, etaEntering, interiorDirection)) {
+        // Unreachable when entering a denser medium, but guarded so a nonsensical
+        // refractive index cannot produce garbage.
+        return vec3(0.0);
+    }
+
+    float cosEntry = -dot(viewDirection, entryNormal);
+    float entryReflectance = fresnelReflectance(cosEntry, etaEntering);
+
+    // Only the transmitted fraction enters. The reflected fraction is handled by the
+    // caller as a surface highlight.
+    vec3 throughput = channelMask * (1.0 - entryReflectance);
+
+    // Start just inside the surface so the first trace cannot re-hit this facet.
+    vec3 origin = entryPoint - entryNormal * SURFACE_EPSILON;
+
+    return marchInterior(origin, normalize(interiorDirection), refractiveIndex, throughput,
+                         bounceCount);
+}
+
+// ---------------------------------------------------------------- the frosted cache (T-0270)
+//
+// The pre-pass that fills uFrostCache, in two draws GemApp::draw_frost_cache issues before the
+// frame. The first gives every cache ray its own fragment, because a facet's rays traced one
+// after another in one fragment took ~50 ms of latency in the exploration (a facet whose rays
+// all bounce many times holds its whole SIMD group); the second averages them.
+
+// The first draw (uFrostPass FROST_PASS_RAYS), into a facet count x (2 x channels x
+// FROST_CACHE_RAYS) image: x is the facet, and y counts rays within a channel within a row,
+// y = (row * channels + channel) * FROST_CACHE_RAYS + ray. Writes that ray's light, in its
+// channel only (all three without dispersion), or 0 for a facet that is not frosted.
+//
+//   FROST_ROW_INSIDE: the ray leaves a point on the facet (frost::facet_frames' anchor, a hair
+//   inside) into the stone, cosine-weighted about the inward normal at the lattice point, and is
+//   marched as polished glass. Its mean is the light reaching the facet from inside.
+//
+//   FROST_ROW_OUTSIDE: the camera's ray to the anchor meets one microfacet, from the visible
+//   normals at the lattice point. Its Fresnel share reflects and looks the lighting up; the rest
+//   refracts into the stone and is marched. Each is weighted by Smith's masking of the way it
+//   leaves, so the mean is what the facet sends to the eye.
+//
+// A march that meets another frosted facet takes frostFill() there (frostCacheValue says so
+// while uFrostPass is not the frame), so light crosses between frosted facets once.
+void renderFrostCacheRay() {
+    int facetIndex = int(gl_FragCoord.x);
+    int lane = int(gl_FragCoord.y) / FROST_CACHE_RAYS;
+    int ray = int(gl_FragCoord.y) - lane * FROST_CACHE_RAYS;
+    int channels = uSpectralSamples <= 1 ? 1 : FROST_CACHE_CHANNELS;
+    int row = lane / channels;
+    int channel = lane - row * channels;
+    float facet = float(facetIndex);
+
+    fragColor = vec4(0.0);
+
+    if (row >= FROST_CACHE_ROWS || !facetIsFrosted(facet)) {
+        return;
+    }
+
+    vec3 anchor = texelFetch(uFacetFrames, ivec2(facetIndex, 0), 0).xyz;
+    vec3 normal = texelFetch(uFacetFrames, ivec2(facetIndex, 1), 0).xyz;
+
+    // The channel's index and mask, chosen as renderHandWritten dispatches its channels: one
+    // index per channel with dispersion on, the mid-band index in all three with it off.
+    float index = channels == 1 ? uSpectralIor.y
+                : channel == 0 ? uSpectralIor.x : channel == 1 ? uSpectralIor.y : uSpectralIor.z;
+    vec3 mask = channels == 1 ? vec3(1.0)
+              : channel == 0 ? vec3(1.0, 0.0, 0.0)
+              : channel == 1 ? vec3(0.0, 1.0, 0.0) : vec3(0.0, 0.0, 1.0);
+    vec2 u = frostLatticePoint(ray, FROST_CACHE_RAYS);
+    vec3 origin = anchor - normal * SURFACE_EPSILON;
+    vec3 direction;
+    vec3 throughput;
+    vec3 value = vec3(0.0);
+    // This ray's weight, in alpha, for the reduction to divide by: 1 inside; outside, the
+    // microfacet's Fresnel-and-masking weights, so the facet keeps all the light it scatters (see
+    // frostedFromInside, and the Monte Carlo renderer's multiple-scattering compensation).
+    float weight = 1.0;
+
+    if (row == FROST_ROW_INSIDE) {
+        vec3 inward = -normal;
+        vec3 t;
+        vec3 b;
+        frostBasis(inward, t, b);
+
+        float radius = sqrt(u.x);
+        float phi = TAU * u.y;
+
+        direction = normalize(t * (radius * cos(phi)) + b * (radius * sin(phi))
+                              + inward * sqrt(max(1.0 - u.x, 0.0)));
+        throughput = mask;
+    } else {
+        vec3 view = uOrthographicHalfHeight > 0.0 ? viewForward : normalize(anchor - viewOrigin);
+
+        // A facet facing away from the eye is never seen from outside.
+        if (dot(view, normal) >= 0.0) {
+            return;
+        }
+
+        vec3 m = frostMicronormal(view, normal, u);
+        float eta = 1.0 / index;
+        float fresnel = fresnelReflectance(max(dot(-view, m), 0.0), eta);
+        vec3 reflected = reflect(view, m);
+
+        weight = 0.0;
+
+        if (dot(reflected, normal) > 0.0) {
+            float reflectWeight = fresnel * frostSmithG1(dot(reflected, normal));
+
+            value += mask * reflectWeight * arrivingLight(anchor, reflected, normal);
+            weight += reflectWeight;
+        }
+
+        vec3 transmitted;
+
+        if (!refractRay(view, m, eta, transmitted) || dot(transmitted, normal) >= 0.0) {
+            fragColor = vec4(value, weight);
+            return;
+        }
+
+        direction = normalize(transmitted);
+
+        float transmitWeight = (1.0 - fresnel) * frostSmithG1(-dot(direction, normal));
+
+        throughput = mask * transmitWeight;
+        weight += transmitWeight;
+    }
+
+    int bounces;
+
+    value += marchInterior(origin, direction, index, throughput, bounces);
+    fragColor = vec4(value, weight);
+}
+
+// The second draw (uFrostPass FROST_PASS_REDUCE), into the facet count x 2 cache: each texel its
+// facet's rays in that row, summed and divided by their summed weights (alpha), one channel at a
+// time (each ray lit only its own), the channels then added together.
+void renderFrostCacheReduce() {
+    int facetIndex = int(gl_FragCoord.x);
+    int row = int(gl_FragCoord.y);
+    int channels = uSpectralSamples <= 1 ? 1 : FROST_CACHE_CHANNELS;
+    vec3 value = vec3(0.0);
+
+    for (int channel = 0; channel < FROST_CACHE_CHANNELS; ++channel) {
+        if (channel >= channels) {
+            break;
+        }
+
+        int first = (row * channels + channel) * FROST_CACHE_RAYS;
+        vec4 sum = vec4(0.0);
+
+        for (int ray = 0; ray < FROST_CACHE_RAYS; ++ray) {
+            sum += texelFetch(uFrostCacheRays, ivec2(facetIndex, first + ray), 0);
+        }
+
+        value += sum.rgb / max(sum.a, 1e-6);
+    }
+
+    fragColor = vec4(value, 1.0);
 }
 
 // ---------------------------------------------------------------- presentation
@@ -1745,6 +2165,18 @@ void renderHandWritten() {
         return;
     }
 
+    // The frosted facets' pre-pass (T-0270), drawn by the frosted program into its own images
+    // before the frame; see renderFrostCacheRay.
+    if (FROSTED_PROGRAM && uFrostPass == FROST_PASS_RAYS) {
+        renderFrostCacheRay();
+        return;
+    }
+
+    if (FROSTED_PROGRAM && uFrostPass == FROST_PASS_REDUCE) {
+        renderFrostCacheReduce();
+        return;
+    }
+
     vec3 origin;
     vec3 direction;
     primaryRay(origin, direction);
@@ -1796,6 +2228,19 @@ void renderHandWritten() {
 
     if (uDebugMode == DEBUG_FACET_ID) {
         fragColor = vec4(facetColor(entry.facet), 1.0);
+        return;
+    }
+
+    // A frosted facet seen from outside (T-0270) shows the one value the pre-pass worked out
+    // for it: its rough reflection and the light it lets out, together. Nothing is traced into
+    // the stone from here, so the bounce-count view reads 0.
+    if (FROSTED_PROGRAM && uFrostedFacetCount > 0 && facetIsFrosted(entry.facet)) {
+        if (uDebugMode == DEBUG_BOUNCE_COUNT) {
+            fragColor = vec4(heatmap(0.0), 1.0);
+            return;
+        }
+
+        fragColor = vec4(withOverlays(tonemap(frostCacheValue(entry.facet, FROST_ROW_OUTSIDE)), entry), 1.0);
         return;
     }
 

@@ -145,9 +145,9 @@
 // gLuxPathWaveLength, drawn once per sample by entry.glsl), not upstream's fresh draw at every
 // transmission, and reflection and transmission share its index: a deliberate departure that
 // fixes two upstream-acknowledged bugs (see glass.glsl's header). The wavelength's RGB tint
-// (`GlassMaterial_WaveLength2RGB`) is baked into `bsdfSample` once, at the first transmission,
-// and this integrator's `pathThroughput *= bsdfSample` (in the same place and order as
-// pathtracer.cpp:645) carries it through every later bounce, so nothing in this file changed.
+// (`GlassMaterial_WaveLength2RGB`) is not in any `bsdfSample` since T-0263 (2026-09-28):
+// entry.glsl multiplies this function's returned radiance by it, which is the same as
+// starting the path at that throughput, so nothing in this file changed for either.
 // A single frame is still noisy, as any sampled-spectrum renderer is; frames accumulate.
 //
 // CUTS -- LuxCore generality this single-faceted-gemstone renderer has no use for, recorded as
@@ -1201,9 +1201,10 @@ vec3 PathTracer_RenderEyePath(vec3 eyeOrigin, vec3 eyeDirection, GlassParams gla
             bsdfSample /= rrProb;
         }
 
-        // pathThroughput *= bsdfSample; -- pathtracer.cpp:645. See the T-0092 note in the file
-        // header: this is what threads a transmission event's sampled-wavelength tint through
-        // every subsequent bounce.
+        // pathThroughput *= bsdfSample; -- pathtracer.cpp:645. Upstream threads each
+        // transmission's sampled-wavelength tint through every later bounce here; this port
+        // applies the path's one tint to the whole path in entry.glsl instead (see the T-0092
+        // note in the file header).
         pathThroughput *= bsdfSample;
 
         // irradiance AOV (pathtracer.cpp:648-656) -- T-0111.

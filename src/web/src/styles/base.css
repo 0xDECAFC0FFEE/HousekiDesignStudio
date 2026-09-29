@@ -102,3 +102,20 @@ body { display: flex; flex-direction: column; }
    panes are #instructions-pane (left), #viewport (middle, takes what is left) and #panel-stack
    (right); both side panes are dragged to their widths (2026-09-18 and 2026-09-22). */
 #layout { display: flex; flex: 1; min-height: 0; }
+
+/* The tilt performance graph's colours (T-0261): Gem Cut Studio's grey, yellow, orange and pink,
+   taken from the Nord palette. ISO is the text colour, so it stays visible on the light theme's
+   pale pane. The grid is the cards' edge colour, softened so the curves stay in front of it. On
+   any element that draws the graph (tilt_performance.js's SCREEN_PALETTE names these): Tools >
+   Tilt performance's panel, and the manual optimizer's graph under its grid (T-0274). */
+.tilt-palette {
+  --tilt-iso: var(--text);
+  --tilt-cos: #ebcb8b;
+  --tilt-window: #d08770;
+  --tilt-head: #b48ead;
+  --tilt-grid: color-mix(in srgb, var(--panel-edge) 55%, transparent);
+}
+
+:root[data-theme="light"] .tilt-palette {
+  --tilt-cos: #c29a3a;
+}

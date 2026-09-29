@@ -21,8 +21,8 @@
 //
 // The measuring is the renderer's (`GemApp::tilt_begin` / `tilt_poll`, src/renderer/tilt.rs):
 // each pose is drawn off screen at a fixed 200 x 167, many poses at a time as tiles of one image,
-// and read back without the page waiting for the GPU. This module hands the sweep to it in
-// batches and collects them as they finish.
+// and read back without the page waiting for the GPU. tilt_sweep.js hands the sweep to it in
+// batches and collects them as they finish (the manual optimizer measures with the same loop).
 //
 // The view holds still while the sweep measures. It used to turn to each pose as it was measured
 // (Gem Cut Studio's animated preview), but every turn was a full render of the page's canvas
@@ -53,8 +53,9 @@ import { setLocalHistory, applyParam, selectRenderer, onParamApplied } from './s
 import { engine, bumpParams, showError, paramRevision } from './stores.js';
 import { setRenderHold, releaseRenderHold } from './viewport.js';
 import {
-  DEFAULT_RANGE, sweepPoses, readMeasurement, viewPose, clampRange, measurementKey,
+  DEFAULT_RANGE, sweepPoses, viewPose, clampRange, measurementKey,
 } from './tilt_performance.js';
+import { createTiltSweep, poseKey } from './tilt_sweep.js';
 
 // Each half's reach. Kept from one opening to the next while the page is open, as a slider's
 // setting is; a reload starts again at Gem Cut Studio's 33 degrees.
@@ -95,9 +96,9 @@ const REMEASURE_DELAY_MS = 350;
 //   swapped    whether Monte Carlo was swapped for Deterministic on opening
 //   measured   Map of 'x:12' -> measurement, every pose measured with the current settings
 //   key        tilt_performance.js's measurementKey of the settings they were measured with
-//   inFlight   the batches of poses queued on the renderer, oldest first (they finish in that
-//              order)
-//   timer      the next poll; remeasureTimer, a pending re-measure
+//   sweep      the measuring loop (tilt_sweep.js), with the poses waiting and queued on the
+//              renderer
+//   remeasureTimer   a pending re-measure
 //   stop       what undoes the settings listeners
 let session = null;
 
@@ -111,7 +112,7 @@ setDesignLock(() => session !== null, ' Close tilt performance first: Done, or E
 
 // The view is not drawn while the sweep measures: a frame of it takes the GPU for longer than the
 // whole sweep does, and held off it the sweep takes about a second instead of six (2026-09-26).
-// It is drawn the moment the sweep is done (`releaseRenderHold` in `poll`), turned face-up if the
+// It is drawn the moment the sweep is done (`releaseRenderHold` in `swept`), turned face-up if the
 // mode has just opened.
 setRenderHold(() => sweeping());
 
@@ -123,7 +124,6 @@ const INERT_HISTORY = {
   redo: () => {},
 };
 
-const poseKey = ({ axis, angle }) => `${axis}:${angle}`;
 const readParam = name => engine.app.get_param(name);
 
 /**
@@ -149,11 +149,16 @@ export function enterTiltPerformance() {
     swapped: app.renderer() === RENDERER_MONTE_CARLO,
     measured: new Map(),
     key: measurementKey(readParam),
-    inFlight: [],
-    timer: null,
+    sweep: null,
     remeasureTimer: null,
     stop: null,
   };
+  session.sweep = createTiltSweep({
+    app: () => engine.app,
+    onMeasured: (pose, measurement) => session.measured.set(poseKey(pose), measurement),
+    onProgress: swept,
+    onError: cause => showError(`Tilt performance could not measure the stone: ${cause}`),
+  });
 
   if (session.swapped) {
     selectRenderer(RENDERER_DETERMINISTIC, { remember: false });
@@ -197,9 +202,9 @@ export function exitTiltPerformance() {
 function close() {
   const { swapped } = session;
 
-  clearTimeout(session.timer);
   clearTimeout(session.remeasureTimer);
   session.stop?.();
+  session.sweep.cancel();
   engine.app?.tilt_cancel();
   session = null;
   releaseRenderHold();
@@ -272,10 +277,6 @@ function publish() {
   }));
 }
 
-// How often the batches in flight are asked whether they are done: as often as a timer runs.
-// Asking is cheap (a fence test), and waiting a whole frame between asks left the GPU idle.
-const POLL_MS = 4;
-
 /**
  * How far the sweep is while it runs, `{ measured, total }`: the panel's progress bar. Kept apart
  * from `tiltPerformance` so a batch finishing moves the bar without redrawing the graph and every
@@ -285,82 +286,39 @@ const POLL_MS = 4;
 export const tiltProgress = writable({ measured: 0, total: 0 });
 
 /**
- * Queues the next poses within reach not yet measured, in batches (`tilt_batch_size` poses, drawn
- * together as one image by the renderer), as many batches as it will take at once
- * (`tilt_can_begin`), so the GPU always has the next batch to draw; finishes the sweep when there
- * are none left and none in flight.
+ * Measures the poses within reach not yet measured (tilt_sweep.js queues them in batches, as many
+ * as the renderer takes at once, so the GPU always has the next batch to draw); `swept` hears as
+ * they come in.
  */
 function measureNext() {
   if (session === null) {
     return;
   }
 
-  const queued = new Set(session.inFlight.flat().map(poseKey));
-  const waiting = sweepPoses(range)
-    .filter(pose => !session.measured.has(poseKey(pose)) && !queued.has(poseKey(pose)));
-  const size = engine.app.tilt_batch_size();
-
-  while (waiting.length > 0 && engine.app.tilt_can_begin()) {
-    const batch = waiting.splice(0, size);
-
-    try {
-      engine.app.tilt_begin(new Float32Array(batch.flatMap(({ spin, tilt }) => [spin, tilt])));
-    } catch (cause) {
-      stopMeasuring();
-      showError(`Tilt performance could not measure the stone: ${cause}`);
-      return;
-    }
-
-    session.inFlight.push(batch);
-  }
-
-  // Nothing queued: the sweep is done, and the pointer may turn the view from here on.
-  if (session.inFlight.length > 0) {
-    clearTimeout(session.timer);
-    session.timer = setTimeout(poll, POLL_MS);
-  }
+  session.sweep.measure(sweepPoses(range).filter(pose => !session.measured.has(poseKey(pose))));
 }
 
-/** Collects every queued batch that is measured, oldest first, files its poses, and queues more. */
-function poll() {
-  if (session === null || session.inFlight.length === 0) {
+/**
+ * Some poses came in, or the sweep is done: the progress bar moves, and once every pose is in the
+ * graph is drawn and the view may be drawn again, whatever was asked of it meanwhile.
+ */
+function swept() {
+  if (session === null) {
     return;
   }
-
-  try {
-    while (session.inFlight.length > 0 && engine.app.tilt_poll()) {
-      const batch = session.inFlight.shift();
-      const values = Array.from(engine.app.tilt_result());
-
-      batch.forEach((pose, i) => {
-        session.measured.set(poseKey(pose), readMeasurement(values.slice(i * 10, i * 10 + 10)));
-      });
-    }
-  } catch (cause) {
-    stopMeasuring();
-    showError(`Tilt performance could not measure the stone: ${cause}`);
-    return;
-  }
-
-  measureNext();
 
   if (sweeping()) {
     progress();
-  } else {
-    publish();
+    return;
   }
 
-  // Done: the view may be drawn again, and whatever was asked of it meanwhile is.
-  if (!sweeping()) {
-    releaseRenderHold();
-  }
+  publish();
+  releaseRenderHold();
 }
 
 /** Abandons every pose queued. */
 function stopMeasuring() {
-  clearTimeout(session.timer);
-  engine.app.tilt_cancel();
-  session.inFlight = [];
+  session.sweep.cancel();
 }
 
 /**
@@ -428,7 +386,7 @@ export function showPose(cursor) {
 
 /** Whether the sweep is still measuring. */
 export function sweeping() {
-  return session !== null && session.inFlight.length > 0;
+  return session !== null && session.sweep.busy();
 }
 
 // Another design loaded under the mode (File > Open, a shared link) ends it: the graph is of the

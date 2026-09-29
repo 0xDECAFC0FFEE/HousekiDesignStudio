@@ -97,12 +97,20 @@ const renderTask = budgetedTask({
 // canvas's size between draft and full quality, which waits for everything the GPU has queued --
 // held the sweep up for seconds (measured 2026-09-26: 0.5-1 s on its own, 6 s with the view
 // drawing in between). A redraw asked for meanwhile is kept, and made by `releaseRenderHold`.
-let renderHold = () => false;
+// The manual optimizer holds the view the same way while it measures the stone in the middle
+// (T-0274), so there may be several readers: the view is held while any of them says so.
+const renderHoldReaders = new Set();
+const renderHold = () => [...renderHoldReaders].some(reader => reader());
 let renderDeferred = false;
 
-/** Holds every redraw back for as long as `reader()` says so; see `releaseRenderHold`. */
+/**
+ * Holds every redraw back for as long as `reader()` says so (as long as any reader given here
+ * does); see `releaseRenderHold`. Returns what removes the reader.
+ */
 export function setRenderHold(reader) {
-  renderHold = reader;
+  renderHoldReaders.add(reader);
+
+  return () => renderHoldReaders.delete(reader);
 }
 
 /** Makes the redraw asked for while the view was held, if there was one. */
@@ -113,8 +121,21 @@ export function releaseRenderHold() {
   }
 }
 
+// Told of every redraw asked for (T-0273): the manual optimizer redraws its grid of previews when
+// the view or a render setting has changed, and every such change asks for a redraw here.
+const renderRequestListeners = new Set();
+
+/** Calls `listener()` whenever a redraw is asked for; returns what stops it. */
+export function onRenderRequest(listener) {
+  renderRequestListeners.add(listener);
+
+  return () => renderRequestListeners.delete(listener);
+}
+
 /** Asks for a redraw, soon. Every change goes through here, and none of them waits for it. */
 export function requestRender() {
+  renderRequestListeners.forEach(listener => listener());
+
   if (renderHold()) {
     renderDeferred = true;
     return;

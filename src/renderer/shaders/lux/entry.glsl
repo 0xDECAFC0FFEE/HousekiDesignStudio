@@ -66,6 +66,12 @@
 //     and this path samples one wavelength per transmission event, and how those two compose
 //     is LuxCore's answer, not this project's. Still NOT ported: the nested-media stack
 //     (T-0113) and the volume-scatter path vertex (T-0131).
+//   * THE WAVELENGTH'S TINT (T-0092, T-0263). Upstream's RenderEyeSample starts every eye
+//     path at a throughput of Spectrum(1.f) and GlassMaterial folds a fresh wavelength's
+//     WaveLength2RGB tint into each transmission. Here each sample draws one wavelength for
+//     the whole path (from the shutter-time dimension upstream discards), and on a
+//     dispersive stone its tint multiplies the whole path, as if it were the camera ray's
+//     throughput; see luxRenderPixel() below.
 //   * NO GEM CUT STUDIO BEHAVIOURS. The observer dot, the head-shadow cone, the separate
 //     window colour, the flat background and the out-of-bounces shade are all this
 //     project's own GCS-matching rules (README's decisions 21-27). None exists in LuxCore,
@@ -106,8 +112,12 @@ uint luxPixelSeed(uvec2 pixel, uint extra) {
 // LuxCore's roughglass `uroughness` and `vroughness`, used for both (isotropic). The user chose
 // 0.2 on 2026-09-23 ("for now use .2 for the roughness of the microfacets ... later we might
 // need to revisit the roughness"), so changing it is meant to be this one line. It is in
-// LuxCore's own convention: lux/roughglass.glsl multiplies the two, so the Schlick
-// distribution sees u * v = 0.04. No page control sets it, on purpose. The Rust test
+// LuxCore's own convention: LuxCore's Schlick distribution saw u * v = 0.04. Since T-0269
+// (2026-09-28) lux/roughglass.glsl is a GGX rough dielectric whose widths are alpha_x = u and
+// alpha_y = v, so alpha = 0.2 -- the same distribution of microfacet normals, because Schlick's
+// with parameter r is GGX's with alpha^2 = r (see that file's header, and the Rust test
+// `ggx_at_the_users_roughness_is_luxcores_schlick_distribution`). No page control sets it, on
+// purpose. The Rust test
 // `frosted_facet_roughness_is_the_users_0_2_in_one_place` pins the value, so a change here is
 // deliberate and updates that test in the same commit.
 const float FROSTED_FACET_ROUGHNESS = 0.2;
@@ -124,7 +134,9 @@ const float FROSTED_FACET_ROUGHNESS = 0.2;
 // same kr, kt, exteriorior and interiorior plus:
 //   scene.materials.frosted.uroughness = FROSTED_FACET_ROUGHNESS
 //   scene.materials.frosted.vroughness = FROSTED_FACET_ROUGHNESS
-// (and no cauchyb: LuxCore's roughglass does not disperse; see lux/roughglass.glsl).
+// (and no cauchyb: LuxCore's roughglass does not disperse; see lux/roughglass.glsl). Since
+// T-0269 the microfacet model is GGX rather than LuxCore's Schlick, so a LuxCore roughglass
+// scene with these settings has the same microfacet normals but a different shadowing term.
 GlassParams luxGlassParams() {
     GlassParams glass;
 
@@ -218,7 +230,6 @@ vec3 luxRenderPixel() {
         // see host.glsl's gLuxPathWaveLength), with upstream's own 380-780 nm range.
         // Reusing a draw that is already made keeps every other dimension where it was.
         gLuxPathWaveLength = mix(380.0, 780.0, Sampler_GetSample(sampler, uint(IDX_EYE_TIME)));
-        gLuxPathTinted = false;
         Sampler_GetSample(sampler, uint(IDX_DOF_X));
         Sampler_GetSample(sampler, uint(IDX_DOF_Y));
 
@@ -236,8 +247,33 @@ vec3 luxRenderPixel() {
         gLuxPathHitStone = false;
         gLuxPathExitNormal = vec3(0.0, 1.0, 0.0);
 
-        total += PathTracer_RenderEyePath(rayOrigin, rayDirection, glass,
+        vec3 pathRadiance = PathTracer_RenderEyePath(rayOrigin, rayDirection, glass,
                 maxPathDepth, rrDepth, uLuxRrImportanceCap, sampler);
+
+        // THE WAVELENGTH'S TINT, ON THE WHOLE PATH (T-0263, the user's decision of
+        // 2026-09-28). A departure from LuxCore, which folds WaveLength2RGB into each
+        // transmission and never into a reflection (see glass.glsl's header).
+        //
+        // The path's radiance is linear in the throughput it starts with -- every term
+        // RenderEyePath adds is `pathThroughput * (light)`, and nothing it decides (the
+        // reflect/transmit threshold, Russian roulette) reads that throughput -- so
+        // multiplying the result here is exactly upstream's `eyeThroughput` set to the tint:
+        // the camera ray carries it, and every vertex after, entry reflection included.
+        // That is the colour model the light transport benchmarks call "consistent spectral",
+        // and it keeps a white furnace white per channel. Folding the tint in at the first
+        // transmission instead (T-0092 to T-0263) never tinted light the entry facet mirrors,
+        // which left colourless rutile 2.4 levels of 255 low in blue.
+        //
+        // Only paths that met the stone, and only a dispersive stone. A camera ray that
+        // missed everything carries no dispersion, and tinting it would only add colour noise
+        // to the flat background for a mean that is white to 0.14% (the tint averages
+        // (1.000, 1.000, 0.9986) over 380-780 nm). With dispersion 0 the renderer never
+        // touches the wavelength, exactly as before.
+        if (glass.cauchyB > 0.0 && gLuxPathHitStone) {
+            pathRadiance *= GlassMaterial_WaveLength2RGB(gLuxPathWaveLength);
+        }
+
+        total += pathRadiance;
     }
 
     return total / float(samples);
