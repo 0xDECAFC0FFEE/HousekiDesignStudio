@@ -85,8 +85,11 @@
     // Read back from Rust rather than from a store: the drag and the wheel move the camera
     // directly, and only `spin`/`tilt` know where it ended up. The fade is worked out here, a
     // frame at a time, rather than left to a CSS transition, so it follows the stone exactly:
-    // it is a function of where the stone is pointing, not of how long ago it moved.
-    const opacity = dialOpacity(engine.app.get_param('tilt'));
+    // it is a function of where the stone is pointing, not of how long ago it moved. The
+    // sideways tilt (T-0288; a plain sideways drag since T-0296) tips the axis off the view too,
+    // so it counts: dragging sideways from face-up fades the dial out after 5-10 degrees, as a
+    // tilt does, while a Shift + sideways drag (a spin) keeps it.
+    const opacity = dialOpacity(engine.app.get_param('tilt'), engine.app.get_param('sideTilt'));
 
     if (opacity === 0) {
       drawn = null;

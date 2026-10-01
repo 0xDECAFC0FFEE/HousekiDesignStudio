@@ -353,6 +353,31 @@ export function applyParam(name, value) {
   return true;
 }
 
+/**
+ * The view's pose, `{ spin, tilt, sideTilt }` in degrees, read back from Rust: what a mode saves
+ * on opening so it can put the view back on closing. `sideTilt` is the sideways tilt (T-0288),
+ * what a plain sideways drag sets since T-0296.
+ */
+export function readPose(app = engine.app) {
+  return {
+    spin: app.get_param('spin'),
+    tilt: app.get_param('tilt'),
+    sideTilt: app.get_param('sideTilt'),
+  };
+}
+
+/**
+ * Turns the view to `pose`, `{ spin, tilt, sideTilt }` in degrees, through `applyParam` (so a
+ * facet turn in flight stops and the frame is redrawn); false if Rust refused any of it. A pose
+ * that leaves out `sideTilt` -- every fixed pose a mode or a button turns to: Top, Side, the
+ * cutting assistant's, tilt performance's -- means upright, 0, so a view tipped sideways by a
+ * drag never leaks into a pose that was worked out without one. The sliders are the
+ * caller's to bring up to date (`bumpParams`).
+ */
+export function applyPose({ spin, tilt, sideTilt = 0 }) {
+  return applyParam('spin', spin) && applyParam('tilt', tilt) && applyParam('sideTilt', sideTilt);
+}
+
 // ---- material, and the edit history of it
 
 /** The material as the fields an update can hold. */

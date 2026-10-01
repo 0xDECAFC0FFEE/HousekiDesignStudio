@@ -604,7 +604,9 @@ async function page() {
   attachCanvasControls({ addEventListener() {}, clientWidth: 100, clientHeight: 100, classList: { add() {}, remove() {} } });
   app.load_obj(stone.text);
   installLoadedDesign(app, { text: stone.text, design: stone.design, gear: stone.gear, title: "test" });
-  app.params = { spin: 33, tilt: -12 };
+  // The user's own view, tipped 9 degrees sideways too (T-0288, Ctrl + drag): the mode's poses
+  // straighten it, and Done puts it back.
+  app.params = { spin: 33, tilt: -12, sideTilt: 9 };
   runTimers();
 
   return { app, design: stone.design, text: stone.text };
@@ -641,8 +643,8 @@ Deno.test("opening shows the uncut rough on the dop, holds the design, and makes
   assertEqual(app.normals.length / 3, 6, "the uncut rough is the cube's six faces");
   assertEqual(app.highlighted, [], "nothing is cut yet, so nothing is highlighted");
   assert(app.dop !== null && app.dop[5] > app.dop[2], "the dop is out, pointing up from the table side");
-  assertEqual([app.params.spin, app.params.tilt],
-    [mode.PHASE_POSES.pavilion.spin, mode.PHASE_POSES.pavilion.tilt], "posed for the pavilion");
+  assertEqual([app.params.spin, app.params.tilt, app.params.sideTilt],
+    [mode.PHASE_POSES.pavilion.spin, mode.PHASE_POSES.pavilion.tilt, 0], "posed for the pavilion, upright");
   assert(tiers.designLocked(), "the design is held");
   assert(!get(tiers.toolbar).delete.active && get(tiers.toolbar).delete.tip.includes("cutting assistant"),
     "the toolbar is inactive and says why");
@@ -786,11 +788,13 @@ Deno.test("a row click scrubs to its tier's first facet, and rows show cut, curr
 });
 
 Deno.test("Done puts back the stone, the pose, Undo and the hooks, and the design never changed", async () => {
-  // Setup: the startup stone on a fresh page, the view at spin 33, tilt -12, an edit in the history.
+  // Setup: the startup stone on a fresh page, the view at spin 33, tilt -12, sideways tilt 9, an
+  // edit in the history.
   // Test: open the mode, walk to the middle of the crown, and press Done.
   // Verifies the ticket's "the design and undo history are unchanged afterwards": the last load is
   // the design's own OBJ text, byte for byte (what diagnostics_text() is computed from); the dop is
-  // gone; the pose is the one the user had; the bar is closed and the rows have no state; the design
+  // gone; the pose is the one the user had, sideways tilt included (T-0288); the bar is closed and
+  // the rows have no state; the design
   // is not held, Undo is live again with the same entry to undo; row clicks go back to selecting;
   // and the design is exactly what it was.
   const { app, design, text } = await page();
@@ -816,7 +820,8 @@ Deno.test("Done puts back the stone, the pose, Undo and the hooks, and the desig
   assertEqual(app.model_obj_text(), shownText, "the design's stone is back, byte for byte");
   assertEqual(app.loads[app.loads.length - 1].kind, "load", "loaded the ordinary way, in its own frame");
   assertEqual(app.dop, null, "the dop is gone");
-  assertEqual([app.params.spin, app.params.tilt], [33, -12], "the view is back where the user had it");
+  assertEqual([app.params.spin, app.params.tilt, app.params.sideTilt], [33, -12, 9],
+    "the view is back where the user had it, sideways tilt and all");
   assertEqual([get(mode.cutting).open, get(mode.cuttingRows)], [false, null], "the bar is closed");
   assert(!tiers.designLocked(), "the design is free again");
   assert(get(canUndo), "Undo is live again, with the edit made before the mode");

@@ -91,7 +91,13 @@ export const RENDERER_HINTS = [
     'drawing of the facets.',
 ];
 
-/** Sliders that turn the view, so moving them drops quality like a mouse drag does. */
+/**
+ * Sliders that turn the view, so moving them drops quality like a mouse drag does. The sideways
+ * tilt (`sideTilt`, T-0288: a plain sideways drag since T-0296) has no slider since T-0294 (the user,
+ * 2026-09-29: "get rid of the Sideways tilt slider"), so it is not listed here, nor in
+ * PARAM_SLIDERS, FORMAT or SLIDER_SPECS. `applyPose` still sets it through `applyParam`, always
+ * after `spin`, which already stops a facet turn in flight.
+ */
 export const VIEW_SLIDERS = ['spin', 'tilt'];
 
 /** An angle in degrees for a readout, with a decimal only when it has one. */

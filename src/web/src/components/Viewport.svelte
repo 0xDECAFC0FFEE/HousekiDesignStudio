@@ -3,7 +3,7 @@
   // wheel) are wired by viewport.js once GemApp exists; what is here is the drag-and-drop of a
   // design file onto the pane, which shares the file picker's load path (loadModelFile) so the two
   // cannot drift.
-  import { loadModelFile, applyParam } from '../lib/session.js';
+  import { loadModelFile, applyPose } from '../lib/session.js';
   import { stoneStatsStore, ready, bumpParams, programLinking } from '../lib/stores.js';
   import { fullscreen } from '../lib/fullscreen.js';
   import ParamSlider from './ParamSlider.svelte';
@@ -26,9 +26,13 @@
       tip: "The pavilion's height, from the culet to the girdle, divided by the girdle's width across its short axis." },
   ];
 
-  /** Points the stone straight at the viewer (Top) or side-on (Side): spin 0, tilt 0 or 90. */
+  /**
+   * Points the stone straight at the viewer (Top) or side-on (Side): spin 0, tilt 0 or 90, and
+   * no sideways tilt (T-0288), so Top really is face-up after a sideways drag (a plain drag
+   * since T-0296, a Ctrl + drag before).
+   */
   function setView(tilt) {
-    if (applyParam('spin', 0) && applyParam('tilt', tilt)) {
+    if (applyPose({ spin: 0, tilt, sideTilt: 0 })) {
       // The sliders read their values back from Rust when this changes.
       bumpParams();
     }
@@ -81,11 +85,15 @@
       <ParamSlider name="spin" label="X rotation (spin)" tip="Turns the stone about its own axis." />
       <ParamSlider name="tilt" label="Y rotation (tilt)"
         tip="Tilts the stone's axis towards or away from you; 0 is face-up." />
+      <!-- No slider for the sideways tilt (a plain sideways drag since T-0296; T-0288 made it a
+           Ctrl + sideways drag): T-0288 added one, and
+           the user asked for it to go on 2026-09-29 ("get rid of the Sideways tilt slider"). The
+           gesture is the only way to set it; Top and Side straighten it. T-0294. -->
       <div class="view-buttons">
         <Button variant="outline" size="sm" class={VIEW_BUTTON} id="view-top"
-          data-tip="Looks straight down on the stone: X rotation 0, Y rotation 0." onclick={() => setView(0)}>Top</Button>
+          data-tip="Looks straight down on the stone: X rotation 0, Y rotation 0, no sideways tilt." onclick={() => setView(0)}>Top</Button>
         <Button variant="outline" size="sm" class={VIEW_BUTTON} id="view-side"
-          data-tip="Looks at the stone from the side: X rotation 0, Y rotation 90." onclick={() => setView(90)}>Side</Button>
+          data-tip="Looks at the stone from the side: X rotation 0, Y rotation 90, no sideways tilt." onclick={() => setView(90)}>Side</Button>
       </div>
     </div>
   {/if}

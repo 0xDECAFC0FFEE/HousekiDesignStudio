@@ -3264,6 +3264,36 @@ mod tests {
         assert_eq!(after.total, 1, "the resolve divisor must go back to one pass");
     }
 
+    /// Tipping the view sideways (T-0288, Ctrl + drag) must throw the Monte Carlo sum away too,
+    /// and holding it still at a sideways tilt must let the sum grow.
+    ///
+    /// Setup: two passes at the default pose, then keys whose camera is tipped 0.2 radians
+    /// sideways, the only thing changed. Test: the plans for three passes at the tipped pose.
+    /// Verifies the first restarts (a sideways tilt is part of the pose the key compares, so the
+    /// sum never mixes two views), and the next two accumulate on it.
+    #[test]
+    fn accumulation_restarts_when_the_view_is_tipped_sideways() {
+        let mut state = AccumulationState::new();
+
+        state.begin_pass(accumulation_key());
+        state.begin_pass(accumulation_key());
+
+        let tipped = || {
+            let mut key = accumulation_key();
+
+            key.camera.orbit_sideways(0.2);
+            key
+        };
+
+        let first = state.begin_pass(tipped());
+
+        assert!(first.restarted, "a sideways tilt must restart the accumulation");
+        assert_eq!(first.total, 1);
+
+        assert!(!state.begin_pass(tipped()).restarted, "a still, tipped view must accumulate");
+        assert_eq!(state.begin_pass(tipped()).total, 3);
+    }
+
     /// Every other input the image depends on must restart it too.
     ///
     /// Setup: the baseline key, and a list of one-field mutations covering the size, the

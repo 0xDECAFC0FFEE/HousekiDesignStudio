@@ -1497,6 +1497,323 @@ vec3 traceInterior(vec3 entryPoint, vec3 viewDirection, vec3 entryNormal,
                          bounceCount);
 }
 
+// ---------------------------------------------------------------- concave stones (T-0036)
+//
+// On a convex stone, light that leaves the surface -- refracted out of the stone, or reflected
+// off its outside -- can never meet the stone again, so marchInterior looks the lighting up the
+// moment light leaves (arrivingLight). On a concave stone that is wrong: light leaving one wall
+// of a groove crosses it and enters the opposite wall, a reflection off the outside of a dent
+// lands on the stone again, and light leaving the inside of a ring crosses the hole. So here
+// every ray that leaves the stone is traced against it first (meetsStoneAgain). Only one that
+// misses picks up the lighting; one that hits carries on at the stone, where it splits again
+// into a reflection that stays outside and a refraction back in.
+//
+// Light then no longer follows one chain. The march still follows one ray at a time: the ray
+// inside the stone carries on as marchInterior's does (reflecting inside after each surface),
+// and each ray that left and met the stone again is set aside on a small stack, to be followed
+// once the current one is finished. Each is followed the same way: into the stone, out, and,
+// if it meets the stone once more, onto the stack. Every branch counts its own surfaces against
+// uMaxBounces, and gets the out-of-bounces shade when it runs out, exactly as marchInterior's
+// one chain does.
+//
+// Limits, all deliberate:
+//   * the stack holds CONCAVE_STACK_SIZE rays. A re-entering ray with no room left is looked up
+//     in the lighting where it left, as it was before T-0036 (the one approximation left);
+//   * a branch carrying less than THROUGHPUT_CUTOFF is dropped, as marchInterior stops at it;
+//   * the whole pixel stops after CONCAVE_PATHS * uMaxBounces surfaces, whatever is left then
+//     getting the out-of-bounces shade, so a deep concavity cannot cost without bound.
+//
+// The leak rule of arrivingLight (the back-facet clause, decisions 21 and 27) is applied at the
+// facet the light FINALLY leaves the stone by, the one it does not meet the stone again from:
+// "light seen through the back of the stone" is decided where the light actually escapes. On a
+// convex stone that facet is the only one the light leaves by, so the rule is unchanged there.
+//
+// ALL OF IT IS COMPILED ONLY INTO THE CONCAVE PROGRAM (ProgramKind::DeterministicConcave, which
+// inserts GEM_PROGRAM_CONCAVE), drawn only for a stone convex::FacetPlanes refuses. A convex
+// stone keeps the plain program, whose march cannot meet the stone again and is unchanged, bit
+// for bit: the tests below are constant false there and the code is dropped. The same reason
+// as FROSTED_PROGRAM's: a guard on a uniform alone still costs the frame (kb/failed-approaches.md).
+#ifdef GEM_PROGRAM_CONCAVE
+const bool CONCAVE_PROGRAM = true;
+#else
+const bool CONCAVE_PROGRAM = false;
+#endif
+
+// Rays set aside to follow later, per channel pass; see above.
+const int CONCAVE_STACK_SIZE = 6;
+
+// The pixel's surface budget, per channel pass, as a multiple of uMaxBounces; see above.
+const int CONCAVE_PATHS = 4;
+
+// Where light leaving the stone's surface at `position`, through or off a facet with outward
+// normal `outwardNormal`, travelling along unit `direction`, meets the stone again: the point
+// and that facet's normal turned to face the light (so dot(direction, facing) < 0). False when
+// it escapes.
+//
+// Traced as a ray from outside, so only a facet it enters can be hit (hitTriangle's side rule):
+// the facet it is leaving faces along the ray and is never re-hit. The start is nudged off the
+// surface by SURFACE_EPSILON, as the interior march nudges its bounces into the stone.
+bool meetsStoneAgain(vec3 position, vec3 direction, vec3 outwardNormal,
+                     out vec3 point, out vec3 facing) {
+    vec3 origin = position + outwardNormal * SURFACE_EPSILON;
+    Hit hit;
+
+    point = position;
+    facing = outwardNormal;
+
+    if (!traceScene(origin, direction, INTERIOR_T_MIN, FAR_DISTANCE, RAY_FROM_OUTSIDE, hit)) {
+        return false;
+    }
+
+    point = origin + direction * hit.t;
+    facing = hit.outwardNormal;
+
+    // A ray from outside only enters, so the normal already faces it; this guards only a
+    // grazing hit, as in renderHandWritten.
+    if (dot(direction, facing) > 0.0) {
+        facing = -facing;
+    }
+
+    return true;
+}
+
+// What light still inside a path contributes when its bounce budget runs out: marchInterior's
+// out-of-bounces shade. See the long comment at the end of marchInterior for why the two
+// factors are combined this way.
+vec3 exhaustionFill(vec3 throughput) {
+    if (uExhaustionShade <= 0.0) {
+        return vec3(0.0);
+    }
+
+    return throughput * displayToRadiance(vec3(uExhaustionShade)) * exp(-uAbsorption);
+}
+
+// marchInterior for a concave stone: the march from `origin` just inside the surface along
+// unit `direction`, with `throughput` of light, in one channel of index `refractiveIndex`, plus
+// -- when `pendingThroughput` is not zero -- one ray outside the stone that is known to meet it
+// again at `pendingPoint`, on a facet facing it along `pendingFacing`, travelling along
+// `pendingDirection`: the camera ray's reflection off a concave outside (renderHandWritten).
+//
+// Returns the radiance gathered by light that finally left the stone. `bounceCount` is the most
+// surfaces any one branch met, for the bounce-count view.
+vec3 marchConcave(vec3 origin, vec3 direction, float refractiveIndex, vec3 throughput,
+                  vec3 pendingPoint, vec3 pendingFacing, vec3 pendingDirection,
+                  vec3 pendingThroughput, out int bounceCount) {
+    bounceCount = 0;
+
+    vec3 gathered = vec3(0.0);
+
+    // Rays outside the stone set aside to follow later: each arrives at the stone at
+    // stackPoint, on a facet whose normal faces it (stackFacing), along stackDirection, with
+    // stackThroughput of light, having met stackDepth surfaces already.
+    vec3 stackPoint[CONCAVE_STACK_SIZE];
+    vec3 stackFacing[CONCAVE_STACK_SIZE];
+    vec3 stackDirection[CONCAVE_STACK_SIZE];
+    vec3 stackThroughput[CONCAVE_STACK_SIZE];
+    int stackDepth[CONCAVE_STACK_SIZE];
+    int stacked = 0;
+
+    if (maxComponent(pendingThroughput) > 0.0) {
+        stackPoint[0] = pendingPoint;
+        stackFacing[0] = pendingFacing;
+        stackDirection[0] = pendingDirection;
+        stackThroughput[0] = pendingThroughput;
+        // Counted like the ray refracted in at the same surface, which starts at 0: the camera
+        // ray's own entry surface is not one of the bounces.
+        stackDepth[0] = 0;
+        stacked = 1;
+    }
+
+    // The ray being followed. `inside`: a ray inside the stone at `origin` along `direction`,
+    // to be traced to where it leaves. Otherwise one taken off the stack, already arriving at
+    // `arrivalPoint` from outside.
+    bool following = true;
+    bool inside = true;
+    int depth = 0;
+    vec3 arrivalPoint = origin;
+    vec3 arrivalFacing = vec3(0.0, 1.0, 0.0);
+    int budget = CONCAVE_PATHS * uMaxBounces;
+
+    for (int step = 0; step < CONCAVE_PATHS * MAX_BOUNCE_LIMIT; ++step) {
+        if (step >= budget) {
+            break;
+        }
+
+        if (!following) {
+            if (stacked == 0) {
+                break;
+            }
+
+            stacked -= 1;
+            arrivalPoint = stackPoint[stacked];
+            arrivalFacing = stackFacing[stacked];
+            direction = stackDirection[stacked];
+            throughput = stackThroughput[stacked];
+            depth = stackDepth[stacked];
+            inside = false;
+            following = true;
+        }
+
+        // Out of bounces with light remaining: marchInterior's fill, before tracing, exactly
+        // where marchInterior's loop would have stopped.
+        if (depth >= uMaxBounces) {
+            gathered += exhaustionFill(throughput);
+            following = false;
+            continue;
+        }
+
+        if (inside) {
+            Hit interior;
+
+            // As in marchInterior; a miss only happens on numerical edge cases, and the light is
+            // dropped rather than risk a bright speckle.
+            if (!exitStone(origin, direction, interior)) {
+                following = false;
+                continue;
+            }
+
+            vec3 surfacePoint = origin + direction * interior.t;
+
+            throughput *= exp(-uAbsorption * interior.t);
+
+            vec3 outwardNormal = interior.outwardNormal;
+
+            if (dot(direction, outwardNormal) < 0.0) {
+                outwardNormal = -outwardNormal;
+            }
+
+            depth += 1;
+            bounceCount = max(bounceCount, depth);
+
+            float reflectance = fresnelReflectance(dot(direction, outwardNormal), refractiveIndex);
+            vec3 exitDirection;
+
+            if (reflectance < 1.0
+                    && refractRay(direction, -outwardNormal, refractiveIndex, exitDirection)) {
+                exitDirection = normalize(exitDirection);
+
+                vec3 leaving = throughput * (1.0 - reflectance);
+                vec3 point;
+                vec3 facing;
+
+                if (!meetsStoneAgain(surfacePoint, exitDirection, outwardNormal, point, facing)) {
+                    gathered += leaving * arrivingLight(surfacePoint, exitDirection, outwardNormal);
+                } else if (maxComponent(leaving) >= THROUGHPUT_CUTOFF) {
+                    if (stacked < CONCAVE_STACK_SIZE) {
+                        stackPoint[stacked] = point;
+                        stackFacing[stacked] = facing;
+                        stackDirection[stacked] = exitDirection;
+                        stackThroughput[stacked] = leaving;
+                        stackDepth[stacked] = depth;
+                        stacked += 1;
+                    } else {
+                        // No room: the approximation this replaces.
+                        gathered += leaving * arrivingLight(surfacePoint, exitDirection, outwardNormal);
+                    }
+                }
+            }
+
+            throughput *= reflectance;
+
+            if (maxComponent(throughput) < THROUGHPUT_CUTOFF) {
+                following = false;
+                continue;
+            }
+
+            direction = reflect(direction, outwardNormal);
+            origin = surfacePoint - outwardNormal * SURFACE_EPSILON;
+        } else {
+            // A ray from outside arriving at the stone: part reflects off the outside, part
+            // refracts in. Air to gem, as at the camera ray's entry.
+            depth += 1;
+            bounceCount = max(bounceCount, depth);
+
+            float etaEntering = 1.0 / refractiveIndex;
+            float reflectance = fresnelReflectance(-dot(direction, arrivalFacing), etaEntering);
+            vec3 reflected = reflect(direction, arrivalFacing);
+            vec3 bouncing = throughput * reflectance;
+            vec3 point;
+            vec3 facing;
+
+            if (!meetsStoneAgain(arrivalPoint, reflected, arrivalFacing, point, facing)) {
+                gathered += bouncing * arrivingLight(arrivalPoint, reflected, arrivalFacing);
+            } else if (maxComponent(bouncing) >= THROUGHPUT_CUTOFF) {
+                if (stacked < CONCAVE_STACK_SIZE) {
+                    stackPoint[stacked] = point;
+                    stackFacing[stacked] = facing;
+                    stackDirection[stacked] = reflected;
+                    stackThroughput[stacked] = bouncing;
+                    stackDepth[stacked] = depth;
+                    stacked += 1;
+                } else {
+                    gathered += bouncing * arrivingLight(arrivalPoint, reflected, arrivalFacing);
+                }
+            }
+
+            vec3 transmitted;
+
+            // Never total internal reflection going into the denser medium; guarded as
+            // traceInterior guards it.
+            if (!refractRay(direction, arrivalFacing, etaEntering, transmitted)) {
+                following = false;
+                continue;
+            }
+
+            throughput *= 1.0 - reflectance;
+
+            if (maxComponent(throughput) < THROUGHPUT_CUTOFF) {
+                following = false;
+                continue;
+            }
+
+            direction = normalize(transmitted);
+            origin = arrivalPoint - arrivalFacing * SURFACE_EPSILON;
+            inside = true;
+        }
+    }
+
+    // The surface budget ran out with light still being followed or set aside: all of it is
+    // out of bounces.
+    if (following) {
+        gathered += exhaustionFill(throughput);
+    }
+
+    for (int k = 0; k < CONCAVE_STACK_SIZE; ++k) {
+        if (k >= stacked) {
+            break;
+        }
+
+        gathered += exhaustionFill(stackThroughput[k]);
+    }
+
+    return gathered;
+}
+
+// traceInterior for a concave stone: refracts the camera ray in at `entryPoint` and marches it
+// with marchConcave, along with the camera ray's reflection when that meets the stone again
+// (`pending*`; zero throughput when it does not).
+vec3 traceInteriorConcave(vec3 entryPoint, vec3 viewDirection, vec3 entryNormal,
+                          float refractiveIndex, vec3 channelMask,
+                          vec3 pendingPoint, vec3 pendingFacing, vec3 pendingDirection,
+                          vec3 pendingThroughput, out int bounceCount) {
+    bounceCount = 0;
+
+    float etaEntering = 1.0 / refractiveIndex;
+    vec3 interiorDirection;
+
+    if (!refractRay(viewDirection, entryNormal, etaEntering, interiorDirection)) {
+        return vec3(0.0);
+    }
+
+    float cosEntry = -dot(viewDirection, entryNormal);
+    vec3 throughput = channelMask * (1.0 - fresnelReflectance(cosEntry, etaEntering));
+    vec3 origin = entryPoint - entryNormal * SURFACE_EPSILON;
+
+    return marchConcave(origin, normalize(interiorDirection), refractiveIndex, throughput,
+                        pendingPoint, pendingFacing, pendingDirection,
+                        channelMask * pendingThroughput, bounceCount);
+}
+
 // ---------------------------------------------------------------- the frosted cache (T-0270)
 //
 // The pre-pass that fills uFrostCache, in two draws GemApp::draw_frost_cache issues before the
@@ -2276,12 +2593,50 @@ void renderHandWritten() {
         fresnelReflectance(cosEntry, 1.0 / entryIndices.y),
         fresnelReflectance(cosEntry, 1.0 / entryIndices.z)
     );
-    vec3 color = surfaceReflectance
-               * arrivingLight(entryPoint, reflect(direction, entryNormal), entryNormal);
+
+    // On a concave stone (T-0036) that reflection can meet the stone again. It is then not lit
+    // here but handed to each channel's march, which follows it into the stone with that
+    // channel's own index (see marchConcave).
+    vec3 reflectedDirection = reflect(direction, entryNormal);
+    vec3 pendingPoint = entryPoint;
+    vec3 pendingFacing = entryNormal;
+    vec3 pendingThroughput = vec3(0.0);
+    vec3 color;
+
+    if (CONCAVE_PROGRAM
+            && meetsStoneAgain(entryPoint, reflectedDirection, entryNormal, pendingPoint, pendingFacing)) {
+        color = vec3(0.0);
+        pendingThroughput = surfaceReflectance;
+    } else {
+        color = surfaceReflectance * arrivingLight(entryPoint, reflectedDirection, entryNormal);
+    }
 
     int bounces = 0;
 
-    if (uSpectralSamples <= 1) {
+    if (CONCAVE_PROGRAM) {
+        // The same dispatch as below, through the concave march.
+        if (uSpectralSamples <= 1) {
+            color += traceInteriorConcave(entryPoint, direction, entryNormal, entryIndices.y,
+                                          vec3(1.0), pendingPoint, pendingFacing,
+                                          reflectedDirection, pendingThroughput, bounces);
+        } else {
+            int redBounces;
+            int greenBounces;
+            int blueBounces;
+
+            color += traceInteriorConcave(entryPoint, direction, entryNormal, entryIndices.x,
+                                          vec3(1.0, 0.0, 0.0), pendingPoint, pendingFacing,
+                                          reflectedDirection, pendingThroughput, redBounces);
+            color += traceInteriorConcave(entryPoint, direction, entryNormal, entryIndices.y,
+                                          vec3(0.0, 1.0, 0.0), pendingPoint, pendingFacing,
+                                          reflectedDirection, pendingThroughput, greenBounces);
+            color += traceInteriorConcave(entryPoint, direction, entryNormal, entryIndices.z,
+                                          vec3(0.0, 0.0, 1.0), pendingPoint, pendingFacing,
+                                          reflectedDirection, pendingThroughput, blueBounces);
+
+            bounces = max(redBounces, max(greenBounces, blueBounces));
+        }
+    } else if (uSpectralSamples <= 1) {
         // One pass, all three channels sharing a single refractive index: no
         // dispersion, so no fire, but a third of the cost.
         color += traceInterior(entryPoint, direction, entryNormal,

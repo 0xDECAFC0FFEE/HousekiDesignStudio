@@ -252,6 +252,67 @@ mod tests {
         assert!(FacetPlanes::from_mesh(&mesh).is_none());
     }
 
+    /// The concave test stones load closed, keep their volume, and are refused as convex.
+    ///
+    /// Setup: the two meshes `tests/fixtures/make_concave_fixtures.py` writes, a bar with two V
+    /// grooves along its top (whose end caps are 12-corner concave polygons, one `f` line each)
+    /// and a ring torus, both in millimetres and both wound outward as written.
+    ///
+    /// Test: load and condition each as the page does, and build its planes.
+    ///
+    /// Verifies the fixtures the concave renderer is tested on are what they claim to be. Each
+    /// is watertight after welding, so the renderers see one closed surface; the bar's volume,
+    /// read before normalisation, is exactly its 36 mm^2 profile times its 6 mm length, which a
+    /// fan triangulation of its caps would still get right (signed areas cancel) but only
+    /// because the overlapping triangles cancel -- so its caps are also checked to be covered by
+    /// triangles all facing the same way; neither was wound inward, so the conditioner flipped
+    /// nothing. And `from_mesh` refuses both, so the renderer draws them with the concave
+    /// program, never the convex plane march.
+    #[test]
+    fn the_concave_test_stones_load_closed_and_are_not_convex() {
+        let stones = [
+            ("concave_grooved_bar", include_str!("../../tests/fixtures/concave_grooved_bar.obj"), Some(216.0)),
+            ("concave_torus", include_str!("../../tests/fixtures/concave_torus.obj"), None),
+        ];
+
+        for (name, text, volume) in stones {
+            let geometry = crate::loader::load_obj_text(text).expect("fixture loads");
+            let (mut mesh, diagnostics) = Mesh::build(&geometry.positions, &geometry.triangles, 1e-5);
+
+            assert!(diagnostics.is_watertight(), "{}: {:?}", name, diagnostics);
+            assert!(!diagnostics.winding_was_flipped, "{} was written wound outward", name);
+            assert_eq!(diagnostics.degenerate_dropped, 0, "{}", name);
+
+            if let Some(volume) = volume {
+                assert!(
+                    (diagnostics.signed_volume - volume).abs() < 1e-3,
+                    "{}: volume {} mm^3, expected {}",
+                    name,
+                    diagnostics.signed_volume,
+                    volume
+                );
+            }
+
+            // Every triangle of the grooved bar's end caps (the faces normal to y) faces the
+            // same way as its cap: a fanned cap would have backwards triangles over the grooves.
+            for triangle in mesh.triangles.iter().filter(|_| name == "concave_grooved_bar") {
+                let [a, b, c] = triangle.map(|v| mesh.positions[v as usize].coords);
+                let normal = (b - a).cross(&(c - a));
+
+                if normal.x.abs() < 1e-6 && normal.z.abs() < 1e-6 && normal.y.abs() > 0.0 {
+                    let outward = if a.y > 3.0 { 1.0 } else { -1.0 };
+
+                    assert!(normal.y * outward > 0.0, "{}: a cap triangle faces inward", name);
+                }
+            }
+
+            mesh.center_and_scale(1.0);
+            mesh.reorient_axis_to_y(crate::mesh::ModelAxis::PlusZ);
+
+            assert!(FacetPlanes::from_mesh(&mesh).is_none(), "{} was accepted as convex", name);
+        }
+    }
+
     /// From inside a shipped stone, the plane exit agrees with the BVH's trace.
     ///
     /// Setup: each shipped stone; 20,000 rays from random points well inside it (at most 0.8

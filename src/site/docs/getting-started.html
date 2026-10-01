@@ -221,7 +221,13 @@ teeth) that fades in when the stone is close to face-up or face-down.</p>
 
 <table>
   <tr><th>Gesture</th><th>What it does</th></tr>
-  <tr><td>Drag</td><td>Orbits the stone around its centre.</td></tr>
+  <tr><td>Drag</td><td>Moving sideways tilts the stone's axis to the left or right: drag right and
+  the table tips to the right, drag left and it tips to the left. Moving up or down tilts the
+  stone towards or away from you. A diagonal drag does both at once.</td></tr>
+  <tr><td>Hold <kbd>Shift</kbd> and drag</td><td>Moving sideways spins the stone about its own
+  axis instead of tipping it. Moving up or down tilts it towards or away from you, exactly as a
+  plain drag does. Press or let go of <kbd>Shift</kbd> during a drag and sideways movement
+  switches between spinning and tipping from that point on.</td></tr>
   <tr><td>Scroll the wheel</td><td>Zooms in or out.</td></tr>
   <tr><td>Click a facet</td><td>Selects its tier — the same tier highlights in the cutting
   instructions. Clicking empty space clears the highlight.</td></tr>
@@ -236,13 +242,31 @@ teeth) that fades in when the stone is close to face-up or face-down.</p>
 <h3>The view sliders</h3>
 
 <p>Over the bottom left of the render, two sliders turn the stone directly: <span
-class="ui">X rotation (spin)</span> and <span class="ui">Y rotation (tilt)</span>, with <span
-class="ui">Top</span> and <span class="ui">Side</span> buttons under them that jump straight to
-face-up or side-on. They follow whatever orbiting or double-clicking a facet has already done, and
-their numbers are also click-to-edit text boxes.</p>
+class="ui">X rotation (spin)</span> turns it about its own axis, and <span class="ui">Y rotation
+(tilt)</span> tilts that axis towards or away from you. Under them, <span class="ui">Top</span>
+and <span class="ui">Side</span> jump straight to face-up or side-on, and also undo any sideways
+tilt (see below). The sliders follow whatever orbiting or double-clicking a facet has already done,
+and their numbers are also click-to-edit text boxes.</p>
 
-<figure><img src="images/getting-started/view-controls.webp" alt="The X rotation (spin) and Y rotation (tilt) sliders, and the Top and Side buttons, laid over the bottom left of the render." loading="lazy">
+<figure class="side"><img src="images/getting-started/view-controls.webp" alt="The X rotation (spin) and Y rotation (tilt) sliders, and the Top and Side buttons, laid over the bottom left of the render." loading="lazy">
 <figcaption>The view sliders and the Top/Side buttons.</figcaption></figure>
+
+<p>Dragging sideways on the stone tilts it to your left or right: its axis tips the way you drag.
+Dragging up or down moves <span class="ui">Y rotation (tilt)</span>. There is no slider for the
+sideways tilt; <span class="ui">Top</span> or <span class="ui">Side</span> sets it straight again.
+The ring of index ticks fades out once the stone is tipped more than a few degrees, just as it
+does when you tilt it with <span class="ui">Y rotation (tilt)</span>.</p>
+
+<figure><img src="images/getting-started/sideways-tilt.webp" alt="The render after dragging to the right: the stone's table is tipped towards the right and the ring of index ticks has faded out, while the X rotation and Y rotation sliders still read 0." loading="lazy">
+<figcaption>After a drag to the right: the stone tipped to the right.</figcaption></figure>
+
+<p>To spin the stone about its own axis instead, hold <kbd>Shift</kbd> while you drag sideways,
+or move the <span class="ui">X rotation (spin)</span> slider. Spinning keeps a face-up stone
+face-up, so the ring of index ticks stays in view and turns with it. Holding <kbd>Ctrl</kbd>
+makes no difference to a drag.</p>
+
+<figure><img src="images/getting-started/shift-spin.webp" alt="The render after holding Shift and dragging to the right: the stone is still face-up, turned about its own axis, the ring of index ticks still showing, and the X rotation slider reads a negative angle." loading="lazy">
+<figcaption>After a <kbd>Shift</kbd>-drag to the right: the stone spun, still face-up.</figcaption></figure>
 
 <h3>The stats box</h3>
 
@@ -408,7 +432,11 @@ file instead — GemCad's <code>.gem</code> or <code>.asc</code>, Gem Cut Studio
 
 <table>
   <tr><th>Gesture</th><th>Does</th></tr>
-  <tr><td>Drag</td><td>Orbits the stone</td></tr>
+  <tr><td>Drag</td><td>Sideways tilts the stone's axis left or right, the way you drag; up and
+  down tilt it towards or away from you</td></tr>
+  <tr><td><kbd>Shift</kbd>+drag</td><td>Sideways spins the stone about its own axis instead; up
+  and down tilt it as a plain drag does. Pressing or letting go of <kbd>Shift</kbd> mid-drag
+  switches between the two</td></tr>
   <tr><td>Scroll</td><td>Zooms in or out</td></tr>
   <tr><td>Click a facet</td><td>Selects its tier; clicking empty space clears the selection</td></tr>
   <tr><td>Double-click a facet</td><td>Turns to face it, or opens its tier for editing if it

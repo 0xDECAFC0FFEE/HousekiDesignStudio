@@ -170,6 +170,9 @@ async function page() {
   installLoadedDesign(app, { text: stone.text, design: stone.design, gear: stone.gear, title: "test" });
   app.params.spin = 33;
   app.params.tilt = -12;
+  // Tipped 9 degrees sideways as well (T-0288, Ctrl + drag): the graph's poses must be shown
+  // upright, and Done must put the tip back with the rest of the pose.
+  app.params.sideTilt = 9;
   runTimers();
 
   return { app, design: stone.design };
@@ -208,16 +211,18 @@ Deno.test("opening measures every pose of the sweep in order, then shows face-up
   assertEqual(done.samples.y[10].angle, 10, "Y samples in angle order");
   assert(Math.abs(done.samples.y[10].measurement.stone.iso - 0.9) < 1e-6, "Y 10's own measurement");
   assert(Math.abs(done.samples.x[33].measurement.stone.iso - 0.67) < 1e-6, "X 33's own measurement");
-  assertEqual([app.params.spin, app.params.tilt], [0, 0], "the view ends face-up");
+  assertEqual([app.params.spin, app.params.tilt, app.params.sideTilt], [0, 0, 0],
+    "the view ends face-up, and upright: the sideways tip the page had is straightened");
   assertEqual(done.cursor, { axis: "x", angle: 0 }, "the graph's cursor is at face-up");
 });
 
 Deno.test("pointing at the graph turns the view; Done puts back the pose and the renderer", async () => {
-  // Setup: the startup stone viewed at spin 33, tilt -12 with Monte Carlo, the mode open and its
-  // sweep finished.
+  // Setup: the startup stone viewed at spin 33, tilt -12, tipped 9 degrees sideways, with Monte
+  // Carlo, the mode open and its sweep finished.
   // Test: show the Y 20 pose (what pointing at the graph does), then close with Done.
-  // Verifies: a Y pose is the quarter-turn spin plus the tilt; Done cancels any measuring, puts
-  // back the view's pose and the Monte Carlo renderer, releases the design and closes the panel.
+  // Verifies: a Y pose is the quarter-turn spin plus the tilt, with no sideways tilt (the graph is
+  // measured upright, T-0288); Done cancels any measuring, puts back the view's whole pose (the
+  // sideways tilt included) and the Monte Carlo renderer, releases the design and closes the panel.
   const { app } = await page();
 
   app.rendererValue = 1;
@@ -225,11 +230,11 @@ Deno.test("pointing at the graph turns the view; Done puts back the pose and the
   runTimers();
 
   mode.showPose({ axis: "y", angle: 20 });
-  assertEqual([app.params.spin, app.params.tilt], [Y_SPIN, 20], "the Y 20 pose");
+  assertEqual([app.params.spin, app.params.tilt, app.params.sideTilt], [Y_SPIN, 20, 0], "the Y 20 pose, upright");
 
   mode.exitTiltPerformance();
 
-  assertEqual([app.params.spin, app.params.tilt], [33, -12], "the pose from before");
+  assertEqual([app.params.spin, app.params.tilt, app.params.sideTilt], [33, -12, 9], "the pose from before");
   assertEqual(app.rendererValue, 1, "Monte Carlo is back");
   assert(app.cancels > 0, "measuring is cancelled");
   assert(!tiers.designLocked(), "the design is released");

@@ -12,15 +12,15 @@
 //! approximation produces something that reads as glass, not as a gem, and
 //! structurally cannot represent multi-bounce total internal reflection.
 //!
-//! Ray tracing is also the right base for concave fantasy facets, because intersecting
-//! triangles makes no convexity assumption. The renderer as it stands is not ready for them,
-//! though:
-//! - light leaving the stone is looked up in the lighting directly, not traced against the
-//!   stone again;
-//! - the leak rules assume a convex stone;
-//! - the loader fan-triangulates polygon faces, which is wrong for a concave polygon.
-//!
-//! See T-0036.
+//! Ray tracing is also the right base for concave stones -- fantasy facets, and scanned rough --
+//! because intersecting triangles makes no convexity assumption. Since T-0036 both renderers
+//! draw them:
+//! - the Monte Carlo renderer traces every ray against the stone, including light that has left
+//!   it, so light crossing a groove or a hole re-enters the stone where it meets it;
+//! - the deterministic renderer does the same in its own program for stones that are not convex
+//!   (`ProgramKind::DeterministicConcave`, gem.frag's `marchConcave`); a convex stone, which light
+//!   can never meet again once it has left, keeps the plain program;
+//! - the loader ear-clips a concave polygon face, where tobj's fan made overlapping triangles.
 //!
 //! # Layering
 //!
@@ -273,15 +273,23 @@ pub enum ProgramKind {
     /// first time a frosted stone is drawn deterministically; until it is, `Deterministic` stands
     /// in and the frosted facets show polished.
     DeterministicFrosted,
+    /// `renderHandWritten()` with the concave march compiled in (T-0036): what the deterministic
+    /// renderer draws a stone that is not convex with. Light leaving such a stone is traced
+    /// against it again, and re-enters where it meets it (gem.frag's `marchConcave`). A
+    /// separate program for the frosted program's reason: a convex stone, which light can never
+    /// meet again once it has left, keeps the plain program and pays nothing. Linked the first
+    /// time a concave stone is drawn deterministically; until it is, `Deterministic` stands in.
+    DeterministicConcave,
 }
 
 impl ProgramKind {
     /// Every kind, in `index` order.
-    pub const ALL: [ProgramKind; 4] = [
+    pub const ALL: [ProgramKind; 5] = [
         ProgramKind::Deterministic,
         ProgramKind::LuxCore,
         ProgramKind::Flat,
         ProgramKind::DeterministicFrosted,
+        ProgramKind::DeterministicConcave,
     ];
 
     /// `self`, or the frosted deterministic program when `self` is the deterministic one and
@@ -290,6 +298,20 @@ impl ProgramKind {
     pub fn with_frosted(self, frosted: bool) -> ProgramKind {
         match (self, frosted) {
             (ProgramKind::Deterministic, true) => ProgramKind::DeterministicFrosted,
+            _ => self,
+        }
+    }
+
+    /// `self`, or the concave deterministic program when `self` is the plain deterministic one
+    /// and the stone is not convex (T-0036).
+    ///
+    /// Applied after `with_frosted`, so a concave stone with frosted facets keeps the frosted
+    /// program, whose march still looks light up where it leaves the stone (T-0036's follow-up
+    /// ticket). Monte Carlo traces every ray against the stone already, and Flat traces only
+    /// the camera ray, so both are returned as they are.
+    pub fn with_concave(self, concave: bool) -> ProgramKind {
+        match (self, concave) {
+            (ProgramKind::Deterministic, true) => ProgramKind::DeterministicConcave,
             _ => self,
         }
     }
@@ -314,6 +336,7 @@ impl ProgramKind {
             ProgramKind::LuxCore => 1,
             ProgramKind::Flat => 2,
             ProgramKind::DeterministicFrosted => 3,
+            ProgramKind::DeterministicConcave => 4,
         }
     }
 
@@ -326,6 +349,8 @@ impl ProgramKind {
             // Not tested by lux/entry.glsl, whose main() runs renderHandWritten for any define
             // but the other two; gem.frag reads it (FROSTED_PROGRAM).
             ProgramKind::DeterministicFrosted => "GEM_PROGRAM_FROSTED",
+            // Likewise read only by gem.frag (CONCAVE_PROGRAM).
+            ProgramKind::DeterministicConcave => "GEM_PROGRAM_CONCAVE",
         }
     }
 
@@ -336,6 +361,7 @@ impl ProgramKind {
             ProgramKind::LuxCore => "Monte Carlo",
             ProgramKind::Flat => "flat",
             ProgramKind::DeterministicFrosted => "deterministic with frosted facets",
+            ProgramKind::DeterministicConcave => "deterministic for concave stones",
         }
     }
 }
@@ -886,6 +912,19 @@ fn frost_units_hold_their_images(pass: i32) -> (bool, bool) {
     (pass != frost::PASS_REDUCE, pass != frost::PASS_RAYS)
 }
 
+impl ModelResources {
+    /// Whether the stone is not convex, so light leaving it can meet it again and the
+    /// deterministic renderer draws it with `ProgramKind::DeterministicConcave` (T-0036).
+    ///
+    /// Read off the convex exit test: `convex::FacetPlanes::from_mesh` refuses a stone that is
+    /// not convex, and then there are no planes. It also refuses a convex stone of more than
+    /// `convex::MAX_FACET_PLANES` facets, which the concave program draws correctly too (every
+    /// ray that leaves it misses it), only more slowly; no stone the page ships is one.
+    fn concave(&self) -> bool {
+        self.facet_plane_count == 0
+    }
+}
+
 /// A linked program and its uniform locations.
 struct LinkedProgram {
     program: WebGlProgram,
@@ -1012,7 +1051,7 @@ pub struct GemApp {
     canvas: HtmlCanvasElement,
     /// One entry per `ProgramKind`, indexed by `ProgramKind::index`. The deterministic one is
     /// always `Ready`: the constructor does not return until it is.
-    programs: [ProgramState; 4],
+    programs: [ProgramState; 5],
     /// The kind the draw in progress uses, set by `render_pass` before it draws, so that
     /// `uniform1f` and friends address that program's locations.
     drawing: ProgramKind,
@@ -1176,6 +1215,7 @@ impl GemApp {
             .map_err(|e| js_error(&e))?;
         let programs = [
             ProgramState::Ready(deterministic),
+            ProgramState::Unlinked,
             ProgramState::Unlinked,
             ProgramState::Unlinked,
             ProgramState::Unlinked,
@@ -1764,11 +1804,20 @@ impl GemApp {
         self.camera.orbit(delta_spin, delta_tilt);
     }
 
+    /// Tips the view sideways, about the screen's vertical axis, by `delta_side_tilt` radians:
+    /// positive tips the stone's axis towards screen right. The page's plain sideways drag
+    /// (T-0296; a Ctrl + sideways drag from T-0288). For the absolute angle use the `sideTilt`
+    /// parameter.
+    pub fn orbit_sideways(&mut self, delta_side_tilt: f32) {
+        self.camera.orbit_sideways(delta_side_tilt);
+    }
+
     /// The facet under a point of the canvas and the pose that looks squarely at it, as
     /// `[spin, tilt, facet]`: spin and tilt in degrees (the units of the `spin` and `tilt`
     /// parameters), then the facet id for `set_highlighted_facet`. An empty array when the
     /// point misses the stone. Changes nothing: the page animates the camera there itself, so
-    /// the turn is visible rather than a jump.
+    /// the turn is visible rather than a jump. The pose is for a sideways tilt of 0, which the
+    /// page animates back to as well.
     ///
     /// `ndc_x` and `ndc_y` are normalised device coordinates, (-1, -1) at the bottom left and
     /// (1, 1) at the top right, as the shader's `vNdc`. The aspect is the last frame's backing
@@ -2076,6 +2125,10 @@ impl GemApp {
             "tilt" => self
                 .camera
                 .set_orientation(self.camera.spin, value.to_radians()),
+            // Degrees too, wrapped into [-180, 180): the stone's axis tipped towards screen right,
+            // about the screen's vertical (T-0288). The page sets it from a plain sideways drag
+            // (T-0296) and its fixed poses; it has no slider (removed at the user's request, T-0294).
+            "sideTilt" => self.camera.set_side_tilt(value.to_radians()),
             // Accepted in degrees rather than radians, because that is the unit the
             // concept is quoted in everywhere it appears -- including Gem Cut Studio,
             // whose values should be transferable to this control without conversion.
@@ -2121,6 +2174,7 @@ impl GemApp {
             "eyeDistance" => self.camera.eye_distance,
             "spin" => self.camera.spin.to_degrees(),
             "tilt" => self.camera.tilt.to_degrees(),
+            "sideTilt" => self.camera.side_tilt.to_degrees(),
             "headShadowHalfAngle" => self.render_params.head_shadow_half_angle.to_degrees(),
             "luxSamples" => self.render_params.lux_samples as f32,
             "luxSeed" => self.render_params.lux_seed as f32,
@@ -2832,12 +2886,14 @@ impl GemApp {
 
     /// The program a frame with these settings wants: `ProgramKind::for_params`, with the
     /// deterministic program swapped for its frosted variant when the stone has a frosted facet
-    /// (T-0270).
+    /// (T-0270), or else for its concave variant when the stone is not convex (T-0036).
     fn wanted_program(&self, effective: &RenderParams) -> ProgramKind {
         let frosted =
             frost::frosted_facet_count(self.model.diagnostics.facet_count, &self.frosted_facets) > 0;
 
-        ProgramKind::for_params(effective.renderer, effective.debug_mode).with_frosted(frosted)
+        ProgramKind::for_params(effective.renderer, effective.debug_mode)
+            .with_frosted(frosted)
+            .with_concave(self.model.concave())
     }
 
     /// Whether this frame accumulates across passes rather than standing on its own.
@@ -3507,6 +3563,7 @@ impl Drop for GemApp {
         for state in std::mem::replace(
             &mut self.programs,
             [
+                ProgramState::Unlinked,
                 ProgramState::Unlinked,
                 ProgramState::Unlinked,
                 ProgramState::Unlinked,
@@ -5473,8 +5530,12 @@ mod tests {
         let aspect = 1.5;
 
         let tilted = crate::OrbitCamera { spin: 0.7, tilt: 0.9, ..Default::default() };
+        // Tipped sideways as well (T-0288, Ctrl + drag): the click must still find the facet
+        // drawn under the pointer, and the pose it gives, taken with the sideways tilt set back
+        // to 0 as the page does when it turns, must still face that facet.
+        let sideways = crate::OrbitCamera { side_tilt: 0.45, ..tilted };
 
-        for start in [crate::OrbitCamera::default(), tilted] {
+        for start in [crate::OrbitCamera::default(), tilted, sideways] {
             let basis = start.basis(aspect);
             let mut hits = 0;
 
@@ -5511,6 +5572,7 @@ mod tests {
                     );
 
                     let mut camera = start;
+                    camera.set_side_tilt(0.0);
                     camera.set_orientation(pick.spin, pick.tilt);
 
                     let forward = camera.basis(aspect).forward;
@@ -5803,6 +5865,123 @@ mod tests {
         assert!(super::calls(&body("traceInterior"), "marchInterior"));
         assert!(super::calls(&body("renderFrostCacheRay"), "marchInterior"));
         assert_eq!(body("renderFrostCacheRay").matches("marchInterior(").count(), 1, "one march per cache ray");
+    }
+
+    /// A stone that is not convex draws deterministically with the concave program, and only
+    /// then; frosted facets keep the frosted program.
+    ///
+    /// Setup: every `Renderer` crossed with every `DebugMode`, with and without a frosted facet,
+    /// on a convex and on a concave stone.
+    ///
+    /// Test: `ProgramKind::for_params(...).with_frosted(...).with_concave(...)`, the selection
+    /// `wanted_program` and `record_program` make.
+    ///
+    /// Verifies T-0036's switch: the concave program replaces the plain deterministic one
+    /// exactly when the stone is concave and nothing on it is frosted -- in the full view and
+    /// every debug view -- so a convex stone never pays for the concave march or waits for its
+    /// link. Monte Carlo and Flat are never swapped: the Monte Carlo renderer traces light
+    /// against the stone already, and Flat traces only the camera ray.
+    #[test]
+    fn only_a_concave_stone_draws_with_the_concave_program() {
+        use super::ProgramKind;
+
+        for renderer in params::Renderer::all() {
+            for debug_mode in (0..5).map(params::DebugMode::from_u32) {
+                let plain = ProgramKind::for_params(renderer, debug_mode);
+
+                for frosted in [false, true] {
+                    let convex = plain.with_frosted(frosted).with_concave(false);
+                    let concave = plain.with_frosted(frosted).with_concave(true);
+
+                    assert_eq!(convex, plain.with_frosted(frosted), "a convex stone is never swapped");
+
+                    let expected = match (plain, frosted) {
+                        (ProgramKind::Deterministic, false) => ProgramKind::DeterministicConcave,
+                        (ProgramKind::Deterministic, true) => ProgramKind::DeterministicFrosted,
+                        _ => plain,
+                    };
+
+                    assert_eq!(concave, expected, "{:?} with {:?}, frosted {}", renderer, debug_mode, frosted);
+                }
+            }
+        }
+    }
+
+    /// The concave march is compiled only into the concave program, and only it looks for the
+    /// stone again after light leaves.
+    ///
+    /// Setup: the text of `gem.frag`, and the bodies of its `renderHandWritten`,
+    /// `marchInterior`, `traceInterior`, `traceInteriorConcave` and `marchConcave`, comments
+    /// stripped.
+    ///
+    /// Test: `CONCAVE_PROGRAM` is true exactly under `#ifdef GEM_PROGRAM_CONCAVE`, the define
+    /// of `ProgramKind::DeterministicConcave`; `renderHandWritten` probes the camera ray's
+    /// reflection only behind `CONCAVE_PROGRAM &&` and reaches `traceInteriorConcave` only inside
+    /// `if (CONCAVE_PROGRAM)`, with the plain `traceInterior` calls in its `else`; the plain march
+    /// (`traceInterior`, `marchInterior`) never traces a ray from outside; `marchConcave` traces
+    /// both kinds of leaving light (a refraction out, a reflection off the outside) against the
+    /// stone before it looks them up in the lighting.
+    ///
+    /// Verifies the two promises of T-0036's change. A convex stone's frame is the plain program,
+    /// whose code paths are the ones it had before -- every concave test is constant false there,
+    /// so the compiler drops it. And a concave stone's leaving light is traced, which is what
+    /// the ticket found missing.
+    #[test]
+    fn the_concave_march_is_compiled_only_into_the_concave_program() {
+        let gem = super::strip_glsl_comments(shader_file("src/renderer/shaders/gem.frag"));
+
+        assert!(gem.contains(&format!(
+            "#ifdef {}\nconst bool CONCAVE_PROGRAM = true;\n#else\nconst bool CONCAVE_PROGRAM = false;\n#endif",
+            super::ProgramKind::DeterministicConcave.define()
+        )));
+
+        let functions = super::gem_frag_functions();
+        let body = |name: &str| {
+            super::strip_glsl_comments(
+                functions
+                    .iter()
+                    .find(|(n, _)| *n == name)
+                    .unwrap_or_else(|| panic!("gem.frag defines no {}", name))
+                    .1,
+            )
+        };
+
+        let frame = body("renderHandWritten");
+
+        // The camera ray's reflection is probed only in the concave program.
+        assert_eq!(frame.matches("meetsStoneAgain(").count(), 1);
+        assert!(frame.contains("if (CONCAVE_PROGRAM\n            && meetsStoneAgain("));
+
+        // Every concave march is inside `if (CONCAVE_PROGRAM) {`, and every plain one after it.
+        let branch = frame.find("if (CONCAVE_PROGRAM) {").expect("renderHandWritten branches on CONCAVE_PROGRAM");
+        let otherwise = frame[branch..].find("} else if (uSpectralSamples <= 1) {").expect("and falls back to the plain march") + branch;
+
+        for (at, _) in frame.match_indices("traceInteriorConcave(") {
+            assert!(at > branch && at < otherwise, "a concave march outside the CONCAVE_PROGRAM branch");
+        }
+
+        for (at, _) in frame.match_indices("traceInterior(") {
+            assert!(at > otherwise, "a plain march inside the CONCAVE_PROGRAM branch");
+        }
+
+        assert_eq!(frame.matches("traceInteriorConcave(").count(), 4, "one mono and three dispersive");
+        assert_eq!(frame.matches("traceInterior(").count(), 4, "one mono and three dispersive");
+
+        // The plain march is untouched: it never traces a ray from outside the stone.
+        for name in ["marchInterior", "traceInterior"] {
+            let code = body(name);
+
+            assert!(!code.contains("RAY_FROM_OUTSIDE"), "{} traces from outside", name);
+            assert!(!super::calls(&code, "meetsStoneAgain"), "{} probes the stone", name);
+        }
+
+        // The concave march traces both kinds of leaving light before lighting them.
+        let march = body("marchConcave");
+
+        assert!(super::calls(&body("traceInteriorConcave"), "marchConcave"));
+        assert!(march.contains("if (!meetsStoneAgain(surfacePoint, exitDirection, outwardNormal, point, facing)) {"));
+        assert!(march.contains("if (!meetsStoneAgain(arrivalPoint, reflected, arrivalFacing, point, facing)) {"));
+        assert!(body("meetsStoneAgain").contains("RAY_FROM_OUTSIDE"));
     }
 
     /// Frosted facets must use the rough glass BSDF for every BSDF operation, and polished ones

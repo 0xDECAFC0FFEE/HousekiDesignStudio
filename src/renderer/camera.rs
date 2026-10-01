@@ -131,23 +131,40 @@ pub const VIEW_HALF_HEIGHT_PER_DISTANCE: f32 = DEFAULT_VIEW_HALF_HEIGHT / DEFAUL
 /// spin the view to an arbitrary angle. 1e-4 is 0.006 degrees, far below any cut facet's angle.
 pub const FACING_AXIS_TOLERANCE: f32 = 1e-4;
 
-/// The camera's pose is two angles, both wrapped into `[-PI, PI)`:
+/// The camera's pose is three angles, each wrapped into `[-PI, PI)`:
 ///
 /// - `spin` turns the stone about its optical axis (world +Y). The page's X rotation slider.
 /// - `tilt` tips that axis towards or away from the viewer, about the screen's horizontal
 ///   axis. Zero looks straight down onto the table. Positive tilt matches Gem Cut Studio's
 ///   positive "X Rotation" (its 23 degree screenshots are `tilt = 23°`); negative tilts the
 ///   other way. The page's Y rotation slider.
+/// - `side_tilt` then tips the whole view left or right, about the screen's vertical axis
+///   (2026-09-29, the user: "when i press ctrl can you make the renderer be able to tilt the z
+///   axis left and right"). Positive tips the stone's axis towards the screen's right. Applied
+///   last, so it is always a turn about the screen's own fixed vertical, whatever spin and tilt
+///   are. A plain sideways drag on the page since T-0296 (a Ctrl + sideways drag before it);
+///   there is no slider for it (T-0294).
+///
+///   It is NOT Gem Cut Studio's Y Rotation except at tilt 0. GCS turns about the stone's own
+///   vertical after its X Rotation: its X 10 / Y 10 is spin -44.561, tilt 14.106 plus an image
+///   roll, where tilt 10 / side_tilt 10 here is spin -45.439 plus a roll, the pose
+///   kb/gcs-reference-matching.md's table scores worse against GCS's screenshot
+///   (`side_tilt_is_not_gem_cut_studios_y_rotation_once_tilted`). Every GCS pose still has an
+///   exact spin/tilt/side_tilt triple, since these three are a full set of Euler angles.
 ///
 /// The basis is built by rotating a fixed face-up frame rather than by crossing the view
 /// direction with world up, so it has no pole: tilt passes straight through face-up and
-/// through face-down with the image turning smoothly, and no clamp is needed.
+/// through face-down with the image turning smoothly, and no clamp is needed. With `side_tilt`
+/// zero the basis is computed exactly as it was before the angle existed, bit for bit.
 #[derive(Debug, Clone, Copy, PartialEq)]
 pub struct OrbitCamera {
     /// Rotation about the optical axis, in radians.
     pub spin: f32,
     /// Tilt of the optical axis away from the view direction, in radians.
     pub tilt: f32,
+    /// Tilt of the whole view to the left or right, about the screen's vertical axis, in radians.
+    /// Positive tips the stone's axis towards screen right.
+    pub side_tilt: f32,
     /// The zoom. Without a lens it sets the view's height at the target
     /// (`VIEW_HALF_HEIGHT_PER_DISTANCE`); with one, it is how far away the eye is.
     pub distance: f32,
@@ -172,6 +189,8 @@ impl Default for OrbitCamera {
             // Looking straight down the optical axis at the table. This is the view GCS
             // renders by default and the one its assessment models are defined for.
             tilt: 0.0,
+            // Upright: the stone's axis tipped neither left nor right.
+            side_tilt: 0.0,
             distance: DEFAULT_DISTANCE,
             target: Point3::origin(),
             // No lens.
@@ -219,6 +238,27 @@ impl OrbitCamera {
         self.tilt = wrap_angle(tilt);
     }
 
+    /// Adds to the sideways tilt, in radians, wrapping it into a single turn like `orbit` does
+    /// spin and tilt. Positive tips the stone's axis towards screen right: the page's plain drag
+    /// to the right (T-0296). Non-finite input leaves the pose alone.
+    pub fn orbit_sideways(&mut self, delta_side_tilt: f32) {
+        if !delta_side_tilt.is_finite() {
+            return;
+        }
+
+        self.set_side_tilt(self.side_tilt + delta_side_tilt);
+    }
+
+    /// Sets the sideways tilt, in radians, wrapped into `[-PI, PI)`. Non-finite input leaves the
+    /// pose alone.
+    pub fn set_side_tilt(&mut self, side_tilt: f32) {
+        if !side_tilt.is_finite() {
+            return;
+        }
+
+        self.side_tilt = wrap_angle(side_tilt);
+    }
+
     /// The pose, as `(spin, tilt)` in radians, that looks squarely at a facet whose outward
     /// normal is `normal`: the eye sits along the normal, so the facet faces the viewer. `None`
     /// for a zero or non-finite normal. Used by the page to turn the stone towards a clicked
@@ -230,6 +270,9 @@ impl OrbitCamera {
     /// current pose is returned, so a click never turns the picture upside down. A normal along
     /// the optical axis (the table, or a culet facet) fixes only the tilt, and the current spin
     /// is kept, so clicking the table of a spun stone does not also unspin it.
+    ///
+    /// The pose is for a sideways tilt of zero: whoever turns the camera there sets `side_tilt`
+    /// to 0 as well (the page animates it back with spin and tilt).
     pub fn orientation_facing(&self, normal: Vector3<f32>) -> Option<(f32, f32)> {
         let length = normal.norm();
 
@@ -327,7 +370,7 @@ impl OrbitCamera {
         }
     }
 
-    /// Unit vector from the target to the eye.
+    /// Unit vector from the target to the eye, before any sideways tilt.
     ///
     /// Face-up (tilt 0) this is world up. Tilting swings it about `right` towards world +Z
     /// (at spin 0), and spin turns the whole arrangement about world up.
@@ -338,10 +381,37 @@ impl OrbitCamera {
         Vector3::new(sin_tilt * sin_spin, cos_tilt, sin_tilt * cos_spin)
     }
 
+    /// The direction from the target to the eye, and screen right, with the sideways tilt
+    /// applied: `(towards_eye, right)`.
+    ///
+    /// Spin and tilt give a frame whose right is world +X turned by the spin (always level) and
+    /// whose back is `towards_eye`. The sideways tilt then turns that frame about its own up, the
+    /// screen's vertical. The stone turning by `side_tilt` about the screen's vertical is the
+    /// camera turning the other way about the same axis, so the eye swings towards screen LEFT
+    /// for a positive angle, and the side of the stone that faced the viewer comes round to the
+    /// right. Up is left alone, which is what makes this a turn about the screen's vertical.
+    ///
+    /// At `side_tilt` exactly 0 this returns the unturned pair untouched rather than multiplying
+    /// by cos 0 and sin 0, so every pose that existed before the angle did is computed bit for
+    /// bit as it was (`zero_side_tilt_leaves_every_pose_bit_for_bit_as_it_was`).
+    fn view_axes(&self) -> (Vector3<f32>, Vector3<f32>) {
+        let back = self.towards_eye();
+        let (sin_spin, cos_spin) = self.spin.sin_cos();
+        let right = Vector3::new(cos_spin, 0.0, -sin_spin);
+
+        if self.side_tilt == 0.0 {
+            return (back, right);
+        }
+
+        let (sin_side, cos_side) = self.side_tilt.sin_cos();
+
+        (back * cos_side - right * sin_side, right * cos_side + back * sin_side)
+    }
+
     /// Camera position in world space: the eye of a perspective projection, or the centre of
     /// the plane orthographic rays start from.
     pub fn eye(&self) -> Point3<f32> {
-        self.target + self.towards_eye() * self.eye_offset()
+        self.target + self.view_axes().0 * self.eye_offset()
     }
 
     /// Builds the ray basis for a viewport of the given aspect ratio (width over
@@ -352,14 +422,13 @@ impl OrbitCamera {
     /// never cut off by a narrow window (T-0074). Landscape and square viewports are unaffected,
     /// bit for bit.
     pub fn basis(&self, aspect: f32) -> CameraBasis {
-        let origin = self.eye();
-        let forward = -self.towards_eye();
-
         // Screen right is world +X turned by the spin. Tilt rotates about this axis, so it
         // never changes it, and it is always perpendicular to `forward`. That is what makes
-        // the basis defined at every pose, face-up and face-down included.
-        let (sin_spin, cos_spin) = self.spin.sin_cos();
-        let right = Vector3::new(cos_spin, 0.0, -sin_spin);
+        // the basis defined at every pose, face-up and face-down included. A sideways tilt turns
+        // right and the view direction together about up, so they stay perpendicular.
+        let (towards_eye, right) = self.view_axes();
+        let origin = self.target + towards_eye * self.eye_offset();
+        let forward = -towards_eye;
         let up = right.cross(&forward);
 
         let safe_aspect = if aspect.is_finite() && aspect > 0.0 {
@@ -2230,5 +2299,331 @@ mod tests {
             ),
             "main in gem.frag must move the primary ray's origin to the start radius"
         );
+    }
+
+    // ----------------------------------------------------------------------------------
+    // The sideways tilt (2026-09-29, T-0288: Ctrl + a sideways drag)
+    // ----------------------------------------------------------------------------------
+
+    /// The camera basis exactly as `basis` built it before the sideways tilt existed, copied here
+    /// line for line so the test below can compare against it: the eye along
+    /// (sin tilt sin spin, cos tilt, sin tilt cos spin), right as world +X turned by the spin, up
+    /// as right x forward. Returns (origin, forward, right, up).
+    fn basis_before_side_tilt(camera: &OrbitCamera) -> (Point3<f32>, Vector3<f32>, Vector3<f32>, Vector3<f32>) {
+        let (sin_tilt, cos_tilt) = camera.tilt.sin_cos();
+        let (sin_spin, cos_spin) = camera.spin.sin_cos();
+        let towards_eye = Vector3::new(sin_tilt * sin_spin, cos_tilt, sin_tilt * cos_spin);
+        let offset = if camera.vertical_fov <= 0.0 && camera.eye_distance > 0.0 {
+            camera.eye_distance
+        } else {
+            camera.distance
+        };
+        let origin = camera.target + towards_eye * offset;
+        let forward = -towards_eye;
+        let right = Vector3::new(cos_spin, 0.0, -sin_spin);
+        let up = right.cross(&forward);
+
+        (origin, forward, right, up)
+    }
+
+    /// The raw bits of a vector's three components, for comparisons that must be exact.
+    fn bits(vector: Vector3<f32>) -> [u32; 3] {
+        [vector.x.to_bits(), vector.y.to_bits(), vector.z.to_bits()]
+    }
+
+    /// A sideways tilt of zero must leave every pose exactly as it was before the angle existed,
+    /// bit for bit, so no existing view, test, comparison render or saved number moves.
+    ///
+    /// Setup: a grid of 13 spins x 13 tilts, each running from -PI to just under PI and so taking
+    /// in face-up, face-down, the side view and awkward angles in between; each under Gem Cut
+    /// Studio's default perspective, the orthographic camera, a lens, and zoomed in; each on a
+    /// landscape and a portrait viewport. Every camera has `side_tilt` 0, the default.
+    ///
+    /// Test: build the basis and the eye with the current code, and with a line-for-line copy of
+    /// the code as it was (`basis_before_side_tilt`).
+    ///
+    /// Verifies the origin, forward, right and up vectors, and `eye()`, have identical raw f32
+    /// bits: not merely close, identical. A plain drag (which never touches the sideways tilt)
+    /// therefore renders exactly as before.
+    #[test]
+    fn zero_side_tilt_leaves_every_pose_bit_for_bit_as_it_was() {
+        let mut compared = 0;
+
+        for spin_step in 0..13 {
+            for tilt_step in 0..13 {
+                let spin = -PI + spin_step as f32 * (TAU / 13.0);
+                let tilt = -PI + tilt_step as f32 * (TAU / 13.0);
+
+                for base in [
+                    OrbitCamera::default(),
+                    orthographic(),
+                    perspective(),
+                    OrbitCamera { distance: MIN_DISTANCE, ..Default::default() },
+                ] {
+                    let camera = OrbitCamera { spin, tilt, ..base };
+
+                    assert_eq!(camera.side_tilt, 0.0, "setup: the default sideways tilt must be 0");
+
+                    let (origin, forward, right, up) = basis_before_side_tilt(&camera);
+
+                    for aspect in [1.6f32, 0.6] {
+                        let basis = camera.basis(aspect);
+
+                        assert_eq!(bits(basis.origin.coords), bits(origin.coords), "origin moved at {:?}", camera);
+                        assert_eq!(bits(basis.forward), bits(forward), "forward moved at {:?}", camera);
+                        assert_eq!(bits(basis.right), bits(right), "right moved at {:?}", camera);
+                        assert_eq!(bits(basis.up), bits(up), "up moved at {:?}", camera);
+                        compared += 1;
+                    }
+
+                    assert_eq!(bits(camera.eye().coords), bits(origin.coords), "eye moved at {:?}", camera);
+                }
+            }
+        }
+
+        assert_eq!(compared, 13 * 13 * 4 * 2);
+    }
+
+    /// A positive sideways tilt must tip the stone's axis to the RIGHT of the screen, and a
+    /// negative one to the left, which is what makes a Ctrl + drag to the right tip it right.
+    ///
+    /// Setup: the default face-up camera, with sideways tilts of +-10 and +-40 degrees, and the
+    /// same at spin 70 degrees (spin turns the stone about its own axis, so it must not change
+    /// which way the axis leans). The stone's axis is world +Y; its top end, (0, 1, 0), is
+    /// where the table is.
+    ///
+    /// Test: project that point to the screen.
+    ///
+    /// Verifies it lands right of centre (positive normalised x) for a positive tilt and left for
+    /// a negative one, level with the centre (the tilt is purely sideways), and further out for
+    /// the larger tilt. With no sideways tilt it is dead centre.
+    #[test]
+    fn positive_side_tilt_tips_the_stones_axis_towards_screen_right() {
+        let axis_top = Point3::new(0.0, 1.0, 0.0);
+
+        for spin in [0.0f32, 70f32.to_radians()] {
+            let upright = OrbitCamera { spin, ..Default::default() }.basis(1.2).project(axis_top);
+
+            assert!(upright.0.abs() < 1e-6 && upright.1.abs() < 1e-6, "face-up the axis must be dead centre: {:?}", upright);
+
+            let mut previous = 0.0f32;
+
+            for degrees in [10.0f32, 40.0] {
+                let right = OrbitCamera { spin, side_tilt: degrees.to_radians(), ..Default::default() }
+                    .basis(1.2)
+                    .project(axis_top);
+                let left = OrbitCamera { spin, side_tilt: (-degrees).to_radians(), ..Default::default() }
+                    .basis(1.2)
+                    .project(axis_top);
+
+                assert!(right.0 > previous, "+{} degrees: the axis must lean right, and further than before: {:?}", degrees, right);
+                assert!(left.0 < -previous, "-{} degrees: the axis must lean left: {:?}", degrees, left);
+                assert!(right.1.abs() < 1e-5 && left.1.abs() < 1e-5, "a sideways tilt must not move it up or down");
+
+                previous = right.0;
+            }
+        }
+    }
+
+    /// A sideways tilt must be a turn about the screen's vertical axis, from ANY pose -- not only
+    /// face-up -- so every Ctrl + drag step turns the picture the same way on screen.
+    ///
+    /// Setup: poses that are face-up, tilted 23 degrees (GCS's side view), side-on (tilt 90),
+    /// face-down, and awkward spins and negative tilts, some of them already tilted sideways;
+    /// then each turned a further 15 or -35 degrees sideways.
+    ///
+    /// Test: compare the basis before and after the extra turn.
+    ///
+    /// Verifies:
+    /// - up is unchanged, so the axis turned about IS the screen's vertical;
+    /// - forward and right have turned by exactly the angle about it, towards each other:
+    ///   forward' = forward cos a + right sin a, right' = right cos a - forward sin a;
+    /// - the turned basis is still orthonormal and right-handed (right x up = -forward), so the
+    ///   image is neither skewed nor mirrored;
+    /// - the lighting frame still puts its zenith on the viewer, so lighting follows the view.
+    #[test]
+    fn side_tilt_turns_the_view_about_the_screen_vertical_from_any_pose() {
+        let poses = [
+            (0.0f32, 0.0f32, 0.0f32),
+            (0.0, 23.0, 0.0),
+            (0.0, 90.0, 0.0),
+            (0.0, 180.0, 0.0),
+            (-165.0, -120.0, 0.0),
+            (37.0, 61.0, 20.0),
+            (-100.0, -10.0, -50.0),
+        ];
+
+        for (spin, tilt, side) in poses {
+            let before = OrbitCamera {
+                spin: spin.to_radians(),
+                tilt: tilt.to_radians(),
+                side_tilt: side.to_radians(),
+                ..Default::default()
+            };
+
+            for turn in [15.0f32, -35.0] {
+                let mut after = before;
+
+                after.orbit_sideways(turn.to_radians());
+
+                let (a, b) = (before.basis(1.3), after.basis(1.3));
+                let (sin, cos) = turn.to_radians().sin_cos();
+                let pose = (spin, tilt, side, turn);
+
+                assert!((b.up - a.up).norm() < 1e-5, "up moved at {:?}", pose);
+                assert!((b.forward - (a.forward * cos + a.right * sin)).norm() < 1e-5, "forward at {:?}", pose);
+                assert!((b.right - (a.right * cos - a.forward * sin)).norm() < 1e-5, "right at {:?}", pose);
+
+                for vector in [b.forward, b.right, b.up] {
+                    assert!((vector.norm() - 1.0).abs() < 1e-5, "not unit at {:?}", pose);
+                }
+
+                assert!(b.forward.dot(&b.right).abs() < 1e-5 && b.forward.dot(&b.up).abs() < 1e-5);
+                assert!((b.right.cross(&b.up) + b.forward).norm() < 1e-5, "mirrored at {:?}", pose);
+                assert!(
+                    (b.to_lighting_frame(-b.forward) - Vector3::y()).norm() < 1e-5,
+                    "the lighting zenith is off the viewer at {:?}",
+                    pose
+                );
+                assert!(
+                    ((after.target - b.origin).normalize() - b.forward).norm() < 1e-5,
+                    "the eye no longer looks at the stone at {:?}",
+                    pose
+                );
+            }
+        }
+    }
+
+    /// How far the stone's axis is from pointing at the viewer must be acos(cos tilt cos side):
+    /// the angle the page's index dial fades by (index_dial.js's `offFaceOn`), which used to read
+    /// the tilt alone.
+    ///
+    /// Setup: tilts and sideways tilts each from -170 to 170 degrees, in 17 degree steps.
+    ///
+    /// Test: the angle between the stone's axis (world +Y) and the direction to the eye.
+    ///
+    /// Verifies it equals acos(cos tilt x cos side) to 1e-3 degrees, so a face-up stone tipped
+    /// 7 degrees sideways fades the dial exactly as one tilted 7 degrees does.
+    #[test]
+    fn the_axis_is_acos_cos_tilt_cos_side_from_the_view() {
+        for tilt_step in -10..=10 {
+            for side_step in -10..=10 {
+                let (tilt, side) = ((tilt_step * 17) as f32, (side_step * 17) as f32);
+                let camera = OrbitCamera {
+                    spin: 0.4,
+                    tilt: tilt.to_radians(),
+                    side_tilt: side.to_radians(),
+                    ..Default::default()
+                };
+                let towards_eye = -camera.basis(1.0).forward;
+                let angle = towards_eye.dot(&WORLD_UP).clamp(-1.0, 1.0).acos().to_degrees();
+                let expected = (tilt.to_radians().cos() * side.to_radians().cos()).clamp(-1.0, 1.0).acos().to_degrees();
+
+                assert!((angle - expected).abs() < 1e-3, "tilt {} side {}: {} against {}", tilt, side, angle, expected);
+            }
+        }
+    }
+
+    /// Recorded so nobody mistakes the sideways tilt for Gem Cut Studio's Y Rotation: they agree
+    /// face-up and part company once the stone is tilted.
+    ///
+    /// Setup: tilt 10 with a sideways tilt of 10 degrees, next to the two candidate readings of
+    /// GCS's X 10 / Y 10 in kb/gcs-reference-matching.md's pose table: spin -44.561 (Y about the
+    /// stone's own vertical after X, which scored 22.5 against GCS's screenshot) and spin -45.439
+    /// (Y about the fixed screen vertical, which scored 36.9); both at tilt 14.106.
+    ///
+    /// Test: compare where each camera looks from.
+    ///
+    /// Verifies the sideways tilt looks from the second (to 1e-4), not the first (0.88 degrees of
+    /// spin apart, which at this tilt moves the view direction by 0.0037), so a GCS X/Y pose
+    /// cannot be copied into tilt and sideways tilt as it stands.
+    #[test]
+    fn side_tilt_is_not_gem_cut_studios_y_rotation_once_tilted() {
+        let ours = OrbitCamera {
+            tilt: 10f32.to_radians(),
+            side_tilt: 10f32.to_radians(),
+            ..Default::default()
+        }
+        .basis(1.0);
+        let at = |spin: f32| OrbitCamera {
+            spin: spin.to_radians(),
+            tilt: 14.106f32.to_radians(),
+            ..Default::default()
+        }
+        .basis(1.0);
+
+        assert!((ours.forward - at(-45.439).forward).norm() < 1e-4, "the fixed-vertical reading");
+        assert!((ours.forward - at(-44.561).forward).norm() > 3e-3, "GCS's own reading must differ");
+    }
+
+    /// Picking and the edit-mode overlay must still land on the right pixels with a sideways tilt:
+    /// projecting a point is the exact inverse of building the ray there.
+    ///
+    /// Setup: the default, orthographic and lens cameras, tipped 25 degrees sideways, at face-up
+    /// and at an oblique pose, on landscape and portrait viewports, and points in and around the
+    /// stone. Test: project each point, then build the ray through the result. Verifies the ray
+    /// passes within 1e-4 of the point, as `project_inverts_the_ray_set_up` does with no sideways
+    /// tilt.
+    #[test]
+    fn project_inverts_the_ray_set_up_with_a_side_tilt() {
+        let sideways = |camera: OrbitCamera| OrbitCamera { side_tilt: 25f32.to_radians(), ..camera };
+        let oblique = |camera: OrbitCamera| OrbitCamera { spin: 0.9, tilt: -0.6, ..camera };
+        let cameras = [
+            sideways(OrbitCamera::default()),
+            sideways(oblique(OrbitCamera::default())),
+            sideways(orthographic()),
+            sideways(oblique(perspective())),
+        ];
+        let points = [
+            Point3::new(0.0, 0.0, 0.0),
+            Point3::new(0.9, 0.2, -0.3),
+            Point3::new(-1.4, -0.8, 0.5),
+            Point3::new(0.1, 1.6, 1.1),
+        ];
+
+        for camera in cameras {
+            for aspect in [1.6f32, 0.6] {
+                let basis = camera.basis(aspect);
+
+                for point in points {
+                    let (x, y, _) = basis.project(point);
+                    let miss = (point - basis.ray_origin(x, y)).cross(&basis.ray_direction(x, y)).norm();
+
+                    assert!(miss < 1e-4, "{:?} at aspect {}: the ray misses {:?} by {}", camera, aspect, point, miss);
+                }
+            }
+        }
+    }
+
+    /// The sideways tilt must wrap like spin and tilt, and ignore nonsense.
+    ///
+    /// Setup: the default camera. Test: a thousand sideways steps of 0.7 radians, then NaN and
+    /// infinite steps and settings. Verifies it stays in [-PI, PI) after the long drag, lands
+    /// where the wrapped total says, and non-finite input leaves the camera untouched.
+    #[test]
+    fn side_tilt_wraps_and_ignores_non_finite_input() {
+        let mut camera = OrbitCamera::default();
+
+        for _ in 0..1000 {
+            camera.orbit_sideways(0.7);
+        }
+
+        assert!((-PI..PI).contains(&camera.side_tilt), "grew without bound: {}", camera.side_tilt);
+        assert!(
+            wrap_angle(camera.side_tilt - wrap_angle(700.0)).abs() < 1e-2,
+            "a thousand steps of 0.7 must come to 700 radians, wrapped: {}",
+            camera.side_tilt
+        );
+
+        let before = camera;
+
+        camera.orbit_sideways(f32::NAN);
+        camera.orbit_sideways(f32::INFINITY);
+        camera.set_side_tilt(f32::NEG_INFINITY);
+
+        assert_eq!(camera, before, "invalid input must leave the camera untouched");
+
+        camera.set_side_tilt(4.0);
+        assert!((camera.side_tilt - (4.0 - TAU)).abs() < 1e-6, "4 radians wraps to {}", camera.side_tilt);
     }
 }

@@ -40,7 +40,7 @@ import {
   getDesign, tierView, setDesignLock, setRowClickOverride, setStonePickBlock, syncToolbar, highlightTier,
   designLocked, scrollTierIntoView,
 } from './tier_controller.js';
-import { setLocalHistory, applyParam, selectRenderer } from './session.js';
+import { setLocalHistory, readPose, applyPose, selectRenderer } from './session.js';
 import { engine, bumpParams, showError, stoneStatsStore } from './stores.js';
 import { showStoneStats } from './stone_stats.js';
 import { buildFacetTierMap, setFacetTierMap } from './facet_map.js';
@@ -173,7 +173,8 @@ export function enterCuttingAssistant() {
     meshScale: DesignMesh.scaleOf(GemCadDesign.renderedPlanesOf(design)),
     dop,
     frame: viewFrame(cube, size),
-    pose: { spin: app.get_param('spin'), tilt: app.get_param('tilt') },
+    // Spin, tilt and the sideways tilt (T-0288), put back as they were on closing.
+    pose: readPose(app),
     // The renderer to put back on closing (see the header).
     renderer: app.renderer(),
     stoneText: app.model_obj_text(),
@@ -231,8 +232,7 @@ export function exitCuttingAssistant() {
   setFacetTierMap(buildFacetTierMap(app, design));
   syncFrostedFacets(app);
   showStoneStats(app, stoneText);
-  applyParam('spin', pose.spin);
-  applyParam('tilt', pose.tilt);
+  applyPose(pose);
   bumpParams();
   window.gemRequestRender?.();
 }
@@ -293,8 +293,8 @@ export function goTo(k) {
     const { start, end, radius, capped } = session.dop[phase];
 
     engine.app.set_dop(start.x, start.y, start.z, end.x, end.y, end.z, radius, capped);
-    applyParam('spin', PHASE_POSES[phase].spin);
-    applyParam('tilt', PHASE_POSES[phase].tilt);
+    // No sideways tilt in either phase's pose, so `applyPose` straightens one (T-0288).
+    applyPose(PHASE_POSES[phase]);
     bumpParams();
   }
 

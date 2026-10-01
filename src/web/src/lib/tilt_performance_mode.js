@@ -49,7 +49,7 @@
 import { writable, get } from 'svelte/store';
 import { editing } from './edit_mode.js';
 import { getDesign, tierView, setDesignLock, designLocked, syncToolbar } from './tier_controller.js';
-import { setLocalHistory, applyParam, selectRenderer, onParamApplied } from './session.js';
+import { setLocalHistory, readPose, applyPose, selectRenderer, onParamApplied } from './session.js';
 import { engine, bumpParams, showError, paramRevision } from './stores.js';
 import { setRenderHold, releaseRenderHold } from './viewport.js';
 import {
@@ -140,7 +140,8 @@ export function enterTiltPerformance() {
 
   session = {
     design: getDesign(),
-    pose: { spin: app.get_param('spin'), tilt: app.get_param('tilt') },
+    // Spin, tilt and the sideways tilt (T-0288), put back as they were on closing.
+    pose: readPose(app),
     // Monte Carlo is swapped for Deterministic while the tool is open, as the cutting assistant
     // does: the view turns to a new pose every second or so, and a path tracer restarting at each
     // would only fight the measurement for the GPU and never converge. The measurement itself is
@@ -193,8 +194,7 @@ export function exitTiltPerformance() {
   const { pose } = session;
 
   close();
-  applyParam('spin', pose.spin);
-  applyParam('tilt', pose.tilt);
+  applyPose(pose);
   bumpParams();
   window.gemRequestRender?.();
 }
@@ -375,10 +375,9 @@ export function showPose(cursor) {
     return;
   }
 
-  const { spin, tilt } = viewPose(cursor);
-
-  applyParam('spin', spin);
-  applyParam('tilt', tilt);
+  // The graph's poses are measured upright (tilt::TiltPass builds each from the default camera),
+  // so the view shows them with no sideways tilt either: `applyPose` straightens one (T-0288).
+  applyPose(viewPose(cursor));
   bumpParams();
   tiltPerformance.update(state => ({ ...state, cursor }));
   window.gemRequestRender?.();

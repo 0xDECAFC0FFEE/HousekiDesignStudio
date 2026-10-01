@@ -169,9 +169,10 @@ background or the lighting instead.</li>
 
 <h2>Turning the stone</h2>
 
-<p>Drag the stone with the mouse to orbit it, and scroll the mouse wheel to zoom. Any drag, wheel
-step, or move of the <span class="ui">X rotation (spin)</span> or <span class="ui">Y rotation
-(tilt)</span> sliders drops the picture to <span class="ui">Drag quality</span> while it moves
+<p>Drag the stone with the mouse to turn it: sideways tilts it to the left or right, up and down
+tilts it towards or away from you, and holding <kbd>Shift</kbd> makes sideways spin it about its
+own axis instead. Scroll the mouse wheel to zoom. Any drag, wheel step, or move of the <span
+class="ui">X rotation (spin)</span> or <span class="ui">Y rotation (tilt)</span> sliders drops the picture to <span class="ui">Drag quality</span> while it moves
 (lowering the resolution only &ndash; the internal bounces stay as you set them, so the stone looks
 the same, just blurrier), then returns to full quality shortly after the movement stops. Because the Deterministic renderer finishes in one pass, this
 is only about keeping the stone responsive while it moves; the picture itself never needs to
@@ -216,6 +217,32 @@ stays smooth.</p>
 
 <div class="note"><p>On a browser that cannot do the extra step this needs, every frosted facet
 shows the same shade instead: the average of all the light around the stone.</p></div>
+
+<h2 id="concave-stones">Stones with grooves, dents and holes</h2>
+
+<p>A faceted design is always convex: light that has left it cannot run into it again. A stone
+with grooves, dents or a hole through it is different &ndash; a <code>.obj</code> file of a piece of
+rough you have scanned, for example. Light leaving one wall of a groove crosses it and meets the
+opposite wall, and a reflection off the outside of a dent can land on the stone again.</p>
+
+<p>The Deterministic renderer follows that light: where light that has left the stone runs into
+it again, part of it reflects off the outside and part of it enters the stone and carries on
+through it, exactly as at the stone's first surface. Such a stone therefore looks the same in the
+Deterministic renderer as in the <a href="monte-carlo-renderer.html">Monte Carlo renderer</a>, apart
+from the fire and the grain.</p>
+
+<figure><img src="images/deterministic-renderer/concave-stone.webp" alt="A clear bar with two V-shaped grooves along its top, in the Deterministic renderer: the groove walls show light that crossed the groove from the opposite wall" loading="lazy">
+<figcaption>A bar with two grooves along its top, in the Deterministic renderer.</figcaption></figure>
+
+<figure><img src="images/deterministic-renderer/concave-stone-monte-carlo.webp" alt="The same grooved bar in the Monte Carlo renderer after it has settled, showing the same light on the groove walls" loading="lazy">
+<figcaption>The same bar in the Monte Carlo renderer, left to settle, for comparison.</figcaption></figure>
+
+<p>Following light back into the stone takes time: such a stone draws several times more slowly
+than a faceted stone of the same size. A faceted stone draws exactly as fast as before.</p>
+
+<div class="note"><p>If any facet of such a stone is frosted, the Deterministic renderer does not
+follow light back into it yet: light leaving the stone is drawn as if the rest of the stone were
+not there. Use the Monte Carlo renderer to see a frosted stone of this kind faithfully.</p></div>
 
 <h2>The Flat renderer</h2>
 

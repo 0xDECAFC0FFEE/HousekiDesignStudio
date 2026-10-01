@@ -583,6 +583,60 @@ export function setReverseDragSpin(reader) {
   reverseDragSpin = reader;
 }
 
+/**
+ * How far one pointer move over the canvas turns the stone, in radians (2026-09-29, T-0288,
+ * T-0295, T-0296): `{ spin, tilt, sideways }` for a plain drag, where `app.orbit` takes spin and
+ * tilt and `app.orbit_sideways` takes `sideways`, and with Shift held `{ spin, tilt }` alone.
+ *
+ * - **A plain drag** (T-0296, the user: "can you make ctrl mode default (holding ctrl doesn't do
+ *   anything) and change shift to the old default mode (left right spins, up/down same)") is what
+ *   a Ctrl + drag was from T-0288 to T-0296: a sideways move tips the stone's axis the same way,
+ *   about the screen's vertical, at 2.5 radians per canvas height, so a drag to the right tips it
+ *   right, and a drag across the window is the same turn whatever the window's size. It is not
+ *   reversed for the cutting assistant: tipping follows the pointer on screen whichever way up the
+ *   stone is. Up and down tilt the stone (T-0295), dragging up positively, so a diagonal drag moves
+ *   both angles at once. The tilt adds to `tilt`, so with a sideways tilt set it turns about the
+ *   level axis tipped by it, not the screen's horizontal (kb/camera-projection-and-pose). `spin` is
+ *   -0, the one number that adds to any angle, -0 and +0 included, and leaves it bit for bit as it
+ *   was.
+ * - **With Shift held** the drag is the one the page had before T-0296: a sideways move spins the
+ *   stone about its own axis and an upward one tilts it positively, both at 2.5 radians per canvas
+ *   height. `reverseSpin` is the cutting assistant's upside-down pavilion view (see
+ *   `setReverseDragSpin`). The two expressions are the ones the plain drag always used, so a Shift
+ *   + drag turns the stone by exactly what a plain drag did before.
+ * - **Ctrl does nothing** (the user: "holding ctrl doesn't do anything"). This function is not told
+ *   about it, so a Ctrl + drag is a plain drag and a Ctrl + Shift + drag a Shift + drag, bit for
+ *   bit. The canvas still keeps the Mac's Ctrl + click context menu away (`blocksContextMenu`).
+ *
+ * The two share the vertical expression exactly, and only what the horizontal part does changes.
+ * `shiftKey` is read from each move, not from the press, so pressing or letting go of Shift in the
+ * middle of a drag switches between the two from the next move on, with nothing lost and no jump:
+ * both take the same move since the last one.
+ */
+export function dragTurn(deltaX, deltaY, { height, shiftKey = false, reverseSpin = false }) {
+  const scale = 2.5 / height;
+
+  if (shiftKey) {
+    const spinSign = reverseSpin ? 1 : -1;
+
+    return { spin: spinSign * deltaX * scale, tilt: -deltaY * scale };
+  }
+
+  return { spin: -0, tilt: -deltaY * scale, sideways: deltaX * scale };
+}
+
+/**
+ * Whether the canvas keeps a context menu from opening: only one asked for with Ctrl held. On a
+ * Mac, Ctrl + click IS a right click, so pressing Ctrl on the stone to drag it opens the browser's
+ * context menu, which takes the pointer from the page and ends the drag before it starts. Ctrl no
+ * longer changes the drag (T-0296: a Ctrl + drag is a plain drag), but users who learned the
+ * Ctrl + drag of T-0288 will still press it, so the menu is still kept away. A plain right click
+ * on the canvas keeps its menu (Save image and the rest), as it always had.
+ */
+export function blocksContextMenu(event) {
+  return event.ctrlKey === true;
+}
+
 // How often, at most, the X and Y rotation sliders follow the stone while it is turned by a drag
 // or a double-click turn (2026-09-27). Each follow is `bumpParams()`, which asks every parameter
 // slider to re-read Rust, and Bits UI's slider measures its thumb and track (offsetWidth) to place
@@ -648,6 +702,9 @@ function pickFacetAt(clientX, clientY) {
  * double-clicked facet performs. Factored out of the single click/turn combination
  * `turnTowardsFacetAt` used to be, when the user's T-0161 follow-up moved the turn off
  * every click and onto only the second click of a double click.
+ *
+ * The sideways tilt (T-0288) goes back to 0 over the same turn: `facet_pose_at`'s pose is the one
+ * that faces the facet with the stone upright, and only then.
  */
 function animateTurnTo(spinDeg, tiltDeg) {
   const app = engine.app;
@@ -656,8 +713,10 @@ function animateTurnTo(spinDeg, tiltDeg) {
 
   const fromSpin = app.get_param('spin');
   const fromTilt = app.get_param('tilt');
+  const fromSide = app.get_param('sideTilt');
   const spinBy = wrapDegrees(spinDeg - fromSpin);
   const tiltBy = wrapDegrees(tiltDeg - fromTilt);
+  const sideBy = wrapDegrees(-fromSide);
   const start = performance.now();
 
   const step = now => {
@@ -668,6 +727,7 @@ function animateTurnTo(spinDeg, tiltDeg) {
 
     app.set_param('spin', fromSpin + spinBy * eased);
     app.set_param('tilt', fromTilt + tiltBy * eased);
+    app.set_param('sideTilt', fromSide + sideBy * eased);
 
     // The X and Y rotation sliders follow the turn.
     followWithSliders();
@@ -755,10 +815,11 @@ function handleStoneClick(clientX, clientY, alsoTurn) {
 }
 
 /**
- * Wires the canvas: drag to orbit, click to highlight a facet's tier, double click to turn
- * to it, wheel to zoom, and a redraw on window resize. Native listeners (not Svelte's
- * delegated ones): pointer capture and a non-passive wheel handler are exactly what those
- * are not meant for.
+ * Wires the canvas: drag sideways to tip the stone's axis left or right and up and down to tilt
+ * it, Shift + drag sideways to spin it instead (T-0296), click to highlight a facet's tier, double
+ * click to turn to it, wheel to zoom, and a redraw on window resize. Native listeners (not Svelte's delegated
+ * ones): pointer capture and a non-passive wheel handler are exactly what those are not meant
+ * for.
  */
 export function attachCanvasControls(canvasElement) {
   canvas = canvasElement;
@@ -829,11 +890,20 @@ export function attachCanvasControls(canvasElement) {
 
     // Scale by viewport height so a drag across the window is the same rotation
     // regardless of window size. Dragging up tilts positively, which is the direction
-    // the old pitch-based drag took from face-up.
-    const scale = 2.5 / canvas.clientHeight;
-    const spinSign = reverseDragSpin() ? 1 : -1;
+    // the old pitch-based drag took from face-up. A sideways move tips the stone's axis left or
+    // right; with Shift held it spins the stone instead (T-0296; Ctrl is not read); see
+    // `dragTurn`. The two calls change separate angles, so their order is moot.
+    const turn = dragTurn(deltaX, deltaY, {
+      height: canvas.clientHeight,
+      shiftKey: event.shiftKey,
+      reverseSpin: reverseDragSpin(),
+    });
 
-    engine.app.orbit(spinSign * deltaX * scale, -deltaY * scale);
+    engine.app.orbit(turn.spin, turn.tilt);
+
+    if ('sideways' in turn) {
+      engine.app.orbit_sideways(turn.sideways);
+    }
 
     // Keep the X and Y rotation sliders showing the pose the drag produced.
     followWithSliders();
@@ -901,6 +971,15 @@ export function attachCanvasControls(canvasElement) {
   });
   // A cancelled press (the browser took the gesture over) is never a click.
   canvas.addEventListener('pointercancel', endDrag);
+
+  // No context menu for a Ctrl + press, which on a Mac is how the browser spells a right click:
+  // the menu would take the pointer and end the drag before it began (T-0288). Kept since T-0296
+  // made Ctrl do nothing to the drag, for users who still hold it out of habit.
+  canvas.addEventListener('contextmenu', event => {
+    if (blocksContextMenu(event)) {
+      event.preventDefault();
+    }
+  });
 
   canvas.addEventListener('wheel', event => {
     event.preventDefault();

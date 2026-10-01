@@ -427,6 +427,10 @@ mod tests {
 
         assert_eq!(camera.spin, expected.spin);
         assert_eq!(camera.tilt, expected.tilt);
+        // Never tipped sideways (T-0288): a preview is built from the default camera, not from
+        // the view's, so a sideways drag on the view cannot tip the manual optimizer's face-up
+        // previews off face-up.
+        assert_eq!(camera.side_tilt, 0.0);
         assert_eq!(camera.eye_distance, expected.eye_distance);
         assert_eq!(camera.vertical_fov, expected.vertical_fov);
 

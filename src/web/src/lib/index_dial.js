@@ -53,25 +53,44 @@ const MAJOR_TICK = 0.075;
 const LABEL_GAP = 0.14;
 
 /**
- * How far a y rotation of `tilt` degrees is from looking straight down on the stone (0) or
- * straight up at it (180), in degrees, 0 to 90. Any real angle, wound or negative, since the
- * stone is orbited freely and nothing wraps `tilt` back into a range.
+ * How far a y rotation of `tilt` degrees, with a sideways tilt of `sideTilt` degrees, is from
+ * looking straight down on the stone (0) or straight up at it (180), in degrees, 0 to 90. Any
+ * real angles, wound or negative, since the stone is orbited freely and nothing wraps `tilt`
+ * back into a range.
+ *
+ * The sideways tilt (T-0288; a plain sideways drag since T-0296) tips the stone's axis off the view just as
+ * the tilt does, so a face-up stone tipped 7 degrees sideways is 7 degrees off face-on. Together
+ * the axis is acos(cos tilt x cos sideTilt) from the view (camera.rs's
+ * `the_axis_is_acos_cos_tilt_cos_side_from_the_view`), worked out here in the atan2 form, which
+ * stays exact near face-up where acos of a number near 1 does not. With no sideways tilt the
+ * tilt alone is used, exactly as before.
  */
-export function offFaceOn(tilt) {
-  const wound = ((tilt % 360) + 360) % 360;
+export function offFaceOn(tilt, sideTilt = 0) {
+  let angle = tilt;
+
+  if (sideTilt !== 0) {
+    const t = (tilt * Math.PI) / 180;
+    const s = (sideTilt * Math.PI) / 180;
+    // The stone's axis in the view's own frame: sideways, up the screen, towards the viewer.
+    const across = Math.hypot(Math.sin(s) * Math.cos(t), Math.sin(t));
+
+    angle = (Math.atan2(across, Math.cos(s) * Math.cos(t)) * 180) / Math.PI;
+  }
+
+  const wound = ((angle % 360) + 360) % 360;
 
   return Math.min(wound, Math.abs(wound - 180), 360 - wound);
 }
 
 /**
- * How strongly the dial is drawn at a y rotation of `tilt` degrees: 1 out to FACE_ON_DEGREES,
- * 0 from FADE_OUT_DEGREES, and a smooth fade between the two, so it comes and goes as the stone
- * is turned instead of blinking (the user, 2026-09-19). Smoothstepped rather than straight-line:
- * the fade then starts and ends gently, which is what stops the last of it snapping off. It is
- * still exactly half way at half way, 7.5 degrees.
+ * How strongly the dial is drawn at a y rotation of `tilt` degrees and a sideways tilt of
+ * `sideTilt`: 1 out to FACE_ON_DEGREES, 0 from FADE_OUT_DEGREES, and a smooth fade between the
+ * two, so it comes and goes as the stone is turned instead of blinking (the user, 2026-09-19).
+ * Smoothstepped rather than straight-line: the fade then starts and ends gently, which is what
+ * stops the last of it snapping off. It is still exactly half way at half way, 7.5 degrees.
  */
-export function dialOpacity(tilt) {
-  const off = offFaceOn(tilt);
+export function dialOpacity(tilt, sideTilt = 0) {
+  const off = offFaceOn(tilt, sideTilt);
 
   if (off <= FACE_ON_DEGREES) {
     return 1;
