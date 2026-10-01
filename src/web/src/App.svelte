@@ -25,6 +25,9 @@
   // Edit > Manual optimizer (T-0273): its settings panel, and its Cancel for Escape.
   import ManualOptimizerPanel from './components/ManualOptimizerPanel.svelte';
   import { manualOptimizer, cancelManualOptimizer } from './lib/manual_optimizer_mode.js';
+  // Edit > Rotate by index (T-0287): its panel, and its Cancel for Escape.
+  import RotateIndexPanel from './components/RotateIndexPanel.svelte';
+  import { rotateIndexOpen, cancelRotateIndexMode } from './lib/rotate_index_mode.js';
   import { fullscreen, exitFullscreen } from './lib/fullscreen.js';
   import { eventTargetTakesText, eventTargetIsEditable, eventTargetActivatesOnEnter } from './lib/keys.js';
   import { get } from 'svelte/store';
@@ -154,6 +157,9 @@
     } else if ($manualOptimizer.open) {
       // The manual optimizer (T-0273): its Cancel's twin, as for scale height.
       cancelManualOptimizer();
+    } else if ($rotateIndexOpen) {
+      // Rotate by index (T-0287): its Cancel's twin, as for resize girdle.
+      cancelRotateIndexMode();
     } else if ($tiltPerformance.open && !$fullscreen) {
       // Tilt performance (T-0261): Done's twin, as for the cutting assistant. Not while
       // fullscreen hides its pane (it is in the left pane, which fullscreen hides, and the render
@@ -198,7 +204,7 @@
         <!-- Not swapped out for tilt performance (T-0261), whose panel takes the LEFT pane
              instead (Workspace.svelte): the user, "tilt performance mode should leave the render
              details on the right side of the screen". -->
-        <div class="panel-layer" class:panel-layer-off={$editing || $scaleHeightOpen || $cutting.open || $resizeGirdleOpen || $manualOptimizer.open}><SettingsPanel /></div>
+        <div class="panel-layer" class:panel-layer-off={$editing || $scaleHeightOpen || $cutting.open || $resizeGirdleOpen || $manualOptimizer.open || $rotateIndexOpen}><SettingsPanel /></div>
         <div class="panel-layer" class:panel-layer-off={!$editing}><EditPanel /></div>
         <div class="panel-layer" class:panel-layer-off={!$scaleHeightOpen}><ScaleHeightPanel /></div>
         <div class="panel-layer" class:panel-layer-off={!$cutting.open}><CuttingAssistantPanel /></div>
@@ -206,6 +212,8 @@
         <div class="panel-layer" class:panel-layer-off={!$resizeGirdleOpen}><ResizeGirdlePanel /></div>
         <!-- The manual optimizer's settings (T-0273), a sixth layer; its grid takes the left pane. -->
         <div class="panel-layer" class:panel-layer-off={!$manualOptimizer.open}><ManualOptimizerPanel /></div>
+        <!-- Rotate by index (T-0287), a seventh layer: one slider, then Cancel and Done. -->
+        <div class="panel-layer" class:panel-layer-off={!$rotateIndexOpen}><RotateIndexPanel /></div>
       </div>
     {/snippet}
   </Workspace>

@@ -46,8 +46,7 @@
         {
           "slug": "rotation-by-index",
           "title": "Rotation by index",
-          "summary": "Rotate a design around the index gear.",
-          "wip": true
+          "summary": "Turn a whole design around the index gear by a number of teeth, with a slider."
         },
         {
           "slug": "girdle-resizing",

@@ -1,22 +1,141 @@
 <h1>Rotation by index</h1>
 
-<div class="note wip"><p>This feature is still being built. The menu item below exists, but choosing
-it does nothing yet.</p></div>
+<p>Every facet of a design sits at a tooth of the index gear, the wheel you turn at the machine to
+set where a facet goes around the stone. Rotate by index mode turns the whole design around the
+gear by a whole number of teeth: every facet's tooth moves by the same amount, so the cut keeps
+exactly the same shape and simply starts from a different point on the gear. Use it to line a
+favourite facet up with a particular tooth, or to match a starting position that suits a piece of
+rough, without renumbering every tier's teeth by hand. Angles and depths never change.</p>
 
-<p>A design's facets each sit at a particular tooth of the index gear — the wheel you turn at the
-machine to set where a facet goes around the stone. Rotating a whole design by index would turn
-every facet's tooth number by the same amount at once, so the cut ends up exactly the same shape,
-just spun to a different starting point on the gear. That would be handy for lining up a favourite
-facet with tooth one, or matching whatever starting position suits a particular piece of rough,
-without renumbering every tier's teeth by hand.</p>
+<figure><img src="images/rotation-by-index/turned-overview.webp" alt="Rotate by index mode with the design turned back five teeth: the stone in the middle is turned against the index dial around it, the cutting instructions on the left show every tier's new teeth, and the Rotation slider on the right reads minus 5 teeth, minus 18.75 degrees." loading="lazy">
+<figcaption>The design turned back five teeth: the stone, its teeth in the cutting instructions and
+the slider all agree.</figcaption></figure>
 
-<p>None of that is built yet. In the studio's <span class="ui">Edit</span> menu, an item named
-<span class="ui">Rotate by index</span> is already there, but it is greyed out and does nothing
-when clicked. Hovering it shows a tooltip describing what it is meant to do, ending "Not built
-yet."</p>
+<h2>Opening the mode</h2>
 
-<figure class="side"><img src="images/rotation-by-index/edit-menu.webp" alt="The Edit menu open, showing the greyed-out Rotate by index item among the menu's other items." loading="lazy">
-<figcaption>Edit &gt; Rotate by index, greyed out.</figcaption></figure>
+<p>Choose <span class="ui">Edit</span> &gt; <span class="ui">Rotate by index</span> from the menu
+bar. There is no keyboard shortcut for it. The item is greyed out when there is no design loaded
+(a plain <code>.obj</code> mesh has no index teeth to turn) or when another mode, such as editing a
+tier, scaling the height or the cutting assistant, is already open. Hovering it then says which one
+to finish first, such as "Finish editing the tier first: Done, or Cancel."</p>
 
-<figure><img src="images/rotation-by-index/tooltip.webp" alt="Hovering Rotate by index shows a tooltip reading: Turns the whole design around the index gear, adding the same number of teeth to every facet's index. Not built yet." loading="lazy">
-<figcaption>The tooltip shown on hover.</figcaption></figure>
+<figure class="side"><img src="images/rotation-by-index/edit-menu.webp" alt="The Edit menu open with Rotate by index highlighted, and its tooltip: Turns the whole design round the index gear by a number of teeth: every facet's tooth moves by the same amount, wrapping round the gear, and the angles and depths stay as they are." loading="lazy">
+<figcaption>Edit &gt; Rotate by index, with its tooltip.</figcaption></figure>
+
+<h2>What you see in the mode</h2>
+
+<p>The top bar's status at the right reads <span class="ui">Rotating by index</span>. The render
+settings on the right are replaced by a short explanation, a <span class="ui">Rotation</span>
+slider, and <span class="ui">Cancel</span> and <span class="ui">Done</span> buttons at the bottom.
+The stone and the view stay exactly where they were, so you watch the facets themselves turn. Seen
+face up, the ring of index numbers around the stone stays put, which makes it easy to read off
+where a facet has moved to.</p>
+
+<figure><img src="images/rotation-by-index/mode-overview.webp" alt="The studio just after opening Rotate by index: the top bar reads Rotating by index, the stone is unchanged and face up inside the index dial, and the right-hand pane shows the Rotation slider at 0 teeth, 0.00 degrees, with Cancel and Done at the bottom." loading="lazy">
+<figcaption>Rotate by index mode just after opening: the slider at 0, the design as it was.</figcaption></figure>
+
+<figure class="side"><img src="images/rotation-by-index/panel-at-open.webp" alt="The Rotation slider close up, its thumb in the middle at 0, reading 0 teeth, 0.00 degrees, with its ends marked minus 47 and plus 48." loading="lazy">
+<figcaption>The slider when the mode opens. It covers one full turn of the gear, with 0, the
+design as it was, in the middle.</figcaption></figure>
+
+<h2>Turning the design</h2>
+
+<p>Drag the <span class="ui">Rotation</span> slider. Right turns the design to higher teeth, left
+to lower ones, one whole tooth at a time. The reading above the slider gives the turn in teeth and
+in degrees of the wheel: on a 96-tooth gear each tooth is 3.75&deg;, so <span class="ui">&minus;5
+teeth &middot; &minus;18.75&deg;</span> is a turn of five teeth back. The slider's two ends are one
+full turn apart (&minus;47 to +48 on a 96-tooth gear), so every possible position appears exactly
+once.</p>
+
+<p>Once the slider has the focus (click its thumb, or drag it once), <kbd>&larr;</kbd> and
+<kbd>&rarr;</kbd> (or <kbd>&darr;</kbd> and <kbd>&uarr;</kbd>) move it one tooth at a time, and
+<kbd>Home</kbd> and <kbd>End</kbd> jump to its two ends. To type an exact turn, click the reading
+and enter a number of teeth, then press <kbd>Enter</kbd>. Any whole number works: a number past
+the ends wraps round the gear, so typing 100 on a 96-tooth gear gives +4, and 96 is the same as
+0.</p>
+
+<figure class="side"><img src="images/rotation-by-index/panel-turned.webp" alt="The Rotation slider moved left of centre, reading minus 5 teeth, minus 18.75 degrees." loading="lazy">
+<figcaption>Dragged five teeth back.</figcaption></figure>
+
+<figure class="side"><img src="images/rotation-by-index/slider-tooltip.webp" alt="Hovering the Rotation slider shows a tooltip: How far to turn the whole design round the index gear, in teeth. Every facet's tooth moves by the same number, wrapping round the 96-tooth gear; angles and depths stay as they are. Drag it, or press the arrow keys once it has the focus. Click the reading to type a number of teeth." loading="lazy">
+<figcaption>The slider's tooltip.</figcaption></figure>
+
+<h2>What changes in the cutting instructions</h2>
+
+<p>The cutting instructions on the left follow the slider as you move it. Every tier's teeth move by
+the same number, and a tooth that passes the end of the gear carries on from 0, so the numbers
+always stay on the gear. Each tier's teeth are then listed from lowest to highest, as they are when
+you open a design. Turning a tier cut at 0-16-32-48-64-80 back by one tooth, for example, gives
+15-31-47-63-79-95, not 95-15-31 and so on.</p>
+
+<figure class="side"><img src="images/rotation-by-index/instructions-before.webp" alt="The Pavilion and Crown tables before turning: P1 at 4-12-20 and on to 92, G1, P2, C1 and C4 at 0-16-32-48-64-80, C2 at 3-13-19 and on to 93, C3, C5 and C6 at 8-24-40-56-72-88, and T at 0." loading="lazy">
+<figcaption>The cutting instructions before turning.</figcaption></figure>
+
+<figure class="side"><img src="images/rotation-by-index/instructions-after.webp" alt="The same tables turned back five teeth: P1 at 7-15-23 and on to 95, G1, P2, C1 and C4 at 11-27-43-59-75-91, C2 at 8-14-24 and on to 94, C3, C5 and C6 at 3-19-35-51-67-83, and T still at 0." loading="lazy">
+<figcaption>The same design turned back five teeth. The table stays at 0.</figcaption></figure>
+
+<p>Only the teeth change. Every tier keeps its name, its place in the cutting order, its angle, its
+depth and its notes, and the index gear itself (its number of teeth) is not touched. The table
+stays at 0, and so does a flat culet: each lies across the stone's axis, so it looks the same at
+every tooth. Because the stone is only turned, the proportions and facet count at the bottom right
+of the render do not change either.</p>
+
+<div class="note"><p>Turning a design never breaks its symmetry. A design with six equal sections
+still has six after any turn, and a design whose two halves mirror each other still does. What
+moves is where the mirror line sits on the gear: most designs have it at tooth 0, and after a turn
+it has moved by the same number of teeth as everything else. On a 96-tooth, six-section design, for
+example, a mirror line stays at tooth 0 only for turns that are a multiple of 8 teeth.</p></div>
+
+<h2>Everything else waits while it is open</h2>
+
+<p>While the mode is open, the rest of the design is held: the tier toolbar's buttons are greyed out
+(hovering one says "Finish rotating the design first: Done, or Cancel."), tiers cannot be dragged
+into a new order or have their notes edited, and the other modes' items in the
+<span class="ui">Edit</span> and <span class="ui">Tools</span> menus are greyed out too.</p>
+
+<figure><img src="images/rotation-by-index/toolbar-held.webp" alt="The tier toolbar with every button greyed out, and New's tooltip ending: Finish rotating the design first: Done, or Cancel." loading="lazy">
+<figcaption>The tier toolbar, held while the design is being rotated.</figcaption></figure>
+
+<h2>Confirming, cancelling and leaving</h2>
+
+<p>Click <span class="ui">Done</span> to keep the turn and close the mode. It is filed as a single
+step in the studio's edit history, however many times you moved the slider first, and the render
+settings come back. Click <span class="ui">Cancel</span>, or press <kbd>Escape</kbd>, to put every
+facet back on the tooth it was on and close the mode without recording anything. Leaving the slider
+at 0 and clicking <span class="ui">Done</span> records nothing either.</p>
+
+<figure><img src="images/rotation-by-index/after-done.webp" alt="The studio after Done: the top bar reads Overview, the render settings are back on the right, and the stone and the cutting instructions keep the five-tooth turn." loading="lazy">
+<figcaption>After <span class="ui">Done</span>: the turn is kept, and the render settings are
+back.</figcaption></figure>
+
+<h2>Undo and redo</h2>
+
+<p>While the mode is open, <span class="ui">Undo</span> and <span class="ui">Redo</span> (the Edit
+menu items, and <kbd>Cmd</kbd>+<kbd>Z</kbd> / <kbd>Cmd</kbd>+<kbd>Shift</kbd>+<kbd>Z</kbd> on a
+Mac, <kbd>Ctrl</kbd>+<kbd>Z</kbd> / <kbd>Ctrl</kbd>+<kbd>Shift</kbd>+<kbd>Z</kbd> elsewhere) step
+back and forth through your own moves of the slider in this session. Each drag, key press or typed
+number is one step. Once you leave the mode they work on the whole design again, and if you kept
+the turn, one <span class="ui">Undo</span> takes back the whole rotation.</p>
+
+<h2>Every gesture and shortcut</h2>
+
+<table>
+  <tr><th>Action</th><th>How</th></tr>
+  <tr><td>Open the mode</td><td><span class="ui">Edit</span> &gt; <span class="ui">Rotate by index</span></td></tr>
+  <tr><td>Turn to higher teeth</td><td>Drag the slider right; or, with it focused, press
+    <kbd>&rarr;</kbd> or <kbd>&uarr;</kbd> (one tooth)</td></tr>
+  <tr><td>Turn to lower teeth</td><td>Drag the slider left; or, with it focused, press
+    <kbd>&larr;</kbd> or <kbd>&darr;</kbd> (one tooth)</td></tr>
+  <tr><td>Jump to either end of the slider</td><td><kbd>Home</kbd> or <kbd>End</kbd>, with the
+    slider focused</td></tr>
+  <tr><td>Type an exact turn</td><td>Click the reading, type a number of teeth, press
+    <kbd>Enter</kbd> (<kbd>Escape</kbd> abandons the typing)</td></tr>
+  <tr><td>Undo / redo this session's moves</td><td><kbd>Cmd</kbd>+<kbd>Z</kbd> /
+    <kbd>Cmd</kbd>+<kbd>Shift</kbd>+<kbd>Z</kbd> on a Mac, <kbd>Ctrl</kbd>+<kbd>Z</kbd> /
+    <kbd>Ctrl</kbd>+<kbd>Shift</kbd>+<kbd>Z</kbd> elsewhere</td></tr>
+  <tr><td>Keep the turn and leave</td><td><span class="ui">Done</span></td></tr>
+  <tr><td>Discard the turn and leave</td><td><span class="ui">Cancel</span>, or <kbd>Escape</kbd></td></tr>
+</table>
+
+<div class="note"><p>To move a single tier to other teeth instead, edit that tier and use the index
+gear's ruler; see <a href="editing-tiers.html">Editing facets by tier</a>.</p></div>

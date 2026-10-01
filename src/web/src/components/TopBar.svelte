@@ -45,6 +45,8 @@
   import { tiltPerformance, enterTiltPerformance } from '../lib/tilt_performance_mode.js';
   // Edit > Manual optimizer (T-0273), likewise.
   import { manualOptimizer, enterManualOptimizer } from '../lib/manual_optimizer_mode.js';
+  // Edit > Rotate by index (T-0287), likewise.
+  import { rotateIndexOpen, enterRotateIndexMode } from '../lib/rotate_index_mode.js';
   // T-0204/T-0205/T-0207 originally wired these three through onSelect={() => import(...)},
   // a dynamic import, each deliberately avoiding this file's own top-level import lines so three
   // concurrent agents' edits could never collide on the same line. That safely built and tested
@@ -222,7 +224,7 @@
   // already open -- one session at a time, as edit mode has it. A greyed item that cannot say
   // why is exactly what T-0208's tips were written against.
   const SCALE_HEIGHT_TIP = 'Makes the crown or the pavilion taller or flatter, each by its own ratio: every facet turns so the tangent of its angle is multiplied by the ratio, and moves so its meets still meet. The girdle stays where it is.';
-  const scaleHeightInert = $derived(!$tierView.hasDesign || $editing !== null || $scaleHeightOpen || $cutting.open || $resizeGirdleOpen || $tiltPerformance.open || $manualOptimizer.open);
+  const scaleHeightInert = $derived(!$tierView.hasDesign || $editing !== null || $scaleHeightOpen || $cutting.open || $resizeGirdleOpen || $tiltPerformance.open || $manualOptimizer.open || $rotateIndexOpen);
   const scaleHeightTip = $derived(
     !$tierView.hasDesign ? `${SCALE_HEIGHT_TIP} There is no design loaded to scale.`
       : $editing !== null ? `${SCALE_HEIGHT_TIP} Finish editing the tier first: Done, or Cancel.`
@@ -231,12 +233,13 @@
             : $resizeGirdleOpen ? `${SCALE_HEIGHT_TIP} Finish resizing the girdle first: Done, or Cancel.`
               : $tiltPerformance.open ? `${SCALE_HEIGHT_TIP} ${CLOSE_TILT_TIP}`
                 : $manualOptimizer.open ? `${SCALE_HEIGHT_TIP} ${CLOSE_OPTIMIZER_TIP}`
-                  : SCALE_HEIGHT_TIP);
+                  : $rotateIndexOpen ? `${SCALE_HEIGHT_TIP} ${CLOSE_ROTATE_TIP}`
+                    : SCALE_HEIGHT_TIP);
 
   // Tools > Cutting assistant (T-0234): live, and inert, saying why, in the same cases as scale
   // height -- no design to walk through, or another mode open -- or while it is already open.
   const CUTTING_TIP = 'Walks you through cutting the stone from a rough, one facet at a time: each step shows the angle and tooth to set and the rock as it will look once that facet is cut, on its dop. The design is not changed.';
-  const cuttingInert = $derived(!$tierView.hasDesign || $editing !== null || $scaleHeightOpen || $cutting.open || $resizeGirdleOpen || $tiltPerformance.open || $manualOptimizer.open);
+  const cuttingInert = $derived(!$tierView.hasDesign || $editing !== null || $scaleHeightOpen || $cutting.open || $resizeGirdleOpen || $tiltPerformance.open || $manualOptimizer.open || $rotateIndexOpen);
   const cuttingTip = $derived(
     !$tierView.hasDesign ? `${CUTTING_TIP} There is no design loaded to cut.`
       : $editing !== null ? `${CUTTING_TIP} Finish editing the tier first: Done, or Cancel.`
@@ -245,11 +248,12 @@
             : $resizeGirdleOpen ? `${CUTTING_TIP} Finish resizing the girdle first: Done, or Cancel.`
               : $tiltPerformance.open ? `${CUTTING_TIP} ${CLOSE_TILT_TIP}`
                 : $manualOptimizer.open ? `${CUTTING_TIP} ${CLOSE_OPTIMIZER_TIP}`
-                  : CUTTING_TIP);
+                  : $rotateIndexOpen ? `${CUTTING_TIP} ${CLOSE_ROTATE_TIP}`
+                    : CUTTING_TIP);
 
   // Edit > Resize girdle (T-0237), the same way: what it does, then why it is inert when it is.
   const RESIZE_GIRDLE_TIP = 'Cuts every facet deeper or shallower by the same ratio while the girdle facets stay where they are, so the girdle band grows or shrinks against the rest of the stone. Every angle stays as cut.';
-  const resizeGirdleInert = $derived(!$tierView.hasDesign || $editing !== null || $scaleHeightOpen || $cutting.open || $resizeGirdleOpen || $tiltPerformance.open || $manualOptimizer.open);
+  const resizeGirdleInert = $derived(!$tierView.hasDesign || $editing !== null || $scaleHeightOpen || $cutting.open || $resizeGirdleOpen || $tiltPerformance.open || $manualOptimizer.open || $rotateIndexOpen);
   const resizeGirdleTip = $derived(
     !$tierView.hasDesign ? `${RESIZE_GIRDLE_TIP} There is no design loaded to resize.`
       : $editing !== null ? `${RESIZE_GIRDLE_TIP} Finish editing the tier first: Done, or Cancel.`
@@ -258,13 +262,14 @@
             : $resizeGirdleOpen ? `${RESIZE_GIRDLE_TIP} It is already open.`
               : $tiltPerformance.open ? `${RESIZE_GIRDLE_TIP} ${CLOSE_TILT_TIP}`
                 : $manualOptimizer.open ? `${RESIZE_GIRDLE_TIP} ${CLOSE_OPTIMIZER_TIP}`
-                  : RESIZE_GIRDLE_TIP);
+                  : $rotateIndexOpen ? `${RESIZE_GIRDLE_TIP} ${CLOSE_ROTATE_TIP}`
+                    : RESIZE_GIRDLE_TIP);
 
   // Tools > Tilt performance (T-0261): live for any stone, a plain .obj included, and inert,
   // saying why, while another mode is open or it already is.
   const CLOSE_TILT_TIP = 'Close tilt performance first: Done, or Escape.';
   const TILT_TIP = 'How much light the stone returns as it is tilted up to 33° (or as far as you choose) one way and then the other, the way it is actually looked at rather than only straight on: brightness under even and under overhead light, the see-through window, and the head shadow, for the whole stone and for the table.';
-  const tiltInert = $derived($editing !== null || $scaleHeightOpen || $cutting.open || $resizeGirdleOpen || $tiltPerformance.open || $manualOptimizer.open);
+  const tiltInert = $derived($editing !== null || $scaleHeightOpen || $cutting.open || $resizeGirdleOpen || $tiltPerformance.open || $manualOptimizer.open || $rotateIndexOpen);
   const tiltTip = $derived(
     $editing !== null ? `${TILT_TIP} Finish editing the tier first: Done, or Cancel.`
       : $scaleHeightOpen ? `${TILT_TIP} Finish scaling the height first: Done, or Cancel.`
@@ -272,13 +277,14 @@
           : $resizeGirdleOpen ? `${TILT_TIP} Finish resizing the girdle first: Done, or Cancel.`
             : $tiltPerformance.open ? `${TILT_TIP} It is already open.`
               : $manualOptimizer.open ? `${TILT_TIP} ${CLOSE_OPTIMIZER_TIP}`
-                : TILT_TIP);
+                : $rotateIndexOpen ? `${TILT_TIP} ${CLOSE_ROTATE_TIP}`
+                  : TILT_TIP);
 
   // Edit > Manual optimizer (T-0273): live with a design loaded, and inert, saying why, while
   // another mode is open or it already is.
   const CLOSE_OPTIMIZER_TIP = 'Finish the manual optimizer first: Done, or Cancel.';
   const OPTIMIZER_TIP = 'Shows the stone in a grid with taller and flatter crowns and pavilions, so you can compare them side by side and pick the heights that look best.';
-  const optimizerInert = $derived(!$tierView.hasDesign || $editing !== null || $scaleHeightOpen || $cutting.open || $resizeGirdleOpen || $tiltPerformance.open || $manualOptimizer.open);
+  const optimizerInert = $derived(!$tierView.hasDesign || $editing !== null || $scaleHeightOpen || $cutting.open || $resizeGirdleOpen || $tiltPerformance.open || $manualOptimizer.open || $rotateIndexOpen);
   const optimizerTip = $derived(
     !$tierView.hasDesign ? `${OPTIMIZER_TIP} There is no design loaded to optimize.`
       : $editing !== null ? `${OPTIMIZER_TIP} Finish editing the tier first: Done, or Cancel.`
@@ -287,7 +293,24 @@
             : $resizeGirdleOpen ? `${OPTIMIZER_TIP} Finish resizing the girdle first: Done, or Cancel.`
               : $tiltPerformance.open ? `${OPTIMIZER_TIP} ${CLOSE_TILT_TIP}`
                 : $manualOptimizer.open ? `${OPTIMIZER_TIP} It is already open.`
-                  : OPTIMIZER_TIP);
+                  : $rotateIndexOpen ? `${OPTIMIZER_TIP} ${CLOSE_ROTATE_TIP}`
+                    : OPTIMIZER_TIP);
+
+  // Edit > Rotate by index (T-0287): live with a design loaded, and inert, saying why, while
+  // another mode is open or it already is -- the manual optimizer's pattern.
+  const CLOSE_ROTATE_TIP = 'Finish rotating the design first: Done, or Cancel.';
+  const ROTATE_TIP = 'Turns the whole design round the index gear by a number of teeth: every facet\'s tooth moves by the same amount, wrapping round the gear, and the angles and depths stay as they are.';
+  const rotateInert = $derived(!$tierView.hasDesign || $editing !== null || $scaleHeightOpen || $cutting.open || $resizeGirdleOpen || $tiltPerformance.open || $manualOptimizer.open || $rotateIndexOpen);
+  const rotateTip = $derived(
+    !$tierView.hasDesign ? `${ROTATE_TIP} There is no design loaded to rotate.`
+      : $editing !== null ? `${ROTATE_TIP} Finish editing the tier first: Done, or Cancel.`
+        : $scaleHeightOpen ? `${ROTATE_TIP} Finish scaling the height first: Done, or Cancel.`
+          : $cutting.open ? `${ROTATE_TIP} Close the cutting assistant first: Done, or Escape.`
+            : $resizeGirdleOpen ? `${ROTATE_TIP} Finish resizing the girdle first: Done, or Cancel.`
+              : $tiltPerformance.open ? `${ROTATE_TIP} ${CLOSE_TILT_TIP}`
+                : $manualOptimizer.open ? `${ROTATE_TIP} ${CLOSE_OPTIMIZER_TIP}`
+                  : $rotateIndexOpen ? `${ROTATE_TIP} It is already open.`
+                    : ROTATE_TIP);
 
   // Mode status (moved here from two places, 2026-09-24): SettingsPanel's own pinned footer,
   // "Mode: Overview" (added 2026-09-22, the user: "at the bottom of the render settings section
@@ -319,7 +342,8 @@
           : $resizeGirdleOpen ? 'Resizing girdle'
             : $tiltPerformance.open ? 'Tilt performance'
               : $manualOptimizer.open ? 'Manual optimizer'
-                : 'Overview');
+                : $rotateIndexOpen ? 'Rotating by index'
+                  : 'Overview');
 </script>
 
 <svelte:document onkeydown={onDocumentKeydown} />
@@ -412,9 +436,12 @@
              than in the instructions pane's per-tier toolbar. Each carries the tip that says
              what it will do, ending in PLACEHOLDER_TIP: a greyed item whose name is the only
              thing on screen cannot say why it is greyed. -->
-        <Menubar.Item id="menu-item-rotate-index" {@attach ariaDisabled(() => true)}
-          class="{ITEM} {INERT}"
-          data-tip="Turns the whole design around the index gear, adding the same number of teeth to every facet's index. {PLACEHOLDER_TIP}"
+        <!-- Rotate by index (T-0287, 2026-09-29, the user: "can you add support for rotate index
+             mode - it needs a slider to the right along with the cancel/done buttons"): live, it
+             opens rotate_index_mode.js. Inert with no design loaded, and while any mode is open. -->
+        <Menubar.Item id="menu-item-rotate-index" {@attach ariaDisabled(() => rotateInert)}
+          class="{ITEM} {INERT}" data-tip={rotateTip}
+          onSelect={() => { if (!rotateInert) enterRotateIndexMode(); }}
           >Rotate by index</Menubar.Item>
         <Menubar.Item id="menu-item-reverse-index" {@attach ariaDisabled(() => true)}
           class="{ITEM} {INERT}"

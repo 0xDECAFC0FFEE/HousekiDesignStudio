@@ -1036,6 +1036,37 @@ export function setTierIndices(tier, indices, { quick = false } = {}) {
   return true;
 }
 
+/**
+ * Sets many tiers' facets and indexes at once (rotate by index, T-0287: every tier turns by the
+ * same number of teeth), `values` being `[{ tier, state }]` with `state` a `tierFacetState`, then
+ * redraws the rows and rebuilds the stone ONCE, as `setTierValues` does for angles and distances
+ * and for the same reason. The tiers keep their own facet OBJECTS (the state names them), so a
+ * facet's name and frosting stay with it. Does nothing, not even a rebuild, when no tier changed,
+ * unless `force` (a drag's release after a quick write, or Cancel after one).
+ */
+export function setTierFacetStates(values, { quick = false, force = false } = {}) {
+  if (!currentDesign) {
+    return;
+  }
+
+  let changed = false;
+
+  for (const { tier, state } of values) {
+    const same = sameFacetList(tier.facets, state.facets) &&
+      tier.facets.every((facet, at) => Object.is(facet.index, state.indexes[at]));
+
+    if (!same) {
+      applyTierFacetState(tier, state);
+      changed = true;
+    }
+  }
+
+  if (changed || force) {
+    render(currentDesign, currentOnRowClick, { preserveSelection: true });
+    stoneHooks?.rebuild({ quick });
+  }
+}
+
 /** Records a settled change of a tier's teeth as one update, for undo and redo. */
 export function recordTierFacets(tier, before, after, label = 'Edit indexes') {
   if (String(before.indexes) !== String(after.indexes)) {
