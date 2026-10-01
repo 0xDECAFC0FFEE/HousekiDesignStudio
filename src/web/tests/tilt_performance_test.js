@@ -16,6 +16,7 @@ import {
   TILT_RANGE, TILT_RANGE_MIN, TILT_RANGE_MAX, Y_SPIN, MIN_TABLE_PIXELS, MEASURED_PARAMS,
   sweepPoses, readMeasurement, graphX, poseAtGraphX, middleX, viewPose, curvePath, sampleNearest,
   angleTicks, clampRange, measurementKey, graphSvg, graphHeight, graphImageSvg, GRAPH_MARGIN,
+  graphPoints, nearestGraphPoint, pointLabel, labelBox, formatPercent, LABEL_CHAR_WIDTH,
 } from "../src/lib/tilt_performance.js";
 
 function assert(condition, message) {
@@ -302,4 +303,269 @@ Deno.test("the downloaded picture has a title, the graph and a legend, and no cu
 
   assert(!svg.includes("COS brightness"), "no legend for a hidden curve");
   assert(!svg.includes("stroke:CUR"), "no cursor");
+});
+
+// ---- the point under the pointer (T-0286)
+//
+// The user, 2026-09-28: "when mousing over the tilt performance graph can you show the nearest
+// point's y value". TiltGraph.svelte asks nearestGraphPoint for the drawn point nearest the
+// pointer's pixel, and labels it with pointLabel inside labelBox. These tests pin which point is
+// chosen, where it is, and what the label says.
+//
+// Every test below uses ONE graph, worked out on paper so the expected pixels are plain numbers:
+//
+//   width 300  ->  plot 254 wide (300 - 36 left - 10 right) and round(254 x 0.68) = 173 tall,
+//                  so the whole graph is 173 + 22 top + 24 bottom = 219 tall.
+//   reach 10 degrees each way  ->  face-up (X 0 and Y 0, the same pose) in the middle at
+//                  x = 36 + 127 = 163; X 10 at the plot's left edge, x = 36; Y 10 at its right
+//                  edge, x = 36 + 254 = 290.
+//   a value v  ->  y = 22 + (1 - v) x 173, so 100% at y = 22 and 0% at y = 195.
+//
+// Samples at 0 and 10 degrees on both halves. The four curves are set a tenth apart (17.3 px) so
+// no two points of one pose are near each other, and each table (dotted) value is a tenth under
+// its stone (solid) value:
+//
+//   stone: ISO 0.9, COS 0.6, Window 0.1, Head shadow 0.3
+//   table: ISO 0.8, COS 0.5, Window 0.0, Head shadow 0.2
+//
+// with the 10-degree poses 0.05 lower than face-up, so the halves' ends are told apart too.
+
+const HOVER_WIDTH = 300;
+const HOVER_RANGE = { x: 10, y: 10 };
+const PLOT_LEFT = 36;
+const PLOT_TOP = 22;
+const PLOT_W = 254;
+const PLOT_H = 173;
+const STONE = { iso: 0.9, cos: 0.6, window: 0.1, head: 0.3 };
+const TABLE = { iso: 0.8, cos: 0.5, window: 0.0, head: 0.2 };
+
+/** A pose's measurement: the values above, `drop` lower on every curve, the table well in view. */
+function hoverSample(angle, drop) {
+  const stone = ["iso", "cos", "window", "head"].map(key => STONE[key] - drop);
+  const table = ["iso", "cos", "window", "head"].map(key => Math.max(TABLE[key] - drop, 0));
+
+  return { angle, measurement: measured(stone, table, 5000) };
+}
+
+const HOVER_SAMPLES = {
+  x: [hoverSample(0, 0), hoverSample(10, 0.05)],
+  y: [hoverSample(0, 0), hoverSample(10, 0.05)],
+};
+
+/** The options TiltGraph hands nearestGraphPoint: every curve shown, dotted twins too. */
+function hoverOptions(overrides = {}) {
+  return {
+    samples: HOVER_SAMPLES, range: HOVER_RANGE, width: HOVER_WIDTH, showTable: true,
+    shown: { iso: true, cos: true, window: true, head: true }, ...overrides,
+  };
+}
+
+/** Where a pose's value sits on the graph, by the arithmetic in the comment above. */
+function pixelOf(axis, angle, value) {
+  const across = axis === "x" ? (10 - angle) / 10 * 0.5 : 0.5 + angle / 10 * 0.5;
+
+  return { x: PLOT_LEFT + across * PLOT_W, y: PLOT_TOP + (1 - value) * PLOT_H };
+}
+
+// Setup: the graph above, every curve and every dotted twin shown.
+// Test: for each of the eight curves (four solid, four dotted) and each of its four measured
+// points, put the pointer 3 px right and 2 px below the point -- close, but not exactly on it, as
+// a hand is -- and ask nearestGraphPoint.
+// Verifies: the chosen point is that very one (its curve, solid or dotted, its half and angle);
+// that its pixel is exactly where graphSvg draws the curve's vertex (so the marker sits on the
+// line, not beside it); and, as a check on the setup, that the graph's height is the 219 worked
+// out above.
+Deno.test("the pointer near any point of any curve picks that point", () => {
+  assertEqual(graphHeight(HOVER_WIDTH), PLOT_H + PLOT_TOP + GRAPH_MARGIN.bottom, "the graph is 219 tall");
+
+  const svg = graphSvg({ ...hoverOptions(), cursor: null, palette: {}, font: "f", mono: "m" }).markup;
+
+  for (const table of [false, true]) {
+    for (const key of ["iso", "cos", "window", "head"]) {
+      for (const [axis, angle, drop] of [["x", 10, 0.05], ["x", 0, 0], ["y", 0, 0], ["y", 10, 0.05]]) {
+        const value = (table ? TABLE : STONE)[key] - drop;
+        const at = pixelOf(axis, angle, Math.max(value, 0));
+        const point = nearestGraphPoint(hoverOptions(), at.x + 3, at.y + 2);
+        const name = `${table ? "table" : "stone"} ${key} at ${axis} ${angle}`;
+
+        assertEqual(point.key, key, `${name}: the curve`);
+        assertEqual(point.table, table, `${name}: solid or dotted`);
+        assertClose(point.x, at.x, `${name}: x`);
+        assertClose(point.y, at.y, `${name}: y`);
+        // Face-up is the same pixel on both halves; which half is named there is the tie rule's
+        // business (tested below). Elsewhere the half and angle must be the point's own.
+        if (angle !== 0) {
+          assertEqual([point.axis, point.angle], [axis, angle], `${name}: the pose`);
+        }
+        // graphSvg draws the curves inside a group moved by the margins, so the vertex it writes
+        // is the point less the margins, to two decimals.
+        assert(svg.includes(`${(point.x - PLOT_LEFT).toFixed(2)} ${(point.y - PLOT_TOP).toFixed(2)}`),
+          `${name}: graphSvg has a vertex exactly there`);
+      }
+    }
+  }
+});
+
+// Setup: the graph above, with the pointer exactly on the solid COS curve's face-up point
+// (0.6, y = 91.2), then the same pointer with COS switched off, then with the dotted twins off.
+// Test: nearestGraphPoint under each set of switches, and graphPoints' list.
+// Verifies: a curve switched off is never picked, solid or dotted -- with COS off the pointer,
+// which sits right on COS's point, gets the next nearest drawn point instead: the dotted ISO at
+// 0.8 (0.2 away, 34.6 px) rather than the solid head shadow at 0.3 (0.3 away). With the dotted
+// curves off too, and the pointer 2 px higher, it gets the solid ISO at 0.9 above rather than the
+// solid head shadow at 0.3 below (each 0.3 from COS -- as near as makes no difference in floating
+// point, so the pointer is moved off the middle; ties have their own test). And no hidden curve or
+// twin appears in the list of drawn points at all.
+Deno.test("a curve switched off is never the nearest point", () => {
+  const at = pixelOf("x", 0, STONE.cos);
+
+  assertEqual(nearestGraphPoint(hoverOptions(), at.x, at.y).key, "cos", "COS shown: it is picked");
+
+  const noCos = { iso: true, cos: false, window: true, head: true };
+  const hidden = nearestGraphPoint(hoverOptions({ shown: noCos }), at.x, at.y);
+
+  assertEqual([hidden.key, hidden.table], ["iso", true], "COS hidden: the dotted ISO, the next nearest");
+
+  const solidOnly = nearestGraphPoint(hoverOptions({ shown: noCos, showTable: false }), at.x, at.y - 2);
+
+  assertEqual([solidOnly.key, solidOnly.table], ["iso", false], "dotted curves hidden too: the solid ISO");
+
+  const points = graphPoints(hoverOptions({ shown: noCos, showTable: false }));
+
+  assert(points.every(point => point.key !== "cos"), "no COS point is drawn");
+  assert(points.every(point => !point.table), "no dotted point is drawn");
+  assertEqual(points.length, 3 * 4, "three curves, four points each");
+  assertEqual(nearestGraphPoint(hoverOptions({ shown: { iso: false, cos: false, window: false, head: false } }), 100, 100),
+    null, "nothing shown: no point, so no label");
+});
+
+// Setup: three ties. (1) Two curves with the same values, so their points are the same pixel.
+// (2) A curve and its dotted twin with the same values. (3) The pointer exactly half way across
+// between two points of one flat curve.
+// Test: nearestGraphPoint in each case, asked twice, and with the tied curves' switches listed in
+// the other order.
+// Verifies: a tie is broken the same way every time, by the documented order and not by chance or
+// by the order the caller happened to list its switches in: the key's order (ISO before COS), solid
+// before dotted (the solid line is drawn over its twin), and the smaller angle first.
+Deno.test("a tie is broken the same way every time", () => {
+  // (1) and (2): every curve at 0.5 on every pose, stone and table alike.
+  const flat = angle => ({ angle, measurement: measured([0.5, 0.5, 0.5, 0.5], [0.5, 0.5, 0.5, 0.5], 5000) });
+  const samples = { x: [flat(0), flat(10)], y: [flat(0), flat(10)] };
+  const at = pixelOf("y", 10, 0.5);
+  const first = nearestGraphPoint(hoverOptions({ samples }), at.x, at.y);
+
+  assertEqual([first.key, first.table], ["iso", false], "ISO before the others, solid before dotted");
+  assertEqual(nearestGraphPoint(hoverOptions({ samples }), at.x, at.y), first, "the same answer again");
+
+  // The same switches, written in the opposite order: the answer must not follow the object's order.
+  const reversed = { head: true, window: true, cos: true, iso: true };
+
+  assertEqual(nearestGraphPoint(hoverOptions({ samples, shown: reversed }), at.x, at.y).key, "iso",
+    "the key's order, not the switches' order");
+
+  // (2) alone: only the window curve shown; its solid and dotted points coincide.
+  const windowOnly = { iso: false, cos: false, window: true, head: false };
+
+  assertEqual(nearestGraphPoint(hoverOptions({ samples, shown: windowOnly }), at.x, at.y).table, false,
+    "solid before its dotted twin");
+
+  // (3) Half way between X 10 (x = 36) and face-up (x = 163) on the flat line: 99.5, equally far
+  // from both. The smaller angle comes first, so face-up; and face-up, being on both halves, is
+  // named as Tilt X's, the half listed first.
+  const between = nearestGraphPoint(hoverOptions({ samples, shown: windowOnly, showTable: false }), (36 + 163) / 2, at.y);
+
+  assertEqual([between.axis, between.angle], ["x", 0], "the smaller angle, Tilt X's face-up");
+});
+
+// Setup: the graph above, with the pointer over each of its margins: the percentages on the left,
+// the air on the right, the halves' names above, the angles below, and a corner.
+// Test: nearestGraphPoint at those pixels.
+// Verifies: the pointer over a margin (still over the graph, so the callers still read a pose) is
+// still labelled, with the drawn point nearest it on screen: from the left margin, level with a
+// point at the far end of Tilt X, that point; from the right margin, Tilt Y's far end; from above
+// the plot, the highest point below the pointer; from below it, the lowest; from the top-left
+// corner, the highest point at the left edge.
+Deno.test("the pointer over a margin labels the point nearest it", () => {
+  // Left margin, level with the solid COS point at X 10 (0.55).
+  const cosLeft = pixelOf("x", 10, STONE.cos - 0.05);
+  const left = nearestGraphPoint(hoverOptions(), 5, cosLeft.y);
+
+  assertEqual([left.key, left.table, left.axis, left.angle], ["cos", false, "x", 10], "left margin");
+
+  // Right margin, level with the solid window point at Y 10 (0.05).
+  const windowRight = pixelOf("y", 10, STONE.window - 0.05);
+  const right = nearestGraphPoint(hoverOptions(), HOVER_WIDTH - 2, windowRight.y);
+
+  assertEqual([right.key, right.table, right.axis, right.angle], ["window", false, "y", 10], "right margin");
+
+  // Above the plot, over face-up: the highest point there is the solid ISO at 0.9.
+  const top = nearestGraphPoint(hoverOptions(), 163, 3);
+
+  assertEqual([top.key, top.table, top.angle], ["iso", false, 0], "top margin");
+
+  // Below the plot, over Y 10: the lowest point there is the dotted window, 0 (held at 0).
+  const bottom = nearestGraphPoint(hoverOptions(), 290, 215);
+
+  assertEqual([bottom.key, bottom.table, bottom.axis, bottom.angle], ["window", true, "y", 10], "bottom margin");
+
+  // The top-left corner: the highest point at the left edge, the solid ISO at X 10 (0.85).
+  const corner = nearestGraphPoint(hoverOptions(), 0, 0);
+
+  assertEqual([corner.key, corner.table, corner.axis, corner.angle], ["iso", false, "x", 10], "corner");
+});
+
+// Setup: the graph above, with the pointer on the solid head shadow at Y 10 and on the dotted
+// COS at face-up; and a lone point whose value, 0.8349, rounds.
+// Test: nearestGraphPoint's value, and pointLabel's text.
+// Verifies: the value the label shows is the measurement's own number for that curve, pose and
+// solid-or-dotted -- the very one the readouts beside the graph show -- printed with the readouts'
+// precision (formatPercent, one decimal): a solid point's as it is, a dotted point's in brackets,
+// as the readouts write the table's.
+Deno.test("the label shows the point's own measured value, as the readouts print it", () => {
+  const headAt = pixelOf("y", 10, STONE.head - 0.05);
+  const head = nearestGraphPoint(hoverOptions(), headAt.x, headAt.y);
+
+  assertEqual(head.value, HOVER_SAMPLES.y[1].measurement.stone.head, "the stone's head shadow at Y 10");
+  assertEqual(pointLabel(head), "25.0%", "printed as the readout prints it");
+  assertEqual(pointLabel(head), formatPercent(HOVER_SAMPLES.y[1].measurement.stone.head), "formatPercent's text");
+
+  const cosAt = pixelOf("x", 0, TABLE.cos);
+  const cos = nearestGraphPoint(hoverOptions(), cosAt.x, cosAt.y);
+
+  assertEqual(cos.value, HOVER_SAMPLES.x[0].measurement.table.cos, "the table's COS at face-up");
+  assertEqual(pointLabel(cos), "(50.0%)", "a dotted point's value in brackets");
+
+  const lone = { x: [{ angle: 0, measurement: measured([0.8349, 0, 0, 0], [0, 0, 0, 0], 0) }], y: [] };
+  const only = nearestGraphPoint(hoverOptions({ samples: lone, shown: { iso: true } }), 0, 0);
+
+  assertEqual(pointLabel(only), "83.5%", "rounded to one decimal, as the readouts do");
+});
+
+// Setup: a label of "(50.0%)" (7 characters, so 7 x LABEL_CHAR_WIDTH + 10 wide and 17 tall) for
+// points in the middle of the graph, at its right edge, at its top, and in its top-right corner.
+// Test: labelBox.
+// Verifies: the label goes above and to the right of its point, 7 px clear, so the pointer (at the
+// point) does not cover it; it flips to the left at the right edge and below at the top; and it is
+// always wholly inside the graph, so it is never cut off.
+Deno.test("the label sits beside its point and stays inside the graph", () => {
+  const text = "(50.0%)";
+  const boxW = 7 * LABEL_CHAR_WIDTH + 10;
+  const inside = box => box.x >= 0 && box.y >= 0 && box.x + box.width <= HOVER_WIDTH && box.y + box.height <= 219;
+
+  const middle = labelBox({ x: 150, y: 100 }, text, HOVER_WIDTH, 219);
+
+  assertClose(middle.width, boxW, "the text's width plus padding");
+  assertEqual([middle.x, middle.y], [157, 100 - 7 - 17], "above and to the right");
+
+  const rightEdge = labelBox({ x: 290, y: 100 }, text, HOVER_WIDTH, 219);
+
+  assertClose(rightEdge.x, 290 - 7 - boxW, "flipped to the left of the point");
+
+  const topEdge = labelBox({ x: 150, y: 22 }, text, HOVER_WIDTH, 219);
+
+  assertEqual(topEdge.y, 22 + 7, "flipped below the point");
+
+  for (const [x, y] of [[150, 100], [290, 100], [150, 22], [290, 22], [36, 195], [0, 219], [300, 0]]) {
+    assert(inside(labelBox({ x, y }, text, HOVER_WIDTH, 219)), `inside the graph for a point at ${x}, ${y}`);
+  }
 });

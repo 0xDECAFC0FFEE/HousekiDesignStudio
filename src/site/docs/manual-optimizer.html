@@ -106,12 +106,15 @@ stone's, then the table's alone in brackets.</p>
 href="tilt-performance.html">Tilt performance analyzer</a>: a line follows the pointer with a dot
 on each curve, the line under the graph names the tilt (for example <span class="ui">Tilt X
 20&deg;</span>), and each curve's value at that tilt replaces its face-up value, the table's in
-brackets. Move the pointer off the graph and the values go back to face up. Pointing doesn't turn
-the stone in the middle, which stays as you left it. While the graph is being measured again,
-pointing at it does nothing.</p>
+brackets. The point on the graph nearest the pointer, on any curve, solid or dotted, is ringed
+with its value written beside it in its curve's colour (a dotted curve's in brackets), so you can
+read a value straight off the curve you are pointing at. Move the pointer off the graph and the ring
+goes and the values go back to face up. Pointing doesn't turn the stone in the middle, which stays
+as you left it. While the graph is being measured again, pointing at it does nothing.</p>
 
-<figure class="side"><img src="images/manual-optimizer/tilt-graph-hover.webp" alt="The same card with the pointer over the graph at 20 degrees of Tilt X: a teal line marks that tilt with a dot on each curve, the line under the graph reads Tilt X 20 degrees, and the values read ISO brightness 83.3%, COS brightness 60.6%, Window 16.7% and Head shadow 0.0%, each with the table's value in brackets." loading="lazy">
-<figcaption>Pointing at the graph at Tilt X 20&deg;: the values are read at that tilt.</figcaption></figure>
+<figure class="side"><img src="images/manual-optimizer/tilt-graph-hover.webp" alt="The same card with the pointer on the ISO brightness curve at 20 degrees of Tilt X: a teal line marks that tilt with a dot on each curve, the point under the pointer is ringed with a tag reading 83.3%, the line under the graph reads Tilt X 20 degrees, and the values read ISO brightness 83.3%, COS brightness 60.6%, Window 16.7% and Head shadow 0.0%, each with the table's value in brackets." loading="lazy">
+<figcaption>Pointing at the graph at Tilt X 20&deg;: the values are read at that tilt, and the
+ringed point is the one nearest the pointer.</figcaption></figure>
 
 <p>When you pick other heights, by clicking a cell, moving with the arrow keys or dragging across
 cells, the graph is measured again for the new stone once you stop, which takes a second or two;
@@ -293,7 +296,7 @@ you opened the optimizer, however many cells you clicked on the way.</p>
   changes nothing</td></tr>
   <tr><td><kbd>Tab</kbd></td><td>The page</td><td>Moves the focus to the grid's cursor cell</td></tr>
   <tr><td>Point</td><td>The tilt performance graph</td><td>Shows each curve's value at the tilt
-  under the pointer</td></tr>
+  under the pointer, and rings the point nearest the pointer with its value</td></tr>
   <tr><td><kbd>Shift</kbd>+arrow keys, then let go of <kbd>Shift</kbd></td><td>The grid</td>
   <td>Lights a rectangle from the cursor's cell, then zooms the grid in on it</td></tr>
   <tr><td><kbd>Escape</kbd> with <kbd>Shift</kbd> held</td><td>The grid, while growing a

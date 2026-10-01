@@ -380,6 +380,122 @@ export function graphSvg({ samples, range = DEFAULT_RANGE, shown, showTable, cur
   return { markup: parts.join(''), width, height };
 }
 
+// ---- the point under the pointer
+//
+// The user, 2026-09-28: "when mousing over the tilt performance graph can you show the nearest
+// point's y value". TiltGraph.svelte marks the measured point nearest the pointer and writes its
+// value beside it. "Nearest" is on screen, in pixels, over every point the graph draws: each
+// measured pose of each shown curve, solid and (when shown) dotted -- never a position between two
+// measured poses, and never a curve whose switch is off.
+
+/**
+ * Every point the graph draws, where graphSvg draws it: `[{ key, table, axis, angle, value, x, y }]`,
+ * `value` the fraction measured (what the label shows) and `x`, `y` the point's pixel in the whole
+ * graph, margins included (graphSvg's own arithmetic, so a marker sits exactly on its curve; `y`
+ * held to the plot as the curve is). Takes graphSvg's `samples`, `range`, `shown`, `showTable` and
+ * `width`.
+ *
+ * In a fixed order, which is how a tie is broken (nearestGraphPoint keeps the first): the solid
+ * curves before the dotted ones (a solid line is drawn over its dotted twin), each in the key's
+ * order (ISO, COS, Window, Head shadow), Tilt X before Tilt Y, and smaller angles first.
+ */
+export function graphPoints({ samples, range = DEFAULT_RANGE, shown, showTable, width }) {
+  const { left, right, top, bottom } = GRAPH_MARGIN;
+  const plotW = width - left - right;
+  const plotH = graphHeight(width) - top - bottom;
+  const points = [];
+
+  for (const table of showTable ? [false, true] : [false]) {
+    for (const { key } of CURVES.filter(curve => shown[curve.key])) {
+      for (const axis of ['x', 'y']) {
+        for (const { angle, measurement } of inReach(samples, axis, range)) {
+          const source = table ? measurement.table : measurement.stone;
+
+          // A table too little in view to average is a gap in its dotted curve: nothing to point at.
+          if (!source) {
+            continue;
+          }
+
+          const value = source[key];
+
+          points.push({
+            key, table, axis, angle, value,
+            x: left + graphX(axis, angle, range) * plotW,
+            y: top + (1 - Math.min(Math.max(value, 0), 1)) * plotH,
+          });
+        }
+      }
+    }
+  }
+
+  return points;
+}
+
+/**
+ * The drawn point nearest the pixel (`px`, `py`) of the graph (margins included, as the pointer's
+ * offset in the element), by straight-line distance on screen; the first in graphPoints' order when
+ * two are as near; null when nothing is drawn. A pointer over a margin still has a nearest point:
+ * the one at the plot's edge nearest it.
+ */
+export function nearestGraphPoint(options, px, py) {
+  let best = null;
+  let bestDistance = Infinity;
+
+  for (const point of graphPoints(options)) {
+    const distance = (point.x - px) ** 2 + (point.y - py) ** 2;
+
+    // Strictly nearer only, so a tie keeps the earlier point.
+    if (distance < bestDistance) {
+      best = point;
+      bestDistance = distance;
+    }
+  }
+
+  return best;
+}
+
+/** The label's text for a point: its value as the key prints it, the table's in brackets as there. */
+export function pointLabel(point) {
+  return point.table ? `(${formatPercent(point.value)})` : formatPercent(point.value);
+}
+
+/** The label's text size, in pixels, in the numbers' monospaced font. */
+export const LABEL_FONT_SIZE = 11;
+/** How wide each of its characters is: a monospaced font's advance is about 0.6 of its size. */
+export const LABEL_CHAR_WIDTH = 0.6 * LABEL_FONT_SIZE;
+const LABEL_PAD_X = 5;
+const LABEL_HEIGHT = 17;
+// How far the box keeps from the point it labels, across and up (or down).
+const LABEL_OFFSET = 7;
+
+/**
+ * The label's box beside a marked point: `{ x, y, width, height }` in the graph's pixels. Above and
+ * to the right of the point by default, out of the way of the pointer (which is at or near the
+ * point); to its left when that would run past the graph's right edge, below it when it would run
+ * past the top, and always held inside the graph, so it is whole at every edge. Its width is the
+ * text's, LABEL_CHAR_WIDTH a character, plus padding.
+ */
+export function labelBox({ x, y }, text, width, height) {
+  const boxW = text.length * LABEL_CHAR_WIDTH + 2 * LABEL_PAD_X;
+  let bx = x + LABEL_OFFSET;
+  let by = y - LABEL_OFFSET - LABEL_HEIGHT;
+
+  if (bx + boxW > width) {
+    bx = x - LABEL_OFFSET - boxW;
+  }
+
+  if (by < 0) {
+    by = y + LABEL_OFFSET;
+  }
+
+  return {
+    x: Math.min(Math.max(bx, 0), Math.max(width - boxW, 0)),
+    y: Math.min(Math.max(by, 0), Math.max(height - LABEL_HEIGHT, 0)),
+    width: boxW,
+    height: LABEL_HEIGHT,
+  };
+}
+
 /**
  * The graph as a picture on its own, for the Download button: the design's name, then the
  * settings it was measured with, the graph, and a legend of the curves drawn, on a solid
