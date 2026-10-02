@@ -49,6 +49,8 @@ pub mod gpu;
 pub mod loader;
 pub mod mesh;
 pub mod params;
+// Tools > Record rendering's frames, drawn off screen at the video's size (T-0290).
+mod recording;
 #[cfg(test)]
 mod rough_glass;
 pub mod tilt;
@@ -1178,6 +1180,10 @@ pub struct GemApp {
     /// Backing pixels per CSS pixel for the wireframe's line width while a preview is drawn
     /// (`uWireframePixelScale`), which has no canvas of its own to measure; `None` otherwise.
     pixel_scale_override: Option<f32>,
+
+    /// Tools > Record rendering's final render (T-0290): its settings, its images and the frame
+    /// being drawn; see `recording`.
+    recorder: recording::Recorder,
 }
 
 #[wasm_bindgen]
@@ -1342,6 +1348,7 @@ impl GemApp {
             tilt_result: Vec::new(),
             thumbnails: thumbnails::Thumbnails::default(),
             pixel_scale_override: None,
+            recorder: recording::Recorder::default(),
         })
     }
 
@@ -3557,6 +3564,7 @@ impl Drop for GemApp {
         let gl = self.gl.clone();
 
         self.thumbnails.release(&gl);
+        self.recorder.release(&gl);
 
         self.gl.delete_vertex_array(Some(&self.vertex_array));
 

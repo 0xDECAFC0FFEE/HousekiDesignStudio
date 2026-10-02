@@ -70,6 +70,17 @@ uses animation utilities from tw-animate-css (MIT, Copyright (c) 2025 Wombosvide
 Vite plugin, the shadcn-svelte CLI and these packages' exact versions are pinned in
 web/package.json and web/deno.lock.
 
+The page's Tools > Record rendering writes its MP4 videos with mp4-muxer, an MP4 multiplexer,
+bundled into the page's inlined script. It is used under the MIT licence, which is compatible
+with the Apache License 2.0. The video itself is encoded by the browser's own H.264 encoder
+(WebCodecs); no encoder ships with the page. Its exact version is pinned in web/package.json
+and web/deno.lock.
+
+    mp4-muxer
+    Copyright (c) 2023 Vanilagy
+    https://github.com/Vanilagy/mp4-muxer
+    MIT License
+
 src/shaders/lux/ contains files ported from LuxCoreRender, a physically based
 renderer. The port is a derivative work distributed under the Apache License,
 Version 2.0, the same licence LuxCore itself uses, so it carries alongside

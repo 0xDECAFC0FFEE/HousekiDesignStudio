@@ -271,16 +271,18 @@ export function setRowClickOverride(handler) {
 // Whether a click on the stone may pick a facet (T-0234). Not while the cutting assistant shows a
 // rough of its own: its facets are not the design's, and the facet <-> tier map belongs to the
 // design's stone, so a pick would light facets that are not there. viewport.js asks; the mode
-// registers the reader, as with the lock.
-let stonePickBlock = () => false;
+// registers the reader, as with the lock. Several modes may (T-0290: Tools > Record rendering,
+// where a press on the stone starts a recording rather than selecting a tier), so it is a list of
+// readers, as the design lock is: picks are blocked while any of them says so.
+const stonePickBlocks = [];
 
 export function setStonePickBlock(reader) {
-  stonePickBlock = reader;
+  stonePickBlocks.push(reader);
 }
 
 /** True while clicks on the stone must not select anything. */
 export function stonePickBlocked() {
-  return stonePickBlock();
+  return stonePickBlocks.some(reader => reader());
 }
 
 export function setStoneHooks(hooks) {

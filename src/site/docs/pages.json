@@ -88,8 +88,7 @@
         {
           "slug": "render-recording",
           "title": "Recording renders",
-          "summary": "Record the rendered stone as it turns.",
-          "wip": true
+          "summary": "Drag the stone once, and save that motion rendered at full quality as an MP4 video."
         }
       ]
     }

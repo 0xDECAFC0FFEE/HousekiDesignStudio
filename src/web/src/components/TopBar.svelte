@@ -47,6 +47,8 @@
   import { manualOptimizer, enterManualOptimizer } from '../lib/manual_optimizer_mode.js';
   // Edit > Rotate by index (T-0287), likewise.
   import { rotateIndexOpen, enterRotateIndexMode } from '../lib/rotate_index_mode.js';
+  // Tools > Record rendering (T-0290), likewise.
+  import { recording, enterRecording } from '../lib/record_mode.js';
   // T-0204/T-0205/T-0207 originally wired these three through onSelect={() => import(...)},
   // a dynamic import, each deliberately avoiding this file's own top-level import lines so three
   // concurrent agents' edits could never collide on the same line. That safely built and tested
@@ -224,7 +226,7 @@
   // already open -- one session at a time, as edit mode has it. A greyed item that cannot say
   // why is exactly what T-0208's tips were written against.
   const SCALE_HEIGHT_TIP = 'Makes the crown or the pavilion taller or flatter, each by its own ratio: every facet turns so the tangent of its angle is multiplied by the ratio, and moves so its meets still meet. The girdle stays where it is.';
-  const scaleHeightInert = $derived(!$tierView.hasDesign || $editing !== null || $scaleHeightOpen || $cutting.open || $resizeGirdleOpen || $tiltPerformance.open || $manualOptimizer.open || $rotateIndexOpen);
+  const scaleHeightInert = $derived(!$tierView.hasDesign || $editing !== null || $scaleHeightOpen || $cutting.open || $resizeGirdleOpen || $tiltPerformance.open || $manualOptimizer.open || $rotateIndexOpen || $recording.open);
   const scaleHeightTip = $derived(
     !$tierView.hasDesign ? `${SCALE_HEIGHT_TIP} There is no design loaded to scale.`
       : $editing !== null ? `${SCALE_HEIGHT_TIP} Finish editing the tier first: Done, or Cancel.`
@@ -234,12 +236,13 @@
               : $tiltPerformance.open ? `${SCALE_HEIGHT_TIP} ${CLOSE_TILT_TIP}`
                 : $manualOptimizer.open ? `${SCALE_HEIGHT_TIP} ${CLOSE_OPTIMIZER_TIP}`
                   : $rotateIndexOpen ? `${SCALE_HEIGHT_TIP} ${CLOSE_ROTATE_TIP}`
-                    : SCALE_HEIGHT_TIP);
+                    : $recording.open ? `${SCALE_HEIGHT_TIP} ${CLOSE_RECORD_TIP}`
+                      : SCALE_HEIGHT_TIP);
 
   // Tools > Cutting assistant (T-0234): live, and inert, saying why, in the same cases as scale
   // height -- no design to walk through, or another mode open -- or while it is already open.
   const CUTTING_TIP = 'Walks you through cutting the stone from a rough, one facet at a time: each step shows the angle and tooth to set and the rock as it will look once that facet is cut, on its dop. The design is not changed.';
-  const cuttingInert = $derived(!$tierView.hasDesign || $editing !== null || $scaleHeightOpen || $cutting.open || $resizeGirdleOpen || $tiltPerformance.open || $manualOptimizer.open || $rotateIndexOpen);
+  const cuttingInert = $derived(!$tierView.hasDesign || $editing !== null || $scaleHeightOpen || $cutting.open || $resizeGirdleOpen || $tiltPerformance.open || $manualOptimizer.open || $rotateIndexOpen || $recording.open);
   const cuttingTip = $derived(
     !$tierView.hasDesign ? `${CUTTING_TIP} There is no design loaded to cut.`
       : $editing !== null ? `${CUTTING_TIP} Finish editing the tier first: Done, or Cancel.`
@@ -249,11 +252,12 @@
               : $tiltPerformance.open ? `${CUTTING_TIP} ${CLOSE_TILT_TIP}`
                 : $manualOptimizer.open ? `${CUTTING_TIP} ${CLOSE_OPTIMIZER_TIP}`
                   : $rotateIndexOpen ? `${CUTTING_TIP} ${CLOSE_ROTATE_TIP}`
-                    : CUTTING_TIP);
+                    : $recording.open ? `${CUTTING_TIP} ${CLOSE_RECORD_TIP}`
+                      : CUTTING_TIP);
 
   // Edit > Resize girdle (T-0237), the same way: what it does, then why it is inert when it is.
   const RESIZE_GIRDLE_TIP = 'Cuts every facet deeper or shallower by the same ratio while the girdle facets stay where they are, so the girdle band grows or shrinks against the rest of the stone. Every angle stays as cut.';
-  const resizeGirdleInert = $derived(!$tierView.hasDesign || $editing !== null || $scaleHeightOpen || $cutting.open || $resizeGirdleOpen || $tiltPerformance.open || $manualOptimizer.open || $rotateIndexOpen);
+  const resizeGirdleInert = $derived(!$tierView.hasDesign || $editing !== null || $scaleHeightOpen || $cutting.open || $resizeGirdleOpen || $tiltPerformance.open || $manualOptimizer.open || $rotateIndexOpen || $recording.open);
   const resizeGirdleTip = $derived(
     !$tierView.hasDesign ? `${RESIZE_GIRDLE_TIP} There is no design loaded to resize.`
       : $editing !== null ? `${RESIZE_GIRDLE_TIP} Finish editing the tier first: Done, or Cancel.`
@@ -263,13 +267,14 @@
               : $tiltPerformance.open ? `${RESIZE_GIRDLE_TIP} ${CLOSE_TILT_TIP}`
                 : $manualOptimizer.open ? `${RESIZE_GIRDLE_TIP} ${CLOSE_OPTIMIZER_TIP}`
                   : $rotateIndexOpen ? `${RESIZE_GIRDLE_TIP} ${CLOSE_ROTATE_TIP}`
-                    : RESIZE_GIRDLE_TIP);
+                    : $recording.open ? `${RESIZE_GIRDLE_TIP} ${CLOSE_RECORD_TIP}`
+                      : RESIZE_GIRDLE_TIP);
 
   // Tools > Tilt performance (T-0261): live for any stone, a plain .obj included, and inert,
   // saying why, while another mode is open or it already is.
   const CLOSE_TILT_TIP = 'Close tilt performance first: Done, or Escape.';
   const TILT_TIP = 'How much light the stone returns as it is tilted up to 33° (or as far as you choose) one way and then the other, the way it is actually looked at rather than only straight on: brightness under even and under overhead light, the see-through window, and the head shadow, for the whole stone and for the table.';
-  const tiltInert = $derived($editing !== null || $scaleHeightOpen || $cutting.open || $resizeGirdleOpen || $tiltPerformance.open || $manualOptimizer.open || $rotateIndexOpen);
+  const tiltInert = $derived($editing !== null || $scaleHeightOpen || $cutting.open || $resizeGirdleOpen || $tiltPerformance.open || $manualOptimizer.open || $rotateIndexOpen || $recording.open);
   const tiltTip = $derived(
     $editing !== null ? `${TILT_TIP} Finish editing the tier first: Done, or Cancel.`
       : $scaleHeightOpen ? `${TILT_TIP} Finish scaling the height first: Done, or Cancel.`
@@ -278,13 +283,14 @@
             : $tiltPerformance.open ? `${TILT_TIP} It is already open.`
               : $manualOptimizer.open ? `${TILT_TIP} ${CLOSE_OPTIMIZER_TIP}`
                 : $rotateIndexOpen ? `${TILT_TIP} ${CLOSE_ROTATE_TIP}`
-                  : TILT_TIP);
+                  : $recording.open ? `${TILT_TIP} ${CLOSE_RECORD_TIP}`
+                    : TILT_TIP);
 
   // Edit > Manual optimizer (T-0273): live with a design loaded, and inert, saying why, while
   // another mode is open or it already is.
   const CLOSE_OPTIMIZER_TIP = 'Finish the manual optimizer first: Done, or Cancel.';
   const OPTIMIZER_TIP = 'Shows the stone in a grid with taller and flatter crowns and pavilions, so you can compare them side by side and pick the heights that look best.';
-  const optimizerInert = $derived(!$tierView.hasDesign || $editing !== null || $scaleHeightOpen || $cutting.open || $resizeGirdleOpen || $tiltPerformance.open || $manualOptimizer.open || $rotateIndexOpen);
+  const optimizerInert = $derived(!$tierView.hasDesign || $editing !== null || $scaleHeightOpen || $cutting.open || $resizeGirdleOpen || $tiltPerformance.open || $manualOptimizer.open || $rotateIndexOpen || $recording.open);
   const optimizerTip = $derived(
     !$tierView.hasDesign ? `${OPTIMIZER_TIP} There is no design loaded to optimize.`
       : $editing !== null ? `${OPTIMIZER_TIP} Finish editing the tier first: Done, or Cancel.`
@@ -294,13 +300,14 @@
               : $tiltPerformance.open ? `${OPTIMIZER_TIP} ${CLOSE_TILT_TIP}`
                 : $manualOptimizer.open ? `${OPTIMIZER_TIP} It is already open.`
                   : $rotateIndexOpen ? `${OPTIMIZER_TIP} ${CLOSE_ROTATE_TIP}`
-                    : OPTIMIZER_TIP);
+                    : $recording.open ? `${OPTIMIZER_TIP} ${CLOSE_RECORD_TIP}`
+                      : OPTIMIZER_TIP);
 
   // Edit > Rotate by index (T-0287): live with a design loaded, and inert, saying why, while
   // another mode is open or it already is -- the manual optimizer's pattern.
   const CLOSE_ROTATE_TIP = 'Finish rotating the design first: Done, or Cancel.';
   const ROTATE_TIP = 'Turns the whole design round the index gear by a number of teeth: every facet\'s tooth moves by the same amount, wrapping round the gear, and the angles and depths stay as they are.';
-  const rotateInert = $derived(!$tierView.hasDesign || $editing !== null || $scaleHeightOpen || $cutting.open || $resizeGirdleOpen || $tiltPerformance.open || $manualOptimizer.open || $rotateIndexOpen);
+  const rotateInert = $derived(!$tierView.hasDesign || $editing !== null || $scaleHeightOpen || $cutting.open || $resizeGirdleOpen || $tiltPerformance.open || $manualOptimizer.open || $rotateIndexOpen || $recording.open);
   const rotateTip = $derived(
     !$tierView.hasDesign ? `${ROTATE_TIP} There is no design loaded to rotate.`
       : $editing !== null ? `${ROTATE_TIP} Finish editing the tier first: Done, or Cancel.`
@@ -310,7 +317,24 @@
               : $tiltPerformance.open ? `${ROTATE_TIP} ${CLOSE_TILT_TIP}`
                 : $manualOptimizer.open ? `${ROTATE_TIP} ${CLOSE_OPTIMIZER_TIP}`
                   : $rotateIndexOpen ? `${ROTATE_TIP} It is already open.`
-                    : ROTATE_TIP);
+                    : $recording.open ? `${ROTATE_TIP} ${CLOSE_RECORD_TIP}`
+                      : ROTATE_TIP);
+
+  // Tools > Record rendering (T-0290): live for any stone, a plain .obj included (tilt
+  // performance's rule), and inert, saying why, while another mode is open or it already is.
+  const CLOSE_RECORD_TIP = 'Close record rendering first: Done, or Escape.';
+  const RECORD_TIP = 'Records a video of the stone: drag it once along the path you want, drawn with a fast renderer, and each moment of the drag is then rendered again at full quality, at the size and frame rate you choose, and saved as an MP4.';
+  const recordInert = $derived($editing !== null || $scaleHeightOpen || $cutting.open || $resizeGirdleOpen || $tiltPerformance.open || $manualOptimizer.open || $rotateIndexOpen || $recording.open);
+  const recordTip = $derived(
+    $editing !== null ? `${RECORD_TIP} Finish editing the tier first: Done, or Cancel.`
+      : $scaleHeightOpen ? `${RECORD_TIP} Finish scaling the height first: Done, or Cancel.`
+        : $cutting.open ? `${RECORD_TIP} Close the cutting assistant first: Done, or Escape.`
+          : $resizeGirdleOpen ? `${RECORD_TIP} Finish resizing the girdle first: Done, or Cancel.`
+            : $tiltPerformance.open ? `${RECORD_TIP} ${CLOSE_TILT_TIP}`
+              : $manualOptimizer.open ? `${RECORD_TIP} ${CLOSE_OPTIMIZER_TIP}`
+                : $rotateIndexOpen ? `${RECORD_TIP} ${CLOSE_ROTATE_TIP}`
+                  : $recording.open ? `${RECORD_TIP} It is already open.`
+                    : RECORD_TIP);
 
   // Mode status (moved here from two places, 2026-09-24): SettingsPanel's own pinned footer,
   // "Mode: Overview" (added 2026-09-22, the user: "at the bottom of the render settings section
@@ -343,7 +367,8 @@
             : $tiltPerformance.open ? 'Tilt performance'
               : $manualOptimizer.open ? 'Manual optimizer'
                 : $rotateIndexOpen ? 'Rotating by index'
-                  : 'Overview');
+                  : $recording.open ? 'Record rendering'
+                    : 'Overview');
 </script>
 
 <svelte:document onkeydown={onDocumentKeydown} />
@@ -482,8 +507,8 @@
       <Menubar.Content id="menu-dropdown-tools" aria-label="Tools" class={MENU} align="start"
         sideOffset={4} alignOffset={0}>
         <!-- T-0208, the user's list, plus Record rendering added later, less Manual optimizer, which
-             moved to Edit (2026-09-23). All but the Cutting assistant (live since T-0234) and Tilt
-             performance (live since T-0261) are inert for now, but the menu reads as "things are coming". Each is a WINDOW onto the design rather than a change to it, which is why
+             moved to Edit (2026-09-23). All but the Cutting assistant (live since T-0234), Tilt
+             performance (live since T-0261) and Record rendering (live since T-0290) are inert for now, but the menu reads as "things are coming". Each is a WINDOW onto the design rather than a change to it, which is why
              none of them is in Edit above. Each of these, like Edit's six transforms, is
              planned to become its own mode once it is built (see
              kb/application-modes-current-and-planned.md). -->
@@ -503,9 +528,12 @@
           class="{ITEM} {INERT}" data-tip={cuttingTip}
           onSelect={() => { if (!cuttingInert) enterCuttingAssistant(); }}
           >Cutting assistant</Menubar.Item>
-        <Menubar.Item id="menu-item-record-rendering" {@attach ariaDisabled(() => true)}
-          class="{ITEM} {INERT}"
-          data-tip="Records the render as a video while you orbit, tilt or step through the design, for sharing outside the page. {PLACEHOLDER_TIP}"
+        <!-- Live since T-0290 (2026-09-29, the user: "the left bar should be the recording
+             settings ... once the user clicks record and the user then clicks on the rock, the app
+             should start recording"): opens record_mode.js. -->
+        <Menubar.Item id="menu-item-record-rendering" {@attach ariaDisabled(() => recordInert)}
+          class="{ITEM} {INERT}" data-tip={recordTip}
+          onSelect={() => { if (!recordInert) enterRecording(); }}
           >Record rendering</Menubar.Item>
       </Menubar.Content>
     </Menubar.Menu>

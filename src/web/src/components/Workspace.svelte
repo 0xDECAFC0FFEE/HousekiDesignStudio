@@ -46,6 +46,8 @@
   import { tiltPerformance } from '../lib/tilt_performance_mode.js';
   import ManualOptimizerGrid from './ManualOptimizerGrid.svelte';
   import { manualOptimizer } from '../lib/manual_optimizer_mode.js';
+  import RecordPanel from './RecordPanel.svelte';
+  import { recording } from '../lib/record_mode.js';
   import { beginPaneScoot, endPaneScoot } from '../lib/viewport.js';
   import {
     readSetting, writeSetting, INSTRUCTIONS_WIDTH_SETTING, INSTRUCTIONS_WIDTH_MIN,
@@ -253,10 +255,13 @@
          stacks the right-hand column's layers: both stay mounted, the one not in use
          `visibility: hidden`, so the instructions keep their scroll and folds. -->
     <div id="left-stack">
-      <div class="panel-layer" class:panel-layer-off={$tiltPerformance.open || $manualOptimizer.open}><InstructionsPane /></div>
+      <div class="panel-layer" class:panel-layer-off={$tiltPerformance.open || $manualOptimizer.open || $recording.open}><InstructionsPane /></div>
       <div class="panel-layer" class:panel-layer-off={!$tiltPerformance.open}><TiltPerformancePanel /></div>
       <!-- Edit > Manual optimizer's grid of previews (T-0273), the same way. -->
       <div class="panel-layer" class:panel-layer-off={!$manualOptimizer.open}><ManualOptimizerGrid /></div>
+      <!-- Tools > Record rendering's settings (T-0290), the same way: "the right bar should stay
+           the render settings but the left bar should be the recording settings". -->
+      <div class="panel-layer" class:panel-layer-off={!$recording.open}><RecordPanel /></div>
     </div>
   </Resizable.Pane>
 
@@ -266,8 +271,9 @@
 
   <Resizable.Pane minSize={rendererMin}>
     <!-- The sub bar sits right above the renderer (2026-09-19), so the instructions and settings
-         panes run up to the top bar. -->
-    <div class="relative flex h-full flex-col">
+         panes run up to the top bar. Inert while Tools > Record rendering draws the video's frames
+         (T-0290): the view is held still then, and turning it would only look broken. -->
+    <div class="relative flex h-full flex-col" inert={$recording.phase === 'rendering' || $recording.phase === 'encoding'}>
       <!-- Shown only in edit mode (2026-09-19, the user's request), laid over the top of the
            renderer rather than above it, so showing and hiding it never resizes the renderer
            (which would redraw the stone). -->

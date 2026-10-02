@@ -28,6 +28,8 @@
   // Edit > Rotate by index (T-0287): its panel, and its Cancel for Escape.
   import RotateIndexPanel from './components/RotateIndexPanel.svelte';
   import { rotateIndexOpen, cancelRotateIndexMode } from './lib/rotate_index_mode.js';
+  // Tools > Record rendering (T-0290): its Escape, and whether its final render is running.
+  import { recording, escapeRecording } from './lib/record_mode.js';
   import { fullscreen, exitFullscreen } from './lib/fullscreen.js';
   import { eventTargetTakesText, eventTargetIsEditable, eventTargetActivatesOnEnter } from './lib/keys.js';
   import { get } from 'svelte/store';
@@ -166,6 +168,11 @@
       // settings stay): that Escape leaves fullscreen first, bringing the pane back, as edit
       // mode's order above does the other way round.
       exitTiltPerformance();
+    } else if ($recording.open && !$fullscreen) {
+      // Record rendering (T-0290), in the left pane like tilt performance, so the same
+      // fullscreen rule. One step back per press: a render is cancelled, a take dropped, the
+      // recorder disarmed, and only then the mode closed.
+      escapeRecording();
     } else {
       exitFullscreen();
     }
@@ -200,7 +207,10 @@
     <!-- Scale height mode's panel (T-0231) is a third layer of the same stack, shown while that
          mode is open, the way edit mode's is, and the cutting assistant's bar (T-0234) a fourth. -->
     {#snippet right()}
-      <div id="panel-stack">
+      <!-- Inert while Tools > Record rendering draws the video's frames (T-0290): the frames are
+           drawn with the settings as they were when the render started, so the controls that
+           would seem to change them are held until it is done or cancelled. -->
+      <div id="panel-stack" inert={$recording.phase === 'rendering' || $recording.phase === 'encoding'}>
         <!-- Not swapped out for tilt performance (T-0261), whose panel takes the LEFT pane
              instead (Workspace.svelte): the user, "tilt performance mode should leave the render
              details on the right side of the screen". -->

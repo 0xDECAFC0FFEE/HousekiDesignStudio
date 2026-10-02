@@ -1,17 +1,142 @@
 <h1>Recording renders</h1>
 
-<div class="note wip"><p>This feature is still being built. The menu item below exists, but choosing
-it does nothing yet.</p></div>
+<p>A still render only shows a stone from one angle. Record rendering turns it into a video: you
+drag the stone once along the path you want, drawn with a fast renderer so it keeps up with the
+mouse, and the studio then renders every moment of that drag again at full quality, at the size
+and frame rate you choose, and saves it as an MP4 video you can share.</p>
 
-<p>A still render only shows a stone from one angle at a time. Recording the render would capture
-it as a video instead — while it's orbited, tilted, or stepped through the cutting instructions —
-so a design's brightness and fire could be shared outside the page the way a still image is
-shared today, but showing the stone actually move.</p>
+<figure><img src="images/render-recording/overview.webp" alt="The studio with Record rendering open: the recording settings in the left-hand pane with the Tracing and Video cards and a red Record button, the stone in the middle, and the render settings on the right." loading="lazy">
+<figcaption>Record rendering open. The recording settings take the place of the cutting
+instructions on the left; the render settings stay on the right.</figcaption></figure>
 
-<p>None of that is built yet. In the studio's <span class="ui">Tools</span> menu, an item named
-<span class="ui">Record rendering</span> is already there, but it is greyed out and does nothing
-when clicked. Hovering it shows a tooltip describing what it is meant to do, ending "Not built
-yet."</p>
+<h2>Opening it</h2>
 
-<figure><img src="images/render-recording/tooltip.webp" alt="Hovering Record rendering in the Tools menu shows a tooltip reading: Records the render as a video while you orbit, tilt or step through the design, for sharing outside the page. Not built yet." loading="lazy">
-<figcaption>Tools &gt; Record rendering, greyed out, with its tooltip shown on hover.</figcaption></figure>
+<p>Choose <span class="ui">Tools</span> &gt; <span class="ui">Record rendering</span>. It works on
+any stone, whether a design you opened or a plain .obj model. It is greyed out while another mode,
+such as editing a tier, is open; its tooltip then says which one to finish first. While it is
+open, the top bar's mode readout says <span class="ui">Record rendering</span>.</p>
+
+<figure class="side"><img src="images/render-recording/tools-menu.webp" alt="The Tools menu open with Record rendering highlighted." loading="lazy">
+<figcaption>The <span class="ui">Tools</span> menu.</figcaption></figure>
+
+<h2>The recording settings</h2>
+
+<figure class="side"><img src="images/render-recording/panel.webp" alt="The recording settings pane: the Tracing card with Preview and Final pickers, the Video card with a Frames per second slider, width and height fields and 720p, 1080p, Square and 4K buttons, and the red Record button." loading="lazy">
+<figcaption>The pane, from the top: the two renderers, the video's frame rate and size, and the
+red <span class="ui">Record</span> button. <span class="ui">Done</span> is at the bottom.</figcaption></figure>
+
+<p>The <span class="ui">Tracing</span> card has two renderer pickers:</p>
+
+<table>
+  <tr><th>Picker</th><th>What it is for</th></tr>
+  <tr><td><span class="ui">Preview</span></td><td>The renderer the stone is drawn with while you
+  drag it, and while the mode is open. Pick a fast one, such as
+  <a href="deterministic-renderer.html">Deterministic</a>, so the stone keeps up with the mouse.
+  While the mode is open, the renderer picker in the render settings on the right is this same
+  setting.</td></tr>
+  <tr><td><span class="ui">Final</span></td><td>The renderer every frame of the video is drawn
+  with. The first time you open the mode it is the renderer you were using.</td></tr>
+</table>
+
+<p>The <span class="ui">Video</span> card sets the video itself:</p>
+
+<ul>
+  <li><span class="ui">Frames per second</span>, from 1 to 60 (30 to start with). Drag the slider,
+  or click the value to type one.</li>
+  <li><span class="ui">Resolution</span>, the width and height in pixels, typed into the two
+  fields (<kbd>Enter</kbd> or leaving the field applies it) or picked with
+  <span class="ui">720p</span> (1280 × 720), <span class="ui">1080p</span> (1920 × 1080),
+  <span class="ui">Square</span> (1080 × 1080) or <span class="ui">4K</span> (3840 × 2160). Each
+  side can be 16 to 3840 pixels and is rounded down to an even number, which MP4 video needs.</li>
+</ul>
+
+<div class="note"><p>The video is always the size you set here, whatever the size of your window
+or screen. The stone fills the same share of the picture's height as it does of the render in the
+middle, at the zoom you have when you let go.</p></div>
+
+<p>These settings are remembered the next time you open the studio. The render settings on the
+right (material, lighting, bounces and the rest) are what the video is rendered with.</p>
+
+<h2>Recording</h2>
+
+<ol>
+  <li>Click the red <span class="ui">Record</span> button. It turns solid red and reads
+  <span class="ui">Armed: drag the stone</span>. Click it again to disarm it.</li>
+  <li>Press on the stone and drag it along the path you want. Everything a drag can do is
+  recorded: tipping it sideways and tilting it towards and away from you, both at once if you
+  drag diagonally, and, with <kbd>Shift</kbd> held, spinning it about its own axis. You can press
+  or let go of <kbd>Shift</kbd> part way through. The line under the button counts the seconds
+  and frames as you go.</li>
+  <li>Let go. The recording ends and the video starts rendering.</li>
+</ol>
+
+<figure class="side"><img src="images/render-recording/recording.webp" alt="The Record button solid red and reading Recording, with the line under it counting the seconds and frames recorded so far." loading="lazy">
+<figcaption>Recording: the stone follows the mouse, drawn with the <span class="ui">Preview</span>
+renderer, and the line counts what has been recorded.</figcaption></figure>
+
+<p>The video plays back at the speed you moved: a frame is taken every 1/30 of a second (or
+whatever frame rate you set) from the moment you press to the moment you let go, each showing the
+stone as it was on screen at that moment, so pauses in the drag are pauses in the video. A click
+that does not move the stone records nothing, and the recorder stays armed.</p>
+
+<h2>Rendering the video</h2>
+
+<figure class="side"><img src="images/render-recording/rendering.webp" alt="The Video render card while rendering: a progress bar part way along, the frame just rendered, and a Cancel button, with the line above saying which frame is being rendered." loading="lazy">
+<figcaption>Rendering: the bar fills as frames are finished, and the picture shows the last one.</figcaption></figure>
+
+<p>Once you let go, each frame is rendered again with the <span class="ui">Final</span> renderer at
+the video's size. The <span class="ui">Video render</span> card shows a bar that fills as the
+frames are finished and a small picture of the last one, and the line above says which frame is
+being rendered. The stone in the middle and the render settings are held still while it runs, so
+nothing can change the video half way through; the rest of the studio stays responsive.</p>
+
+<p>A <a href="deterministic-renderer.html">Deterministic</a> or Flat video renders a frame in a
+small fraction of a second. A <a href="monte-carlo-renderer.html">Monte Carlo</a> frame gathers
+the <span class="ui">Samples to accumulate</span> set in the render settings, the same amount the
+render in the middle gathers before it stops improving, so each frame takes as long as that render
+takes to clear. Lower <span class="ui">Samples to accumulate</span> for a quicker, grainier video.
+The <span class="ui">Tracing</span> card says how many samples each frame gathers when
+<span class="ui">Final</span> is Monte Carlo.</p>
+
+<p>Click <span class="ui">Cancel</span>, or press <kbd>Esc</kbd>, to stop rendering. Nothing is
+saved, and you can record again straight away.</p>
+
+<h2>Saving the video</h2>
+
+<p>When the last frame is done, the studio finishes the MP4 and offers to save it. Where your
+browser has a Save As dialog for web pages (Chrome, Edge), you choose the folder and name there.
+Those browsers only open that dialog right after a click, which a long render has outlasted, so the
+card usually reads "The video is ready" and the dialog opens when you click
+<span class="ui">Save video</span>. The dialog starts in your Downloads folder; look at the
+folder it shows before you click Save. Other browsers save it to your downloads folder. The file is
+named after the design, for example <em>Hex Cut V2 recording.mp4</em>.</p>
+
+<p>The line above <span class="ui">Save video</span> says what happened: the name the video was
+saved under, or that it was downloaded. If you close the dialog without saving, it says the video
+was not saved. If the browser cannot write the file where you chose, it says so in red, with the
+reason. In either case click <span class="ui">Save video</span> to try again; the video is kept
+until you record again or click <span class="ui">Done</span>.</p>
+
+<figure class="side"><img src="images/render-recording/done.webp" alt="The Video render card after saving: a full progress bar, the last frame, the line above giving the number of frames, the length, the size in pixels and the file size, a line naming the saved file, and a Save video button." loading="lazy">
+<figcaption>The finished video, saved: the line above <span class="ui">Save video</span> names
+the file.</figcaption></figure>
+
+<p>The video is H.264 in an MP4 file, which plays in every common video player, in browsers and
+on phones. <span class="ui">Record again</span> starts a new recording with the same settings.</p>
+
+<div class="note"><p>Making the MP4 needs a browser that can encode H.264 video for web pages
+itself. Chrome and Edge can; other browsers may or may not, depending on the browser and the
+computer, and the pane checks as it opens. In a browser that cannot, the pane says so under the
+settings and the <span class="ui">Record</span> button stays greyed out. A size too large for your
+browser's encoder is reported the same way; pick a smaller one.</p></div>
+
+<h2>Closing it</h2>
+
+<p>Click <span class="ui">Done</span> at the bottom of the pane. <kbd>Esc</kbd> steps back one
+thing at a time: it cancels a video being rendered, drops a recording you are making, disarms the
+<span class="ui">Record</span> button, and, with none of those going on, closes the mode. The
+cutting instructions come back, with the renderer and the view you had before you opened it.
+Nothing in the design changes, so <span class="ui">Undo</span> and <span class="ui">Redo</span> do
+nothing while the mode is open, and the design cannot be edited until it is closed. If you switch
+to fullscreen while it is open, the pane is hidden with the cutting instructions; the first
+<kbd>Esc</kbd> then leaves fullscreen.</p>
