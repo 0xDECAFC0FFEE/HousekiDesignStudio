@@ -1,7 +1,8 @@
 /*
  * recording_test.js -- tests for Tools > Record rendering's pure logic (T-0290),
  * src/web/src/lib/recording.js: which poses of a recorded drag become the video's frames, the
- * sizes and frame rates a video may have, how many Monte Carlo passes a frame takes, which H.264
+ * sizes and frame rates a video may have, how many Monte Carlo passes a frame takes, what the
+ * two progress bars show (T-0309), which H.264
  * configuration is asked for, and how the finished video is saved when the browser's Save As
  * dialog is there, refuses, is cancelled or is missing, or the file cannot be written (T-0297),
  * and what the panel says about each.
@@ -12,9 +13,10 @@
  */
 
 import {
-  samplePoses, videoSeconds, clampFps, fitSize, passesPerFrame, bitrateFor, codecCandidates,
-  chooseEncoderConfig, saveRecording, saveMessage, videoFilename, RENDERER_DETERMINISTIC,
-  RENDERER_MONTE_CARLO, RENDERER_FLAT, SIZE_MAX, SIZE_MIN, PIXELS_MAX,
+  samplePoses, videoSeconds, clampFps, fitSize, passesPerFrame, samplesEachPass, renderProgress,
+  progressBars, bitrateFor, codecCandidates, chooseEncoderConfig, saveRecording, saveMessage,
+  videoFilename, RENDERER_DETERMINISTIC, RENDERER_MONTE_CARLO, RENDERER_FLAT, SIZE_MAX, SIZE_MIN,
+  PIXELS_MAX,
 } from "../src/lib/recording.js";
 
 function assertEqual(actual, expected, message) {
@@ -122,6 +124,111 @@ Deno.test("a Monte Carlo frame takes the view's own samples to accumulate", () =
   assertEqual(passesPerFrame(RENDERER_MONTE_CARLO, 0, 0), 1, "never below one");
   assertEqual(passesPerFrame(RENDERER_DETERMINISTIC, 512, 1), 1, "deterministic: one");
   assertEqual(passesPerFrame(RENDERER_FLAT, 512, 1), 1, "flat: one");
+});
+
+Deno.test("a pass adds the render settings' samples per frame, a whole number, at least one", () => {
+  // Setup: "Samples per frame" values a stored setting or a fake app could give: in range, a
+  // fraction, zero and nonsense.
+  // Test: samplesEachPass, which the frame bar's samples readout multiplies the passes by (T-0309),
+  // and which passesPerFrame divides the target by.
+  // Verifies: the same whole number of samples the renderer adds per pass (it holds the setting at
+  // one or more), so the readout and the pass count never disagree about what a pass is.
+  assertEqual([samplesEachPass(4), samplesEachPass(2.6), samplesEachPass(0), samplesEachPass("x")], [4, 3, 1, 1], "samples a pass");
+  assertEqual(passesPerFrame(RENDERER_MONTE_CARLO, 512, 2.6), Math.ceil(512 / 3), "the pass count divides by the same number");
+});
+
+Deno.test("progress: a Monte Carlo frame's bar fills pass by pass, and the video's moves with it", () => {
+  // Background (T-0309): the user asked for "two loading bars - one for each frame's rendering and
+  // one for the overall render", because one bar that moves only when a whole frame is finished
+  // sits still for the ~8 s a 720p Monte Carlo frame takes.
+  // Setup: a 10-frame video whose frames are Monte Carlo, 4 passes of 2 samples each (8 samples
+  // per pixel a frame), at several points of the render: before anything, a quarter and three
+  // quarters of the way through frame 0, the last pass of frame 3 given, and frame 4 not yet
+  // begun after frame 3 finished.
+  // Test: renderProgress at each point.
+  // Verifies:
+  // - the frame is `stepped` (more than one draw, so it can be measured), and its bar is the share
+  //   of its passes given -- 1/4, 3/4, then full on the last -- with the samples per pixel those
+  //   passes come to (2 of 8, 6 of 8, 8 of 8);
+  // - the video's bar is the finished frames plus that share of one frame: 0.25/10, 0.75/10, then
+  //   (3 + 1)/10 -- so it creeps forward within a frame instead of standing still;
+  // - when a frame finishes and the next is not yet begun, the frame bar is empty again (it
+  //   restarts for the next frame) and the video's bar is exactly the finished frames, 4/10 -- the
+  //   same value it had a moment before with the last pass given, so it never steps back.
+  const at = (framesDone, drawsDone) => renderProgress({
+    framesDone, framesTotal: 10, drawsDone, drawsPerFrame: 4, samplesPerDraw: 2,
+  });
+
+  assertEqual(at(0, 0), { done: 0, total: 10, fraction: 0, frame: { stepped: true, fraction: 0, samples: 0, samplesTotal: 8 } }, "before the first pass");
+  assertEqual(at(0, 1), { done: 0, total: 10, fraction: 0.025, frame: { stepped: true, fraction: 0.25, samples: 2, samplesTotal: 8 } }, "a quarter of frame 0");
+  assertEqual(at(0, 3).frame, { stepped: true, fraction: 0.75, samples: 6, samplesTotal: 8 }, "three quarters of frame 0");
+  assert(Math.abs(at(0, 3).fraction - 0.075) < 1e-12, "the video: three quarters of one frame in ten");
+
+  const lastPass = at(3, 4);
+  const nextFrame = at(4, 0);
+
+  assertEqual(lastPass.frame, { stepped: true, fraction: 1, samples: 8, samplesTotal: 8 }, "the last pass given: the frame bar full");
+  assertEqual(nextFrame.frame, { stepped: true, fraction: 0, samples: 0, samplesTotal: 8 }, "the next frame starts empty");
+  assertEqual([lastPass.fraction, nextFrame.fraction], [0.4, 0.4], "the video's bar does not step back between frames");
+});
+
+Deno.test("progress: a frame drawn in one step adds nothing until it is finished", () => {
+  // Setup: a 4-frame video of frames drawn in one step -- Deterministic or Flat, or Monte Carlo
+  // where the browser cannot accumulate -- with frame 1's draw given to the renderer but not yet
+  // read back; then every frame finished; then nothing at all (the mode open, no render).
+  // Test: renderProgress.
+  // Verifies: no sub-draw progress is invented -- the frame is not `stepped`, its share is 0 and it
+  // has no samples readout, and the video's bar counts only finished frames (1/4, not 2/4 with the
+  // draw merely given); every frame finished is a full video bar; a counter past the end is held
+  // to it; and the empty state is all zeros, which the panel and the mode's resets use.
+  const drawing = renderProgress({ framesDone: 1, framesTotal: 4, drawsDone: 1, drawsPerFrame: 1, samplesPerDraw: 512 });
+
+  assertEqual(drawing, { done: 1, total: 4, fraction: 0.25, frame: { stepped: false, fraction: 0, samples: 0, samplesTotal: 0 } }, "one step: nothing counted part way");
+  assertEqual(renderProgress({ framesDone: 4, framesTotal: 4, drawsPerFrame: 1 }).fraction, 1, "every frame: full");
+  assertEqual(renderProgress({ framesDone: 9, framesTotal: 4, drawsDone: 7, drawsPerFrame: 4 }).done, 4, "held to the end");
+  assertEqual(renderProgress({ framesDone: 9, framesTotal: 4, drawsDone: 7, drawsPerFrame: 4 }).fraction, 1, "and never past full");
+  assertEqual(renderProgress(), { done: 0, total: 0, fraction: 0, frame: { stepped: false, fraction: 0, samples: 0, samplesTotal: 0 } }, "nothing: zeros");
+});
+
+Deno.test("the two bars: labels' readouts and values while rendering, and full once every frame is drawn", () => {
+  // Setup: the Monte Carlo point from the test above where frame 0 is three quarters done (6 of 8
+  // samples, the video 7.5%), the one-step point (frame 1 of 4 being drawn), and both in the
+  // encoding and done phases.
+  // Test: progressBars, which RecordPanel draws the two bars from (width = fraction, aria-valuenow
+  // = percent, the readout and aria-valuetext = text).
+  // Verifies:
+  // - Monte Carlo while rendering: the frame bar is 3/4 full, 75 for assistive technology, and
+  //   reads "6 of 8 samples" (the numbers also given apart, for the number face); the video bar is
+  //   7.5% full and reads "7%" -- whole percents rounded DOWN, so 99.9% never reads 100% -- and
+  //   it is consistent with the frame bar (frames done + the frame's share, over the frames);
+  // - one step while rendering: the frame bar has no fraction and no percent (busy, an
+  //   indeterminate progressbar in ARIA's terms) and reads "drawn in one step"; the video bar is
+  //   the finished frame, 25%;
+  // - encoding and done: both bars full and reading 100% / all the samples, whatever the last
+  //   publish said, so the card says the render is complete, as the status line does.
+  const monteCarlo = renderProgress({ framesDone: 0, framesTotal: 10, drawsDone: 3, drawsPerFrame: 4, samplesPerDraw: 2 });
+  const oneStep = renderProgress({ framesDone: 1, framesTotal: 4, drawsDone: 1, drawsPerFrame: 1 });
+
+  const rendering = progressBars(monteCarlo, "rendering");
+
+  assertEqual(rendering.frame, { fraction: 0.75, percent: 75, samples: 6, samplesTotal: 8, text: "6 of 8 samples" }, "Monte Carlo: the frame");
+  assertEqual([rendering.video.percent, rendering.video.text], [7, "7%"], "Monte Carlo: the video, rounded down");
+  assert(Math.abs(rendering.video.fraction - (monteCarlo.done + rendering.frame.fraction) / monteCarlo.total) < 1e-12, "the video bar is the frames done plus the frame bar's share");
+  assertEqual(progressBars(renderProgress({ framesDone: 999, framesTotal: 1000, drawsDone: 3, drawsPerFrame: 4 }), "rendering").video.text, "99%", "never 100% before the end");
+
+  const busy = progressBars(oneStep, "rendering");
+
+  assertEqual(busy.frame, { fraction: null, percent: null, samples: null, samplesTotal: null, text: "drawn in one step" }, "one step: busy, no value");
+  assertEqual([busy.video.fraction, busy.video.percent, busy.video.text], [0.25, 25, "25%"], "one step: the finished frame");
+
+  for (const phase of ["encoding", "done"]) {
+    const atEnd = progressBars(monteCarlo, phase);
+    const oneStepAtEnd = progressBars(oneStep, phase);
+
+    assertEqual([atEnd.frame.fraction, atEnd.frame.percent, atEnd.frame.text], [1, 100, "8 of 8 samples"], `${phase}: the frame bar full`);
+    assertEqual([atEnd.video.fraction, atEnd.video.percent, atEnd.video.text], [1, 100, "100%"], `${phase}: the video bar full`);
+    assertEqual([oneStepAtEnd.frame.fraction, oneStepAtEnd.frame.percent, oneStepAtEnd.frame.text], [1, 100, "drawn in one step"], `${phase}: one step, full and no longer busy`);
+  }
 });
 
 Deno.test("the encoder is asked for the best H.264 profile at the level the size needs", async () => {

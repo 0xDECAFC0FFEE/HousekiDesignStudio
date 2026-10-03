@@ -1,6 +1,7 @@
 // Tools > Record rendering (T-0290): the parts of the mode that need no page, no GPU and no
 // encoder -- which poses become frames, how big the video may be, how many Monte Carlo passes a
-// frame takes, which H.264 profile to ask the browser for, and how the finished video is saved.
+// frame takes, what the progress bars show (T-0309), which H.264 profile to ask the browser for,
+// and how the finished video is saved.
 // record_mode.js drives them; tests/recording_test.js checks each on its own.
 //
 // The user, 2026-09-29: "on the left is the recording settings. it should allow users to set the
@@ -133,9 +134,103 @@ export function passesPerFrame(renderer, samplesToAccumulate, samplesPerPass) {
   }
 
   const target = Math.max(1, Math.round(samplesToAccumulate) || 1);
-  const each = Math.max(1, Math.round(samplesPerPass) || 1);
 
-  return Math.ceil(target / each);
+  return Math.ceil(target / samplesEachPass(samplesPerPass));
+}
+
+/** The samples per pixel one Monte Carlo pass adds: the render settings' "Samples per frame", a
+ * whole number, never below one (as the renderer holds it). */
+export function samplesEachPass(samplesPerPass) {
+  return Math.max(1, Math.round(samplesPerPass) || 1);
+}
+
+/**
+ * How far the final render has got, for the Video render card's two bars (T-0309; the user,
+ * 2026-10-01: "show two loading bars - one for each frame's rendering and one for the overall
+ * render"). Everything is counted, nothing estimated or timed:
+ *
+ * - `framesDone` of `framesTotal`: frames finished (read back and handed to the encoder);
+ * - `drawsDone` of `drawsPerFrame`: the draws of the frame being drawn that the renderer has been
+ *   given so far (`record_passes_done` / `record_passes_total`; 0 before the frame is begun). A
+ *   Monte Carlo frame is one draw a pass; every other frame is ONE draw, as is a Monte Carlo frame
+ *   where the browser cannot accumulate (recording.rs's FramePlan);
+ * - `samplesPerDraw`: the samples per pixel each of those draws adds (`samplesEachPass`).
+ *
+ * Returns `{ done, total, fraction, frame }`:
+ *
+ * - `done` and `total` as given (`done` held to `total`), and `fraction` the whole video's share
+ *   done, 0 to 1: the finished frames plus the part of the frame being drawn, so in a long Monte
+ *   Carlo render it moves with every pass rather than once a frame;
+ * - `frame`: `{ stepped, fraction, samples, samplesTotal }`. `stepped` is whether the frame is
+ *   drawn in more than one step, so its progress can be counted at all; then `fraction` is the
+ *   share of its draws given so far and `samples` of `samplesTotal` the samples per pixel they
+ *   come to. A frame drawn in one step has no measure until it is finished -- a draw cannot be
+ *   watched part way -- so its `fraction` is 0 and it adds nothing to the whole video's until it
+ *   counts in `done`; the panel shows such a frame as busy rather than inventing a figure.
+ */
+export function renderProgress({
+  framesDone = 0, framesTotal = 0, drawsDone = 0, drawsPerFrame = 1, samplesPerDraw = 1,
+} = {}) {
+  const total = Math.max(0, framesTotal);
+  const done = Math.min(Math.max(0, framesDone), total);
+  const stepped = drawsPerFrame > 1;
+  const given = stepped ? Math.min(Math.max(0, drawsDone), drawsPerFrame) : 0;
+  const part = stepped && done < total ? given / drawsPerFrame : 0;
+
+  return {
+    done,
+    total,
+    fraction: total > 0 ? Math.min(1, (done + part) / total) : 0,
+    frame: {
+      stepped,
+      fraction: part,
+      samples: stepped ? given * samplesPerDraw : 0,
+      samplesTotal: stepped ? drawsPerFrame * samplesPerDraw : 0,
+    },
+  };
+}
+
+/**
+ * What the Video render card's two bars show (T-0309), from `progress` (renderProgress's) in the
+ * mode's `phase`: `{ frame, video }`.
+ *
+ * Both have `fraction`, `percent` and `text`:
+ * - `fraction` is how full the bar is, 0 to 1, or null for a bar that can only say it is busy (a
+ *   frame drawn in one step, while it is drawn);
+ * - `percent` is the whole percent for `aria-valuenow`, rounded down so a bar never claims 100
+ *   before it is full, or null with `fraction`;
+ * - `text` is the readout beside the bar's label, also its `aria-valuetext`: the frame's samples
+ *   per pixel so far ("128 of 512 samples"), or "drawn in one step"; the video's percent ("12%").
+ *
+ * The frame also has `samples` of `samplesTotal`, the two numbers in its text, for the panel to set
+ * in its number face; null for a frame drawn in one step.
+ *
+ * While rendering, the two agree: the video bar is the finished frames plus the frame bar's share
+ * of one frame. Once every frame is drawn (encoding, done) both are full.
+ */
+export function progressBars(progress, phase) {
+  const finished = phase !== 'rendering';
+  const { frame } = progress;
+  const frameFraction = finished ? 1 : frame.stepped ? frame.fraction : null;
+  const videoFraction = finished ? 1 : progress.fraction;
+  const whole = fraction => (fraction === null ? null : Math.floor(fraction * 100 + 1e-9));
+  const samples = frame.stepped ? (finished ? frame.samplesTotal : frame.samples) : null;
+  const samplesTotal = frame.stepped ? frame.samplesTotal : null;
+
+  return {
+    frame: {
+      fraction: frameFraction,
+      percent: whole(frameFraction),
+      samples,
+      samplesTotal,
+      text: frame.stepped ? `${samples} of ${samplesTotal} samples` : 'drawn in one step',
+    },
+    video: {
+      fraction: videoFraction,
+      percent: whole(videoFraction),
+      text: `${whole(videoFraction)}%`,
+    },
+  };
 }
 
 /**

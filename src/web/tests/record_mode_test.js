@@ -56,6 +56,7 @@ const tiers = await import("../src/lib/tier_controller.js");
 const { enterEditMode, exitEditMode, editing } = await import("../src/lib/edit_mode.js");
 const tilt = await import("../src/lib/tilt_performance_mode.js");
 const mode = await import("../src/lib/record_mode.js");
+const { progressBars } = await import("../src/lib/recording.js");
 
 const STARTUP_URL = new URL("../../resources/hex_cut_v2.gcs", import.meta.url);
 
@@ -78,11 +79,13 @@ function assert(condition, message) {
  * A fake GemApp: enough of the real one for the session and the mode, plus the renderer's record_*
  * calls. `record_start` keeps the size, renderer and passes it was given; `record_frame` records
  * each pose; `record_advance` submits one draw per call (a frame takes `passes` draws for Monte
- * Carlo, one otherwise) and on the call after the last draw reports the frame done, whose pixels
- * are the frame's number repeated over width x height x 4 bytes. `record_settled` is always true
- * (the GPU is instant here).
+ * Carlo, one otherwise -- and one for Monte Carlo too when a test sets `directOnly`, as the real
+ * renderer does where the browser cannot accumulate) and on the call after the last draw reports
+ * the frame done, whose pixels are the frame's number repeated over width x height x 4 bytes.
+ * `record_settled` is always true (the GPU is instant here).
  */
 function fakeApp() {
+  const draws = () => (app.started?.renderer === 1 && !app.directOnly ? app.started.passes : 1);
   const app = {
     params: { spin: 10, tilt: -20, sideTilt: 5, headShadowHalfAngle: 14, luxSamples: 1 },
     load_obj() {},
@@ -129,14 +132,13 @@ function fakeApp() {
       app.frames.push({ spin, tilt, sideTilt });
       app.job = { done: 0 };
     },
+    directOnly: false,
     record_advance() {
       if (!app.job) {
         return 3;
       }
 
-      const draws = app.started.renderer === 1 ? app.started.passes : 1;
-
-      if (app.job.done < draws) {
+      if (app.job.done < draws()) {
         app.job.done += 1;
         return 1;
       }
@@ -146,7 +148,7 @@ function fakeApp() {
     },
     record_settled: () => true,
     record_passes_done: () => app.job?.done ?? 0,
-    record_passes_total: () => (app.started?.renderer === 1 ? app.started.passes : 1),
+    record_passes_total: () => draws(),
     record_pixels: () => new Uint8Array(app.started.width * app.started.height * 4).fill(app.frames.length - 1),
     record_stop() {
       app.stops += 1;
@@ -517,6 +519,129 @@ Deno.test("a diagonal plain, Ctrl or Shift + drag, through the page's own drag h
   assert(shift[3].spin < shift[0].spin && shift[3].tilt > shift[0].tilt, "Shift: both X and Y moved over the take");
 });
 
+/**
+ * Renders one take of 4 frames (a 100 ms drag at 30 fps) with `final` as the Final renderer, the
+ * render settings at 8 samples to accumulate and `luxSamples` samples a pass, and returns every
+ * value the progress store (the panel's two bars) took during the render, in order, with how many
+ * times each record_* call was made and the mode's state at the end. `directOnly` makes the fake
+ * renderer draw a Monte Carlo frame in one step, as the real one does without float targets.
+ */
+async function renderWatchingTheBars(final, { luxSamples = 2, directOnly = false } = {}) {
+  const context = await page();
+  const { app, canvas } = context;
+  const calls = {};
+
+  app.params.luxSamples = luxSamples;
+  app.directOnly = directOnly;
+
+  for (const name of ["record_advance", "record_settled", "record_passes_done", "record_passes_total", "record_pixels"]) {
+    const real = app[name];
+
+    calls[name] = 0;
+    app[name] = (...args) => {
+      calls[name] += 1;
+      return real(...args);
+    };
+  }
+
+  await open(canvas);
+  mode.setRecordSetting("final", final);
+
+  const seen = [];
+  const stop = mode.recordProgress.subscribe(progress => {
+    // Only the render's own values: arming the recorder empties the store first.
+    if (progress.total > 0) {
+      seen.push(progress);
+    }
+  });
+
+  take(context, [[40, 20, -10, 6], [100, 30, 0, 7]]);
+  runTimers();
+  await settle();
+  stop();
+
+  const state = get(mode.recording);
+  const last = get(mode.recordProgress);
+
+  mode.exitRecording();
+  return { seen, calls, state, last, made: context.made };
+}
+
+Deno.test("the two bars: a Monte Carlo frame's bar fills pass by pass and restarts, the video's tracks it", async () => {
+  // Background (T-0309): the user asked for "two loading bars - one for each frame's rendering and
+  // one for the overall render". One bar that moved only when a frame finished stood still for
+  // the ~8 s of a 720p Monte Carlo frame, and the render looked stuck.
+  // Setup: `renderWatchingTheBars` with Monte Carlo as the Final renderer: 8 samples to accumulate
+  // at 2 a pass is 4 passes a frame, 4 frames. The fake renderer submits one pass a call, as the
+  // real one does behind its fence.
+  // Test: the mode's own render loop runs to the end; every value of the progress store is kept.
+  // Verifies:
+  // - the frame bar, frame by frame: empty at the start, then a quarter, a half, three quarters and
+  //   full as the 4 passes are given (2, 4, 6 and 8 of 8 samples), then empty again for the next
+  //   frame as the finished-frame count goes up -- for all 4 frames, in order;
+  // - the whole-video bar is always the finished frames plus the frame bar's share of one frame,
+  //   never goes backwards, and ends full;
+  // - the bars cost the render nothing: the draws a frame takes are asked once for the whole render
+  //   (not at every pass), and the loop's own calls are what they were -- one record_advance and one
+  //   settle check a turn, 5 turns a frame (4 passes and the read-back), one read-back per frame --
+  //   with only the renderer's count of passes given read at each turn, which is a number it keeps,
+  //   not a GPU query;
+  // - the video is still made and offered for saving (the bars do not touch the frames).
+  const { seen, calls, state, last, made } = await renderWatchingTheBars(1);
+
+  const expected = [[0, 0, 0]];
+
+  for (let frame = 0; frame < 4; frame++) {
+    expected.push([frame, 0.25, 2], [frame, 0.5, 4], [frame, 0.75, 6], [frame, 1, 8], [frame + 1, 0, 0]);
+  }
+
+  assertEqual(seen.map(p => [p.done, p.frame.fraction, p.frame.samples]), expected, "the frame bar fills pass by pass and restarts every frame");
+  assert(seen.every(p => p.frame.stepped && p.frame.samplesTotal === 8 && p.total === 4), "a Monte Carlo frame is measured, out of 8 samples");
+
+  seen.forEach((p, at) => {
+    assert(Math.abs(p.fraction - (p.done + p.frame.fraction) / p.total) < 1e-12, `value ${at}: the video bar is the frames done plus the frame's share`);
+    assert(at === 0 || p.fraction >= seen[at - 1].fraction, `value ${at}: the video bar never goes back`);
+  });
+  assertEqual(last.fraction, 1, "the video bar ends full");
+
+  assertEqual(calls.record_passes_total, 1, "the draws a frame takes: asked once");
+  assertEqual([calls.record_advance, calls.record_settled, calls.record_pixels], [20, 20, 4], "one advance and one settle check a turn, one read-back a frame");
+  assert(calls.record_passes_done <= calls.record_advance, "the pass count read at most once a turn");
+  assertEqual([state.phase, made.encoders[0].frames.length], ["done", 4], "the video is still made");
+});
+
+Deno.test("the two bars: a frame drawn in one step is shown busy, and the video counts finished frames", async () => {
+  // Setup: `renderWatchingTheBars` three times: Deterministic and Flat as the Final renderer (one
+  // draw a frame), and Monte Carlo on a renderer that cannot accumulate (`directOnly`: the real one
+  // then takes all of a frame's samples in one draw).
+  // Test: the mode's render loop to the end, keeping every progress value, then what the panel's
+  // bars show for each (recording.js's progressBars), while rendering and once done.
+  // Verifies:
+  // - no frame is measured part way (`stepped` false throughout) -- including the Monte Carlo
+  //   frame drawn in one step, which the mode learns from the renderer rather than assuming from
+  //   the renderer's name -- so while rendering the frame bar has no fraction and no value (busy)
+  //   and reads "drawn in one step";
+  // - the whole-video bar moves only when a frame is finished: 0, 0, 1/4, 1/4, 2/4 ... 4/4, two
+  //   turns a frame (the draw, then its read-back), never counting a draw merely given;
+  // - once done, both bars are full and the video was made, 4 frames.
+  for (const [final, directOnly, label] of [[0, false, "Deterministic"], [2, false, "Flat"], [1, true, "Monte Carlo in one step"]]) {
+    const { seen, calls, state, last, made } = await renderWatchingTheBars(final, { directOnly });
+
+    assert(seen.every(p => !p.frame.stepped), `${label}: never measured part way`);
+    assertEqual(seen.map(p => p.fraction), [0, 0, 0.25, 0.25, 0.5, 0.5, 0.75, 0.75, 1], `${label}: the video bar counts finished frames`);
+    assert(seen.every(p => {
+      const bars = progressBars(p, "rendering");
+
+      return bars.frame.fraction === null && bars.frame.percent === null && bars.frame.text === "drawn in one step";
+    }), `${label}: the frame bar is busy while rendering`);
+
+    const done = progressBars(last, state.phase);
+
+    assertEqual([state.phase, done.frame.fraction, done.video.fraction, done.video.text], ["done", 1, 1, "100%"], `${label}: both full when done`);
+    assertEqual([calls.record_passes_total, made.encoders[0].frames.length], [1, 4], `${label}: asked once; 4 frames made`);
+  }
+});
+
 Deno.test("Cancel stops the final render part way: nothing more is drawn, encoded or saved", async () => {
   // Setup: the startup stone, the mode open with Monte Carlo as the Final renderer (8 passes a
   // frame, so a frame takes several turns), and a take of 300 ms (10 frames at 30 fps).
@@ -549,7 +674,8 @@ Deno.test("Cancel stops the final render part way: nothing more is drawn, encode
   const state = get(mode.recording);
 
   assertEqual([state.open, state.phase, state.save], [true, "idle", null], "open and idle, nothing saved");
-  assertEqual(get(mode.recordProgress).fraction, 0, "the bar is emptied");
+  assertEqual(get(mode.recordProgress).fraction, 0, "the video bar is emptied");
+  assertEqual(get(mode.recordProgress).frame.fraction, 0, "and the frame bar");
   assertEqual(app.rendererValue, 0, "the Preview renderer still draws the view");
   mode.exitRecording();
 });

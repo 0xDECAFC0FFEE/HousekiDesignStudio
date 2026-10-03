@@ -26,8 +26,8 @@
 //   rendering  every 1/fps seconds of the take becomes a frame (recording.js's samplePoses), and
 //              each is drawn off screen at the chosen size with the Final renderer (the renderer's
 //              record_* calls, src/renderer/recording.rs), then handed to the encoder. The view is
-//              held still meanwhile (it would only compete for the GPU), and the progress bar fills.
-//              Cancel stops it.
+//              held still meanwhile (it would only compete for the GPU), and two progress bars
+//              fill: the frame being drawn, and the whole video (T-0309). Cancel stops it.
 //   encoding   the encoder finishes and the MP4 is closed
 //   done       the Save As dialog is offered for the video (see `saveVideo`); Record again starts
 //              a new take with the same settings
@@ -52,8 +52,8 @@ import { downloadFile } from './export_file.js';
 import { createMp4Encoder } from './record_encoder.js';
 import {
   RENDERER_DETERMINISTIC, DEFAULT_FPS, DEFAULT_SIZE, FPS_MIN, FPS_MAX, SIZE_MIN, SIZE_MAX,
-  RENDER_BUDGET, samplePoses, clampFps, fitSize, passesPerFrame, chooseEncoderConfig,
-  saveRecording, videoFilename, videoSeconds,
+  RENDER_BUDGET, samplePoses, clampFps, fitSize, passesPerFrame, samplesEachPass, renderProgress,
+  chooseEncoderConfig, saveRecording, videoFilename, videoSeconds,
 } from './recording.js';
 
 /** What `GemApp::record_advance` says (src/renderer/recording.rs). */
@@ -114,9 +114,11 @@ export function setRecordBackend(overrides = {}) {
  */
 export const recording = writable(closedState());
 
-/** The final render's progress, `{ done, total, fraction }`: the progress bar. Kept apart from
- * `recording` so a pass finishing moves the bar without redrawing the rest of the panel. */
-export const recordProgress = writable({ done: 0, total: 0, fraction: 0 });
+/** The final render's progress, recording.js's `renderProgress`: `{ done, total, fraction,
+ * frame }`, the Video render card's two bars -- the frame being drawn (`frame`) and the whole video
+ * (`fraction`; T-0309). Kept apart from `recording` so a pass finishing moves the bars without
+ * redrawing the rest of the panel. */
+export const recordProgress = writable(renderProgress());
 
 /** The last finished frame, `{ pixels, width, height, index }`, for the panel's small picture of
  * the video as it is made; null before the first. */
@@ -150,6 +152,8 @@ function closedState() {
 //   startedAt     when the press was, on the backend's clock
 //   poses         the frames to render (samplePoses), and `index`, the next one
 //   frameBegun    whether the renderer has been given frame `index` yet
+//   drawsPerFrame the draws every frame takes (record_passes_total, fixed by record_start), and
+//   samplesPerDraw  the samples per pixel each adds: the frame bar's measure (T-0309)
 //   encoder, task the MP4 being written and the budgeted loop drawing its frames
 //   blob          the finished video
 let session = null;
@@ -227,6 +231,8 @@ export function enterRecording({ canvas } = {}) {
     poses: [],
     index: 0,
     frameBegun: false,
+    drawsPerFrame: 1,
+    samplesPerDraw: 1,
     frameShownAt: -Infinity,
     encoder: null,
     task: null,
@@ -237,7 +243,7 @@ export function enterRecording({ canvas } = {}) {
 
   setLocalHistory(INERT_HISTORY);
   recording.set({ ...closedState(), open: true, settings });
-  recordProgress.set({ done: 0, total: 0, fraction: 0 });
+  recordProgress.set(renderProgress());
   recordFrame.set(null);
   syncToolbar();
 
@@ -264,7 +270,7 @@ export function exitRecording() {
   session = null;
   setLocalHistory(null);
   recording.set(closedState());
-  recordProgress.set({ done: 0, total: 0, fraction: 0 });
+  recordProgress.set(renderProgress());
   recordFrame.set(null);
   syncToolbar();
   releaseRenderHold();
@@ -404,7 +410,7 @@ export function toggleRecord() {
       phase: 'armed', message: '', result: null, save: null, saveName: '', saveError: '',
       captured: { frames: 0, seconds: 0 },
     });
-    recordProgress.set({ done: 0, total: 0, fraction: 0 });
+    recordProgress.set(renderProgress());
     recordFrame.set(null);
     session.blob = null;
   }
@@ -521,7 +527,8 @@ function startFinalRender(poses) {
     return;
   }
 
-  const passes = passesPerFrame(settings.final, get(accumulationTarget), app.get_param('luxSamples'));
+  const samplesPerPass = app.get_param('luxSamples');
+  const passes = passesPerFrame(settings.final, get(accumulationTarget), samplesPerPass);
 
   try {
     app.record_start(settings.width, settings.height, settings.final, passes);
@@ -536,6 +543,11 @@ function startFinalRender(poses) {
   session.poses = poses;
   session.index = 0;
   session.frameBegun = false;
+  // How a frame is drawn is fixed now, so it is asked once rather than at every pass: as many
+  // draws as passes for Monte Carlo, one for the others -- and one for Monte Carlo too where the
+  // renderer could not accumulate (record_start's fallback), which only it knows.
+  session.drawsPerFrame = app.record_passes_total();
+  session.samplesPerDraw = samplesEachPass(samplesPerPass);
   session.frameShownAt = -Infinity;
   session.task = budgetedTask({
     run: renderStep,
@@ -548,7 +560,7 @@ function startFinalRender(poses) {
     phase: 'rendering', message: '',
     captured: { frames: poses.length, seconds: videoSeconds(poses.length, settings.fps) },
   });
-  recordProgress.set({ done: 0, total: poses.length, fraction: 0 });
+  publishProgress();
   session.task.request();
 }
 
@@ -600,18 +612,20 @@ function renderStep() {
   session.task.request();
 }
 
-/** The progress bar: whole frames done, plus the part of the frame being drawn. */
+/**
+ * The two progress bars (T-0309): the frame being drawn, and the whole video -- whole frames
+ * done plus the part of the frame being drawn. Asks the renderer only how many draws of the frame
+ * it has been given (a number it keeps, no GPU query), once a turn of the loop: the bars cost the
+ * render nothing it did not already do.
+ */
 function publishProgress() {
-  const app = engine.app;
-  const total = session.poses.length;
-  const passes = session.frameBegun ? app.record_passes_total() : 0;
-  const part = passes > 0 ? Math.min(1, app.record_passes_done() / passes) : 0;
-
-  recordProgress.set({
-    done: session.index,
-    total,
-    fraction: total > 0 ? Math.min(1, (session.index + part) / total) : 0,
-  });
+  recordProgress.set(renderProgress({
+    framesDone: session.index,
+    framesTotal: session.poses.length,
+    drawsDone: session.frameBegun ? engine.app.record_passes_done() : 0,
+    drawsPerFrame: session.drawsPerFrame,
+    samplesPerDraw: session.samplesPerDraw,
+  }));
 }
 
 /** Shows the frame just finished in the panel, now and then (FRAME_PREVIEW_MS), and the last. */
@@ -715,7 +729,7 @@ export function cancelRender() {
 
   stopFinalRender();
   setState({ phase: 'idle', message: 'Cancelled: nothing was saved.' });
-  recordProgress.set({ done: 0, total: 0, fraction: 0 });
+  recordProgress.set(renderProgress());
 }
 
 /** Stops the loop, the renderer's frame and the encoder, whichever are running. */
@@ -740,7 +754,7 @@ function fail(cause) {
 
   stopFinalRender();
   setState({ phase: 'idle', message: `The video could not be made: ${cause?.message ?? cause}` });
-  recordProgress.set({ done: 0, total: 0, fraction: 0 });
+  recordProgress.set(renderProgress());
   // The view may have been held.
   window.gemRequestRender?.();
 }

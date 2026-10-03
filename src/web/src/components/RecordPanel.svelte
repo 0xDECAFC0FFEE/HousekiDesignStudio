@@ -10,8 +10,8 @@
   // Built from the design language's pieces (kb/the-studio-s-design-language.md): two cards
   // (PanelSection) -- Tracing (the Preview and Final renderers) and Video (frames a second and the
   // size) -- then the red Record button with the take's status under it, the progress card while
-  // the final render runs (with its Cancel), and Done pinned at the pane's foot. What happens on
-  // each button is record_mode.js's.
+  // the final render runs (two bars, this frame and the whole video, with its Cancel), and Done
+  // pinned at the pane's foot. What happens on each button is record_mode.js's.
   import { get } from 'svelte/store';
   import { Button } from '$lib/components/ui/button/index.js';
   import * as Select from '$lib/components/ui/select/index.js';
@@ -26,7 +26,7 @@
   } from '../lib/record_mode.js';
   import {
     FPS_MIN, FPS_MAX, SIZE_MIN, SIZE_MAX, SIZE_PRESETS, RENDERER_MONTE_CARLO, formatSeconds,
-    saveMessage,
+    saveMessage, progressBars,
   } from '../lib/recording.js';
   import { engine, ready, accumulationTarget } from '../lib/stores.js';
 
@@ -86,6 +86,13 @@
   }
 
   const saveNote = $derived(saveMessage(rec.save, rec.saveName, rec.saveError));
+
+  // The Video render card's two bars (T-0309): the frame being drawn, and the whole video.
+  const bars = $derived(progressBars($recordProgress, rec.phase));
+  // A frame bar that can be measured is a new element for every frame, so it starts the next frame
+  // empty at once rather than sliding back down from full; a busy one stays the same element, so
+  // its sweep runs on smoothly from frame to frame.
+  const frameBarKey = $derived(bars.frame.fraction === null ? -1 : $recordProgress.done);
 
   const recordLabel = $derived(
     rec.phase === 'armed' ? 'Armed: drag the stone'
@@ -194,9 +201,34 @@
 
   {#if ['rendering', 'encoding', 'done'].includes(rec.phase)}
     <PanelSection title="Video render" id="record-render-section">
-      <div class="record-progress" id="record-progress" role="progressbar" aria-valuemin="0" aria-valuemax="100"
-        aria-valuenow={Math.round($recordProgress.fraction * 100)}>
-        <div style:width="{(rec.phase === 'rendering' ? $recordProgress.fraction : 1) * 100}%"></div>
+      <!-- Two bars (T-0309; the user: "one for each frame's rendering and one for the overall
+           render"), each labelled, with a readout (recording.js's progressBars). This frame fills
+           as a Monte Carlo frame's samples are gathered and starts again for the next; a frame
+           drawn in one step (Deterministic, Flat) cannot be measured part way, so its bar sweeps
+           to say it is busy, with no value. Whole video is the frames finished plus the part of
+           the one being drawn. Both are full once every frame is drawn. -->
+      <div class="record-bar">
+        <div class="record-bar-row">
+          <span id="record-frame-progress-label">This frame</span>
+          <span id="record-frame-progress-value">{#if bars.frame.samplesTotal !== null}<span class="record-mono">{bars.frame.samples}</span> of <span class="record-mono">{bars.frame.samplesTotal}</span> samples{:else}{bars.frame.text}{/if}</span>
+        </div>
+        <div class="record-progress" class:record-busy={bars.frame.fraction === null} id="record-frame-progress"
+          role="progressbar" aria-labelledby="record-frame-progress-label" aria-valuemin="0" aria-valuemax="100"
+          aria-valuenow={bars.frame.percent ?? undefined} aria-valuetext={bars.frame.text}>
+          {#key frameBarKey}
+            <div style:width={bars.frame.fraction === null ? null : `${bars.frame.fraction * 100}%`}></div>
+          {/key}
+        </div>
+      </div>
+      <div class="record-bar">
+        <div class="record-bar-row">
+          <span id="record-progress-label">Whole video</span>
+          <span id="record-progress-value"><span class="record-mono">{bars.video.percent}%</span></span>
+        </div>
+        <div class="record-progress" id="record-progress" role="progressbar" aria-labelledby="record-progress-label"
+          aria-valuemin="0" aria-valuemax="100" aria-valuenow={bars.video.percent} aria-valuetext={bars.video.text}>
+          <div style:width="{bars.video.fraction * 100}%"></div>
+        </div>
       </div>
       <canvas id="record-frame" class="record-frame" bind:this={frameCanvas}
         style:aspect-ratio="{rec.settings.width} / {rec.settings.height}"></canvas>
@@ -404,6 +436,24 @@
     color: var(--error);
   }
 
+  /* The Video render card's two bars (T-0309), each under a row like a slider's: its name on the
+     left, its readout on the right, in the status line's small type (numbers in the number face,
+     .record-mono). */
+  .record-bar + .record-bar {
+    margin-top: 8px;
+  }
+
+  .record-bar-row {
+    display: flex;
+    justify-content: space-between;
+    align-items: baseline;
+    gap: 8px;
+    margin-bottom: 4px;
+    color: var(--muted);
+    font-size: 11px;
+    line-height: 15px;
+  }
+
   .record-progress {
     height: 4px;
     border-radius: 2px;
@@ -415,6 +465,33 @@
     height: 100%;
     background: var(--accent);
     transition: width 0.2s;
+  }
+
+  /* A frame drawn in one step: no share to show, so a short segment sweeps across to say the frame
+     is being drawn. Without motion, a dim full bar says the same. */
+  .record-busy > div {
+    width: 30%;
+    transition: none;
+    animation: record-sweep 1.2s ease-in-out infinite;
+  }
+
+  @keyframes record-sweep {
+    from {
+      transform: translateX(-100%);
+    }
+
+    to {
+      /* The segment's own widths: 100 / 30 of them is the whole track. */
+      transform: translateX(334%);
+    }
+  }
+
+  @media (prefers-reduced-motion: reduce) {
+    .record-busy > div {
+      width: 100%;
+      opacity: 0.35;
+      animation: none;
+    }
   }
 
   .record-frame {
