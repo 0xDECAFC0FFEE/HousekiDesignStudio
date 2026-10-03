@@ -17,6 +17,8 @@ yields build/web/index.html: the app's script and styles inlined into a small HT
 ahead of the app's script and writes build/www/studio.html, which opens directly from file://
 and works equally over HTTP. Last, it writes the landing page from src/site (build_site below):
 build/www/index.html, robots.txt and, once src/site/site.json has the site's URL, sitemap.xml.
+It also builds the phone scanner page (src/web/scanner, T-0313, its own Vite config) and copies
+it to build/www/scanner/index.html, served at /scanner (install_scanner_page below).
 All of build/www is generated: edit the app under src/web or the landing page under src/site,
 then run ./build.sh (or this script).
 
@@ -101,6 +103,10 @@ BUILD = PROJECT_ROOT / "build"
 # src/web/vite.config.js and must agree with TEMPLATE below.
 WEB_DIR = SRC / "web"
 TEMPLATE = BUILD / "web" / "index.html"
+# The phone scanner page (T-0313): src/web/scanner, built by its own Vite config
+# (src/web/vite.scanner.config.js) into one file, and served at /scanner as
+# build/www/scanner/index.html. The computer's scan mode links phones to it with a QR code.
+SCANNER_BUILD = BUILD / "scanner" / "index.html"
 # The startup stone (T-0149): a Gem Cut Studio design, run through the page's own .gcs
 # reader (gcs.js) at load time -- see GEM_MODEL_GCS below. The bare mesh
 # src/resources/hex_cut_v2.obj is not inlined any more (2026-09-20); CLAUDE.md forbids editing
@@ -391,6 +397,14 @@ def build_web(minified):
 
     if not TEMPLATE.is_file():
         fail(f"the web build did not write {TEMPLATE}.")
+
+    # The phone scanner page, a separate small page with its own Vite config. Always minified:
+    # it is not inlined into anything, and Vite's output is what is served.
+    print("==> (in src/web) deno task build:scanner")
+    subprocess.run(["deno", "task", "build:scanner"], check=True, cwd=WEB_DIR)
+
+    if not SCANNER_BUILD.is_file():
+        fail(f"the scanner page's build did not write {SCANNER_BUILD}.")
 
 
 def minify(text, mode, description):
@@ -744,6 +758,29 @@ def build_docs():
     return written
 
 
+def install_scanner_page(output_dir=None):
+    """Copies the phone scanner page's build (SCANNER_BUILD) to <output_dir>/scanner/index.html,
+    so the site serves it at /scanner, and returns that path. `output_dir` defaults to
+    build/www.
+
+    Fails unless the page is one self-contained file, like the app: it bundles Trystero, and the
+    harness also opens it from file:// (tests/harness/test_scan_link.py), where a separate script
+    or stylesheet could not load."""
+    output_dir = SITE_OUTPUT_DIR if output_dir is None else output_dir
+    page = SCANNER_BUILD.read_text()
+
+    if re.search(r"<script[^>]*\bsrc\s*=", page, re.IGNORECASE):
+        fail(f"{SCANNER_BUILD} loads a script by src=; the scanner page must be one file.")
+
+    if re.search(r"<link[^>]*\brel\s*=\s*[\"']?(stylesheet|modulepreload)", page, re.IGNORECASE):
+        fail(f"{SCANNER_BUILD} links a stylesheet or module; the scanner page must be one file.")
+
+    path = output_dir / "scanner" / "index.html"
+    path.parent.mkdir(parents=True, exist_ok=True)
+    path.write_text(page)
+    return path
+
+
 def build_site(app_output):
     """Writes the landing page (src/site/index.html) to build/www/index.html, with robots.txt and, once
     the site has a URL, sitemap.xml. Returns the paths written.
@@ -846,8 +883,9 @@ def main():
     arguments = parser.parse_args()
 
     if arguments.skip_web_build:
-        if not TEMPLATE.is_file():
-            fail(f"--skip-web-build but {TEMPLATE} does not exist")
+        for built in (TEMPLATE, SCANNER_BUILD):
+            if not built.is_file():
+                fail(f"--skip-web-build but {built} does not exist")
     else:
         build_web(minified=not arguments.no_minify)
 
@@ -884,7 +922,7 @@ def main():
     # The landing page links to the app by its file name, so it is only built alongside the
     # app at its default path; an app written elsewhere (--output) leaves build/www/ alone.
     if output == DEFAULT_OUTPUT.resolve():
-        for path in build_site(output):
+        for path in [*build_site(output), install_scanner_page()]:
             print(f"wrote {path} ({path.stat().st_size / 1024:.1f} KiB)")
 
 

@@ -1,0 +1,88 @@
+<h1>Rough scan</h1>
+
+<p>Rough scan connects your phone's camera to the studio. The studio shows a code. You scan it
+with your phone, and the phone's camera then appears live in the middle of the studio, where the
+stone usually is. This is the first step towards scanning a piece of rough with your phone. For
+now it connects the phone and shows its camera, and nothing more.</p>
+
+<figure><img src="images/rough-scan/overview.webp" alt="The studio with Rough scan open: the Phone and Connection cards in the left-hand pane, a large QR code in the middle with the link under it and a Copy button, and the render settings on the right." loading="lazy">
+<figcaption>Rough scan open, waiting for a phone. The code takes the stone's place in the middle,
+and the render settings stay on the right.</figcaption></figure>
+
+<h2>Before you start</h2>
+
+<p>The phone and this computer need to be on the same network, for example the same Wi-Fi. The
+picture goes straight from the phone to the computer over that network. Both also need an
+internet connection while they connect.</p>
+
+<h2>Opening it</h2>
+
+<p>Choose <span class="ui">Tools</span> &gt; <span class="ui">Rough scan</span>. It works whatever
+is loaded. It is greyed out while another mode, such as editing a tier, is open, and its tooltip
+then says which one to finish first. While it is open, the top bar's mode readout says
+<span class="ui">Rough scan</span>.</p>
+
+<figure class="side"><img src="images/rough-scan/tools-menu.webp" alt="The Tools menu open, with Rough scan at the bottom." loading="lazy">
+<figcaption>The <span class="ui">Tools</span> menu.</figcaption></figure>
+
+<h2>Connecting your phone</h2>
+
+<ol>
+  <li>Point your phone's camera at the code in the middle and open the link it shows.</li>
+  <li>The phone opens the scanner page. Allow it to use the camera when it asks.</li>
+  <li>The phone's camera appears in the middle of the studio, and on the phone's own screen.</li>
+</ol>
+
+<p>Under the code is the same link as text. Click <span class="ui">Copy</span> to copy it (the
+button says <span class="ui">Copied</span> for a moment), then send it to your phone, for example
+in a message to yourself, and open it there. You can also select the text and copy it yourself:
+one click selects all of it. If your browser will not copy it for you, the studio selects the link
+and tells you which keys copy it.</p>
+
+<figure class="side"><img src="images/rough-scan/link.webp" alt="The link under the QR code, in a box, with a Copy button beside it that reads Copied." loading="lazy">
+<figcaption>The link under the code, just copied.</figcaption></figure>
+
+<div class="note"><p>The link works like a key to this session: anyone who opens it can connect
+their camera, so send it only to your own phone.</p></div>
+
+<figure class="side"><img src="images/rough-scan/panel.webp" alt="The left-hand pane in Rough scan: the Phone card with three numbered steps, the Connection card reading Waiting for your phone with a New code button, and Done at the bottom." loading="lazy">
+<figcaption>The left-hand pane: the steps, the connection's state, <span class="ui">New
+code</span> and <span class="ui">Done</span>.</figcaption></figure>
+
+<p>The <span class="ui">Connection</span> card on the left, and the line under the code, say how
+far it has got: <span class="ui">Waiting for your phone</span> until a phone opens the link,
+<span class="ui">Connecting…</span> while the phone's camera starts, and
+<span class="ui">Streaming</span> once its picture is showing.</p>
+
+<h2>The live camera</h2>
+
+<figure><img src="images/rough-scan/live.webp" alt="The studio with a camera picture filling the middle, a Live from your phone label at its top left, and the Connection card on the left reading Streaming." loading="lazy">
+<figcaption>The phone's camera, live, in the middle of the studio. (Here the camera is showing a
+test picture.)</figcaption></figure>
+
+<p>The picture fills the middle of the studio, with <span class="ui">Live from your phone</span>
+at its top left, and follows the phone as you move it.</p>
+
+<h2>If the phone disconnects</h2>
+
+<p>If the phone closes the page or loses the network, the picture goes away, the studio says
+<span class="ui">Phone disconnected</span>, and the code comes back. Scan it, or open the link on
+the phone again, to reconnect.</p>
+
+<p><span class="ui">New code</span> in the <span class="ui">Connection</span> card ends the
+session and starts a new one with a new code and link. A phone that is connected is cut off, and
+the old link stops working. Use it if you sent the link somewhere you should not have.</p>
+
+<p>If the studio cannot reach the internet to connect the phone, the code is replaced by a message
+saying so. Check this computer's internet connection; the code comes back as soon as the
+connection works.</p>
+
+<h2>Closing it</h2>
+
+<p>Click <span class="ui">Done</span> at the bottom of the left-hand pane, or press
+<kbd>Esc</kbd>. The session ends, so the link the phone opened stops working, and the cutting
+instructions and the stone come back. The next time you open Rough scan it makes a new code and
+link. Nothing in the design changes, so <span class="ui">Undo</span> and
+<span class="ui">Redo</span> do nothing while the mode is open, and the design cannot be edited
+until it is closed. If you switch to fullscreen while it is open, the left-hand pane is hidden,
+and the first <kbd>Esc</kbd> then leaves fullscreen.</p>

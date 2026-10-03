@@ -81,6 +81,36 @@ and web/deno.lock.
     https://github.com/Vanilagy/mp4-muxer
     MIT License
 
+The phone scanner (the phone page at /scanner, src/web/scanner, and the connection code it
+shares with the app, src/web/src/lib/scan_link.js) connects a phone to the computer over WebRTC
+with Trystero, which passes the connection's set-up messages through Nostr relays. Trystero
+(the trystero, @trystero-p2p/nostr and @trystero-p2p/core packages) and the Schnorr signing
+library it signs Nostr events with are bundled into the page's inlined script. Both are used
+under the MIT licence, which is compatible with the Apache License 2.0. Their exact versions are
+pinned in src/web/package.json and src/web/deno.lock.
+
+    Trystero
+    Copyright (c) 2021 Dan Motzenbecker
+    https://github.com/dmotz/trystero
+    MIT License
+
+    noble-secp256k1 (@noble/secp256k1)
+    Copyright (c) 2019 Paul Miller (https://paulmillr.com)
+    https://github.com/paulmillr/noble-secp256k1
+    MIT License
+
+The page's Tools > Rough scan draws the QR code a phone scans with uqr, a QR code encoder
+bundled into the page's inlined script, itself a port of Project Nayuki's QR Code generator.
+It is used under the MIT licence, which is compatible with the Apache License 2.0. Its exact
+version is pinned in src/web/package.json and src/web/deno.lock. The web tests decode the
+codes with jsQR (cozmo/jsQR, Apache License 2.0), a test-only dependency that does not ship in
+the page.
+
+    uqr
+    Copyright (c) Project Nayuki; Copyright (c) 2023 Anthony Fu
+    https://github.com/unjs/uqr
+    MIT License
+
 src/shaders/lux/ contains files ported from LuxCoreRender, a physically based
 renderer. The port is a derivative work distributed under the Apache License,
 Version 2.0, the same licence LuxCore itself uses, so it carries alongside

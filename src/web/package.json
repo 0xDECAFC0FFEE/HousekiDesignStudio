@@ -6,6 +6,7 @@
   "license": "Apache-2.0",
   "scripts": {
     "build": "vite build",
+    "build:scanner": "vite build --config vite.scanner.config.js",
     "test": "deno test --allow-read --allow-env tests/",
     "shadcn": "shadcn-svelte"
   },
@@ -16,6 +17,7 @@
     "@tailwindcss/vite": "4.1.18",
     "bits-ui": "2.19.2",
     "clsx": "2.1.1",
+    "jsqr": "1.4.0",
     "mp4-muxer": "5.2.2",
     "paneforge": "1.0.2",
     "shadcn-svelte": "1.7.0",
@@ -23,7 +25,9 @@
     "tailwind-merge": "3.7.0",
     "tailwind-variants": "3.3.1",
     "tailwindcss": "4.1.18",
+    "trystero": "0.25.4",
     "tw-animate-css": "1.4.0",
+    "uqr": "0.1.3",
     "vite": "6.3.5",
     "vite-plugin-singlefile": "2.2.0"
   }

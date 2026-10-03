@@ -91,6 +91,17 @@
           "summary": "Drag the stone once, and save that motion rendered at full quality as an MP4 video."
         }
       ]
+    },
+    {
+      "title": "Scanning",
+      "pages": [
+        {
+          "slug": "rough-scan",
+          "title": "Rough scan",
+          "summary": "Connect your phone's camera to the studio with a QR code, and see it live.",
+          "wip": true
+        }
+      ]
     }
   ]
 }

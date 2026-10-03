@@ -48,6 +48,11 @@
   import { manualOptimizer } from '../lib/manual_optimizer_mode.js';
   import RecordPanel from './RecordPanel.svelte';
   import { recording } from '../lib/record_mode.js';
+  // Tools > Rough scan (T-0314): its panel in the left pane, and its QR code and camera over the
+  // renderer.
+  import ScanPanel from './ScanPanel.svelte';
+  import ScanView from './ScanView.svelte';
+  import { scanning } from '../lib/scan_mode.js';
   import { beginPaneScoot, endPaneScoot } from '../lib/viewport.js';
   import {
     readSetting, writeSetting, INSTRUCTIONS_WIDTH_SETTING, INSTRUCTIONS_WIDTH_MIN,
@@ -255,13 +260,15 @@
          stacks the right-hand column's layers: both stay mounted, the one not in use
          `visibility: hidden`, so the instructions keep their scroll and folds. -->
     <div id="left-stack">
-      <div class="panel-layer" class:panel-layer-off={$tiltPerformance.open || $manualOptimizer.open || $recording.open}><InstructionsPane /></div>
+      <div class="panel-layer" class:panel-layer-off={$tiltPerformance.open || $manualOptimizer.open || $recording.open || $scanning.open}><InstructionsPane /></div>
       <div class="panel-layer" class:panel-layer-off={!$tiltPerformance.open}><TiltPerformancePanel /></div>
       <!-- Edit > Manual optimizer's grid of previews (T-0273), the same way. -->
       <div class="panel-layer" class:panel-layer-off={!$manualOptimizer.open}><ManualOptimizerGrid /></div>
       <!-- Tools > Record rendering's settings (T-0290), the same way: "the right bar should stay
            the render settings but the left bar should be the recording settings". -->
       <div class="panel-layer" class:panel-layer-off={!$recording.open}><RecordPanel /></div>
+      <!-- Tools > Rough scan's steps, status and Done (T-0314), the same way. -->
+      <div class="panel-layer" class:panel-layer-off={!$scanning.open}><ScanPanel /></div>
     </div>
   </Resizable.Pane>
 
@@ -285,6 +292,16 @@
       <div class="min-h-0 flex-1">
         <Viewport />
       </div>
+      <!-- Tools > Rough scan (T-0314): the QR code, then the phone's camera, in the renderer's
+           place for as long as the mode is open (the user: "once the qr code is scanned by the
+           phone, we start streaming the phone's camera output to ... the website"). Laid over the
+           renderer rather than in place of it, so the canvas keeps its size and the stone comes
+           back as it was; the view is not drawn meanwhile (scan_mode.js's render hold). -->
+      {#if $scanning.open}
+        <div class="absolute inset-0 z-30">
+          <ScanView />
+        </div>
+      {/if}
     </div>
   </Resizable.Pane>
 

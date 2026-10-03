@@ -49,6 +49,8 @@
   import { rotateIndexOpen, enterRotateIndexMode } from '../lib/rotate_index_mode.js';
   // Tools > Record rendering (T-0290), likewise.
   import { recording, enterRecording } from '../lib/record_mode.js';
+  // Tools > Rough scan (T-0314), likewise.
+  import { scanning, enterScan } from '../lib/scan_mode.js';
   // T-0204/T-0205/T-0207 originally wired these three through onSelect={() => import(...)},
   // a dynamic import, each deliberately avoiding this file's own top-level import lines so three
   // concurrent agents' edits could never collide on the same line. That safely built and tested
@@ -226,7 +228,7 @@
   // already open -- one session at a time, as edit mode has it. A greyed item that cannot say
   // why is exactly what T-0208's tips were written against.
   const SCALE_HEIGHT_TIP = 'Makes the crown or the pavilion taller or flatter, each by its own ratio: every facet turns so the tangent of its angle is multiplied by the ratio, and moves so its meets still meet. The girdle stays where it is.';
-  const scaleHeightInert = $derived(!$tierView.hasDesign || $editing !== null || $scaleHeightOpen || $cutting.open || $resizeGirdleOpen || $tiltPerformance.open || $manualOptimizer.open || $rotateIndexOpen || $recording.open);
+  const scaleHeightInert = $derived(!$tierView.hasDesign || $editing !== null || $scaleHeightOpen || $cutting.open || $resizeGirdleOpen || $tiltPerformance.open || $manualOptimizer.open || $rotateIndexOpen || $recording.open || $scanning.open);
   const scaleHeightTip = $derived(
     !$tierView.hasDesign ? `${SCALE_HEIGHT_TIP} There is no design loaded to scale.`
       : $editing !== null ? `${SCALE_HEIGHT_TIP} Finish editing the tier first: Done, or Cancel.`
@@ -237,12 +239,13 @@
                 : $manualOptimizer.open ? `${SCALE_HEIGHT_TIP} ${CLOSE_OPTIMIZER_TIP}`
                   : $rotateIndexOpen ? `${SCALE_HEIGHT_TIP} ${CLOSE_ROTATE_TIP}`
                     : $recording.open ? `${SCALE_HEIGHT_TIP} ${CLOSE_RECORD_TIP}`
-                      : SCALE_HEIGHT_TIP);
+                      : $scanning.open ? `${SCALE_HEIGHT_TIP} ${CLOSE_SCAN_TIP}`
+                        : SCALE_HEIGHT_TIP);
 
   // Tools > Cutting assistant (T-0234): live, and inert, saying why, in the same cases as scale
   // height -- no design to walk through, or another mode open -- or while it is already open.
   const CUTTING_TIP = 'Walks you through cutting the stone from a rough, one facet at a time: each step shows the angle and tooth to set and the rock as it will look once that facet is cut, on its dop. The design is not changed.';
-  const cuttingInert = $derived(!$tierView.hasDesign || $editing !== null || $scaleHeightOpen || $cutting.open || $resizeGirdleOpen || $tiltPerformance.open || $manualOptimizer.open || $rotateIndexOpen || $recording.open);
+  const cuttingInert = $derived(!$tierView.hasDesign || $editing !== null || $scaleHeightOpen || $cutting.open || $resizeGirdleOpen || $tiltPerformance.open || $manualOptimizer.open || $rotateIndexOpen || $recording.open || $scanning.open);
   const cuttingTip = $derived(
     !$tierView.hasDesign ? `${CUTTING_TIP} There is no design loaded to cut.`
       : $editing !== null ? `${CUTTING_TIP} Finish editing the tier first: Done, or Cancel.`
@@ -253,11 +256,12 @@
                 : $manualOptimizer.open ? `${CUTTING_TIP} ${CLOSE_OPTIMIZER_TIP}`
                   : $rotateIndexOpen ? `${CUTTING_TIP} ${CLOSE_ROTATE_TIP}`
                     : $recording.open ? `${CUTTING_TIP} ${CLOSE_RECORD_TIP}`
-                      : CUTTING_TIP);
+                      : $scanning.open ? `${CUTTING_TIP} ${CLOSE_SCAN_TIP}`
+                        : CUTTING_TIP);
 
   // Edit > Resize girdle (T-0237), the same way: what it does, then why it is inert when it is.
   const RESIZE_GIRDLE_TIP = 'Cuts every facet deeper or shallower by the same ratio while the girdle facets stay where they are, so the girdle band grows or shrinks against the rest of the stone. Every angle stays as cut.';
-  const resizeGirdleInert = $derived(!$tierView.hasDesign || $editing !== null || $scaleHeightOpen || $cutting.open || $resizeGirdleOpen || $tiltPerformance.open || $manualOptimizer.open || $rotateIndexOpen || $recording.open);
+  const resizeGirdleInert = $derived(!$tierView.hasDesign || $editing !== null || $scaleHeightOpen || $cutting.open || $resizeGirdleOpen || $tiltPerformance.open || $manualOptimizer.open || $rotateIndexOpen || $recording.open || $scanning.open);
   const resizeGirdleTip = $derived(
     !$tierView.hasDesign ? `${RESIZE_GIRDLE_TIP} There is no design loaded to resize.`
       : $editing !== null ? `${RESIZE_GIRDLE_TIP} Finish editing the tier first: Done, or Cancel.`
@@ -268,13 +272,14 @@
                 : $manualOptimizer.open ? `${RESIZE_GIRDLE_TIP} ${CLOSE_OPTIMIZER_TIP}`
                   : $rotateIndexOpen ? `${RESIZE_GIRDLE_TIP} ${CLOSE_ROTATE_TIP}`
                     : $recording.open ? `${RESIZE_GIRDLE_TIP} ${CLOSE_RECORD_TIP}`
-                      : RESIZE_GIRDLE_TIP);
+                      : $scanning.open ? `${RESIZE_GIRDLE_TIP} ${CLOSE_SCAN_TIP}`
+                        : RESIZE_GIRDLE_TIP);
 
   // Tools > Tilt performance (T-0261): live for any stone, a plain .obj included, and inert,
   // saying why, while another mode is open or it already is.
   const CLOSE_TILT_TIP = 'Close tilt performance first: Done, or Escape.';
   const TILT_TIP = 'How much light the stone returns as it is tilted up to 33° (or as far as you choose) one way and then the other, the way it is actually looked at rather than only straight on: brightness under even and under overhead light, the see-through window, and the head shadow, for the whole stone and for the table.';
-  const tiltInert = $derived($editing !== null || $scaleHeightOpen || $cutting.open || $resizeGirdleOpen || $tiltPerformance.open || $manualOptimizer.open || $rotateIndexOpen || $recording.open);
+  const tiltInert = $derived($editing !== null || $scaleHeightOpen || $cutting.open || $resizeGirdleOpen || $tiltPerformance.open || $manualOptimizer.open || $rotateIndexOpen || $recording.open || $scanning.open);
   const tiltTip = $derived(
     $editing !== null ? `${TILT_TIP} Finish editing the tier first: Done, or Cancel.`
       : $scaleHeightOpen ? `${TILT_TIP} Finish scaling the height first: Done, or Cancel.`
@@ -284,13 +289,14 @@
               : $manualOptimizer.open ? `${TILT_TIP} ${CLOSE_OPTIMIZER_TIP}`
                 : $rotateIndexOpen ? `${TILT_TIP} ${CLOSE_ROTATE_TIP}`
                   : $recording.open ? `${TILT_TIP} ${CLOSE_RECORD_TIP}`
-                    : TILT_TIP);
+                    : $scanning.open ? `${TILT_TIP} ${CLOSE_SCAN_TIP}`
+                      : TILT_TIP);
 
   // Edit > Manual optimizer (T-0273): live with a design loaded, and inert, saying why, while
   // another mode is open or it already is.
   const CLOSE_OPTIMIZER_TIP = 'Finish the manual optimizer first: Done, or Cancel.';
   const OPTIMIZER_TIP = 'Shows the stone in a grid with taller and flatter crowns and pavilions, so you can compare them side by side and pick the heights that look best.';
-  const optimizerInert = $derived(!$tierView.hasDesign || $editing !== null || $scaleHeightOpen || $cutting.open || $resizeGirdleOpen || $tiltPerformance.open || $manualOptimizer.open || $rotateIndexOpen || $recording.open);
+  const optimizerInert = $derived(!$tierView.hasDesign || $editing !== null || $scaleHeightOpen || $cutting.open || $resizeGirdleOpen || $tiltPerformance.open || $manualOptimizer.open || $rotateIndexOpen || $recording.open || $scanning.open);
   const optimizerTip = $derived(
     !$tierView.hasDesign ? `${OPTIMIZER_TIP} There is no design loaded to optimize.`
       : $editing !== null ? `${OPTIMIZER_TIP} Finish editing the tier first: Done, or Cancel.`
@@ -301,13 +307,14 @@
                 : $manualOptimizer.open ? `${OPTIMIZER_TIP} It is already open.`
                   : $rotateIndexOpen ? `${OPTIMIZER_TIP} ${CLOSE_ROTATE_TIP}`
                     : $recording.open ? `${OPTIMIZER_TIP} ${CLOSE_RECORD_TIP}`
-                      : OPTIMIZER_TIP);
+                      : $scanning.open ? `${OPTIMIZER_TIP} ${CLOSE_SCAN_TIP}`
+                        : OPTIMIZER_TIP);
 
   // Edit > Rotate by index (T-0287): live with a design loaded, and inert, saying why, while
   // another mode is open or it already is -- the manual optimizer's pattern.
   const CLOSE_ROTATE_TIP = 'Finish rotating the design first: Done, or Cancel.';
   const ROTATE_TIP = 'Turns the whole design round the index gear by a number of teeth: every facet\'s tooth moves by the same amount, wrapping round the gear, and the angles and depths stay as they are.';
-  const rotateInert = $derived(!$tierView.hasDesign || $editing !== null || $scaleHeightOpen || $cutting.open || $resizeGirdleOpen || $tiltPerformance.open || $manualOptimizer.open || $rotateIndexOpen || $recording.open);
+  const rotateInert = $derived(!$tierView.hasDesign || $editing !== null || $scaleHeightOpen || $cutting.open || $resizeGirdleOpen || $tiltPerformance.open || $manualOptimizer.open || $rotateIndexOpen || $recording.open || $scanning.open);
   const rotateTip = $derived(
     !$tierView.hasDesign ? `${ROTATE_TIP} There is no design loaded to rotate.`
       : $editing !== null ? `${ROTATE_TIP} Finish editing the tier first: Done, or Cancel.`
@@ -318,13 +325,14 @@
                 : $manualOptimizer.open ? `${ROTATE_TIP} ${CLOSE_OPTIMIZER_TIP}`
                   : $rotateIndexOpen ? `${ROTATE_TIP} It is already open.`
                     : $recording.open ? `${ROTATE_TIP} ${CLOSE_RECORD_TIP}`
-                      : ROTATE_TIP);
+                      : $scanning.open ? `${ROTATE_TIP} ${CLOSE_SCAN_TIP}`
+                        : ROTATE_TIP);
 
   // Tools > Record rendering (T-0290): live for any stone, a plain .obj included (tilt
   // performance's rule), and inert, saying why, while another mode is open or it already is.
   const CLOSE_RECORD_TIP = 'Close record rendering first: Done, or Escape.';
   const RECORD_TIP = 'Records a video of the stone: drag it once along the path you want, drawn with a fast renderer, and each moment of the drag is then rendered again at full quality, at the size and frame rate you choose, and saved as an MP4.';
-  const recordInert = $derived($editing !== null || $scaleHeightOpen || $cutting.open || $resizeGirdleOpen || $tiltPerformance.open || $manualOptimizer.open || $rotateIndexOpen || $recording.open);
+  const recordInert = $derived($editing !== null || $scaleHeightOpen || $cutting.open || $resizeGirdleOpen || $tiltPerformance.open || $manualOptimizer.open || $rotateIndexOpen || $recording.open || $scanning.open);
   const recordTip = $derived(
     $editing !== null ? `${RECORD_TIP} Finish editing the tier first: Done, or Cancel.`
       : $scaleHeightOpen ? `${RECORD_TIP} Finish scaling the height first: Done, or Cancel.`
@@ -334,7 +342,25 @@
               : $manualOptimizer.open ? `${RECORD_TIP} ${CLOSE_OPTIMIZER_TIP}`
                 : $rotateIndexOpen ? `${RECORD_TIP} ${CLOSE_ROTATE_TIP}`
                   : $recording.open ? `${RECORD_TIP} It is already open.`
-                    : RECORD_TIP);
+                    : $scanning.open ? `${RECORD_TIP} ${CLOSE_SCAN_TIP}`
+                      : RECORD_TIP);
+
+  // Tools > Rough scan (T-0314): live whatever is loaded (the stone plays no part), and inert,
+  // saying why, while another mode is open or it already is -- record rendering's rule.
+  const CLOSE_SCAN_TIP = 'Close the rough scan first: Done, or Escape.';
+  const SCAN_TIP = 'Connects your phone\'s camera to the studio: shows a code to scan with the phone, then the phone\'s live camera. The phone and this computer need to be on the same network.';
+  const scanInert = $derived($editing !== null || $scaleHeightOpen || $cutting.open || $resizeGirdleOpen || $tiltPerformance.open || $manualOptimizer.open || $rotateIndexOpen || $recording.open || $scanning.open);
+  const scanTip = $derived(
+    $editing !== null ? `${SCAN_TIP} Finish editing the tier first: Done, or Cancel.`
+      : $scaleHeightOpen ? `${SCAN_TIP} Finish scaling the height first: Done, or Cancel.`
+        : $cutting.open ? `${SCAN_TIP} Close the cutting assistant first: Done, or Escape.`
+          : $resizeGirdleOpen ? `${SCAN_TIP} Finish resizing the girdle first: Done, or Cancel.`
+            : $tiltPerformance.open ? `${SCAN_TIP} ${CLOSE_TILT_TIP}`
+              : $manualOptimizer.open ? `${SCAN_TIP} ${CLOSE_OPTIMIZER_TIP}`
+                : $rotateIndexOpen ? `${SCAN_TIP} ${CLOSE_ROTATE_TIP}`
+                  : $recording.open ? `${SCAN_TIP} ${CLOSE_RECORD_TIP}`
+                    : $scanning.open ? `${SCAN_TIP} It is already open.`
+                      : SCAN_TIP);
 
   // Mode status (moved here from two places, 2026-09-24): SettingsPanel's own pinned footer,
   // "Mode: Overview" (added 2026-09-22, the user: "at the bottom of the render settings section
@@ -368,7 +394,8 @@
               : $manualOptimizer.open ? 'Manual optimizer'
                 : $rotateIndexOpen ? 'Rotating by index'
                   : $recording.open ? 'Record rendering'
-                    : 'Overview');
+                    : $scanning.open ? 'Rough scan'
+                      : 'Overview');
 </script>
 
 <svelte:document onkeydown={onDocumentKeydown} />
@@ -535,6 +562,13 @@
           class="{ITEM} {INERT}" data-tip={recordTip}
           onSelect={() => { if (!recordInert) enterRecording(); }}
           >Record rendering</Menubar.Item>
+        <!-- Rough scan (T-0314, 2026-10-02, the user: "the rough scanning mode first shows a qr
+             code on the screen ... once the qr code is scanned by the phone, we start streaming
+             the phone's camera output"): opens scan_mode.js. -->
+        <Menubar.Item id="menu-item-rough-scan" {@attach ariaDisabled(() => scanInert)}
+          class="{ITEM} {INERT}" data-tip={scanTip}
+          onSelect={() => { if (!scanInert) enterScan(); }}
+          >Rough scan</Menubar.Item>
       </Menubar.Content>
     </Menubar.Menu>
 

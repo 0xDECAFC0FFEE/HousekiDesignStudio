@@ -30,6 +30,8 @@
   import { rotateIndexOpen, cancelRotateIndexMode } from './lib/rotate_index_mode.js';
   // Tools > Record rendering (T-0290): its Escape, and whether its final render is running.
   import { recording, escapeRecording } from './lib/record_mode.js';
+  // Tools > Rough scan (T-0314): its Escape, Done's twin.
+  import { scanning, exitScan } from './lib/scan_mode.js';
   import { fullscreen, exitFullscreen } from './lib/fullscreen.js';
   import { eventTargetTakesText, eventTargetIsEditable, eventTargetActivatesOnEnter } from './lib/keys.js';
   import { get } from 'svelte/store';
@@ -173,6 +175,10 @@
       // fullscreen rule. One step back per press: a render is cancelled, a take dropped, the
       // recorder disarmed, and only then the mode closed.
       escapeRecording();
+    } else if ($scanning.open && !$fullscreen) {
+      // Rough scan (T-0314): Done's twin -- closes the session and the mode. Its panel is in the
+      // left pane too, so the same fullscreen rule.
+      exitScan();
     } else {
       exitFullscreen();
     }

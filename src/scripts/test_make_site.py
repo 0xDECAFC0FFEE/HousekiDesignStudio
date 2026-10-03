@@ -154,5 +154,42 @@ class BuildSiteTest(unittest.TestCase):
             self.build({"url": "https://example.com", "docs": "docs.html"})
 
 
+class InstallScannerPageTest(unittest.TestCase):
+    """make_page.install_scanner_page (T-0313): the phone scanner page, built by its own Vite
+    config into one file, is copied to scanner/index.html so the site serves it at /scanner."""
+
+    def install(self, built_page):
+        """Runs install_scanner_page on `built_page` (standing in for Vite's output) into a fresh
+        temporary directory. Returns that directory and the path the function reported."""
+        work = pathlib.Path(tempfile.mkdtemp(prefix="gem-scanner-"))
+        built = work / "built.html"
+        built.write_text(built_page)
+        out = work / "www"
+        out.mkdir()
+
+        with mock.patch.object(make_page, "SCANNER_BUILD", built):
+            return out, make_page.install_scanner_page(out)
+
+    def test_a_single_file_page_is_served_at_scanner(self):
+        # Setup: a self-contained page, its script and style inline, as vite-plugin-singlefile
+        # writes it. Test: install it. Verifies: it lands, unchanged, at scanner/index.html, the
+        # file a static host serves for /scanner (and /scanner/), and that is the path returned.
+        page = "<!DOCTYPE html><html><head><style>p{}</style><script type=\"module\">go()</script></head></html>"
+        out, path = self.install(page)
+
+        self.assertEqual(path, out / "scanner" / "index.html")
+        self.assertEqual(path.read_text(), page)
+
+    def test_a_page_that_loads_another_file_is_refused(self):
+        # Setup: two pages that each load a second file, a script by src= and a stylesheet by
+        # <link>, as a Vite config change (dropping the single-file plugin) would leave them.
+        # Test: install each. Verifies: the build stops with an error rather than publishing a
+        # page whose script or style is missing from the site (or unloadable from file://).
+        for page in ('<script type="module" src="./assets/index.js"></script>',
+                     '<link rel="stylesheet" href="./assets/style.css">'):
+            with self.subTest(page=page), self.assertRaises(SystemExit):
+                self.install(page)
+
+
 if __name__ == "__main__":
     unittest.main()
