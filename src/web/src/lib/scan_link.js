@@ -32,6 +32,7 @@ import {
 } from 'trystero';
 import { decodeScanHash, defaultScannerBaseUrl, newScanSecrets, scanLinkUrl } from './scan_link_hash.js';
 import { SCAN_RELAY_URLS } from './scan_relays.js';
+import { phoneVisionChannel, studioVisionChannel } from './scan_vision.js';
 
 export { decodeScanHash, ScanLinkError } from './scan_link_hash.js';
 export { SCAN_RELAY_URLS } from './scan_relays.js';
@@ -221,6 +222,9 @@ function channel(initial) {
  *                 differs. Only one side of a failed handshake sees the failure, so this fires
  *                 for some such attempts and not others; it is for diagnostics and tests, not
  *                 security.
+ *   onVision(cb)  cb(message, peerId) for each of the streaming phone's vision messages
+ *                 (scan_vision.js: asked for when its stream arrives, validated, at most ~25 a
+ *                 second). A phone page older than them sends none. Returns an unsubscribe.
  *   close()       leaves the room and stops everything, and once no session is left closes the
  *                 relay connections; no callback fires after it.
  */
@@ -232,6 +236,9 @@ export function createScanSession({ scannerBaseUrl, relayUrls = [], location = g
   const status = channel(['waiting']);
   const streams = channel(null);
   const rejected = channel(null);
+  // The phone's vision messages (T-0326): the latest is not replayed to a late listener.
+  const visions = new Set();
+  let visionLink = null;
   const peers = new Set();
   let current = 'waiting';
   let streamingPeer = null;
@@ -274,6 +281,13 @@ export function createScanSession({ scannerBaseUrl, relayUrls = [], location = g
 
       streamingPeer = peerId;
       streams.emit(stream, peerId);
+      // Ask the phone that streams for its vision messages (scan_vision.js, "Asking first").
+      visionLink ??= studioVisionChannel(room, (message, from) => {
+        if (!closed && from === streamingPeer) {
+          visions.forEach(listener => listener(message, from));
+        }
+      });
+      visionLink.request(peerId);
       setStatus('connected', peerId);
     };
 
@@ -307,6 +321,10 @@ export function createScanSession({ scannerBaseUrl, relayUrls = [], location = g
     onStatus: listener => status.add(listener),
     onStream: listener => streams.add(listener),
     onRejected: listener => rejected.add(listener),
+    onVision: listener => {
+      visions.add(listener);
+      return () => visions.delete(listener);
+    },
     close() {
       if (closed) {
         return;
@@ -317,6 +335,7 @@ export function createScanSession({ scannerBaseUrl, relayUrls = [], location = g
       status.clear();
       streams.clear();
       rejected.clear();
+      visions.clear();
       leave();
     },
   };
@@ -340,6 +359,9 @@ export function createScanSession({ scannerBaseUrl, relayUrls = [], location = g
  *                                   answered within `connectTimeoutMs`; it keeps trying), or the
  *                                   reason the connection failed
  *                 Replayed to a newly added cb; returns an unsubscribe.
+ *   sendVision(m) sends a vision message (scan_vision.js makeVisionMessage) to the computer, at
+ *                 most ~10 a second, and only once the computer has asked for them; otherwise
+ *                 does nothing.
  *   close()       leaves the room. The stream's tracks are the caller's to stop.
  */
 export function joinScanSession(link, stream, { connectTimeoutMs = PHONE_CONNECT_TIMEOUT_MS } = {}) {
@@ -354,6 +376,7 @@ export function joinScanSession(link, stream, { connectTimeoutMs = PHONE_CONNECT
   let host = null;
   let everConnected = false;
   let closed = false;
+  let vision = null;
 
   const setStatus = (next, detail) => {
     if (closed) {
@@ -373,6 +396,8 @@ export function joinScanSession(link, stream, { connectTimeoutMs = PHONE_CONNECT
   };
 
   const leave = openRoom(roomConfig(password, relayUrls), roomId, { onJoinError }, room => {
+    vision = phoneVisionChannel(room, () => host);
+
     room.onPeerJoin = peerId => {
       host = peerId;
       everConnected = true;
@@ -396,6 +421,7 @@ export function joinScanSession(link, stream, { connectTimeoutMs = PHONE_CONNECT
 
   return {
     onStatus: listener => status.add(listener),
+    sendVision: message => vision?.send(message),
     close() {
       if (closed) {
         return;
@@ -404,6 +430,7 @@ export function joinScanSession(link, stream, { connectTimeoutMs = PHONE_CONNECT
       closed = true;
       clearTimeout(timeout);
       status.clear();
+      vision?.close();
       leave();
     },
   };

@@ -455,3 +455,176 @@ Deno.test("a session that cannot be made is reported, not thrown", async () => {
   assertEqual(decode(get(mode.scanning).qr), link.sessions[0].url, "with a working code");
   mode.exitScan();
 });
+
+// --- what the phone sees (T-0326) -----------------------------------------------------------------
+
+/** A validated vision message, as scan_link.js hands one over: a posed frame with a rock outline. */
+function visionMessage(overrides = {}) {
+  return {
+    v: 1,
+    timeMs: 1000,
+    frame: { w: 1280, h: 720 },
+    board: {
+      recognised: true, corners: 120, markers: 60, sheet: "charuco_23x17_10mm_centre3x3_dots", sheetFrom: "auto",
+      targetMm: [85, 115], sizeMm: [170, 230],
+    },
+    pose: {
+      R: [1, 0, 0, 0, -1, 0, 0, 0, -1], t: [-85, 115, 300], center: [85, 115, 300],
+      azimuthDeg: 0, elevationDeg: 62.4, distanceMm: 312.6, rmsPx: 0.4, valid: true,
+    },
+    intrinsics: { f: 1088, cx: 640, cy: 360, k1: 0, source: "closed-form" },
+    outline: { timeMs: 990, contour: [[600, 300], [700, 300], [650, 400]], box: [600, 300, 100, 100], confidence: 0.9, flags: [] },
+    ...overrides,
+  };
+}
+
+Deno.test("the phone's vision messages reach the view while it streams, and go with its picture", async () => {
+  // Setup: the mode open on a fake session that has onVision, with a fake arrival clock.
+  // Test: a vision message before the camera has arrived; then the camera, and a message; then the
+  // phone hangs up; then New code, and Done, each after a message.
+  // Verifies: a message before the picture is ignored (there is nothing to draw it over); with
+  // the picture up, the latest message is the store's, stamped with its arrival time; when the
+  // phone leaves, New code is made or the mode closes, the message goes with the picture (no stale
+  // outline left over a new session or the next phone).
+  const { link } = await page();
+  let clock = 5000;
+
+  mode.setScanBackend({ createSession: link, now: () => clock });
+  mode.enterScan();
+
+  const session = link.sessions[0];
+  session.emitVision(visionMessage());
+  assertEqual(get(mode.scanVision), null, "ignored before the picture");
+
+  session.emitStream({ id: "camera" });
+  session.emitStatus("connected", "phone-peer");
+  session.emitVision(visionMessage({ timeMs: 2000 }));
+  assertEqual(get(mode.scanVision).message.timeMs, 2000, "the latest message");
+  assertEqual(get(mode.scanVision).receivedAt, 5000, "stamped on arrival");
+
+  clock = 5100;
+  session.emitVision(visionMessage({ timeMs: 2100 }));
+  assertEqual([get(mode.scanVision).message.timeMs, get(mode.scanVision).receivedAt], [2100, 5100], "replaced by the next");
+
+  session.emitStatus("disconnected", "phone-peer");
+  assertEqual(get(mode.scanVision), null, "gone with the phone");
+
+  session.emitStream({ id: "camera" });
+  session.emitVision(visionMessage());
+  mode.newScanCode();
+  assertEqual(get(mode.scanVision), null, "gone with New code");
+
+  const second = link.sessions[1];
+  second.emitStream({ id: "camera" });
+  second.emitVision(visionMessage());
+  assert(get(mode.scanVision) !== null, "the new session's phone is heard");
+  session.emitVision(visionMessage({ timeMs: 9 }));
+  assert(get(mode.scanVision).message.timeMs !== 9, "the old session is not");
+
+  mode.exitScan();
+  assertEqual(get(mode.scanVision), null, "gone with Done");
+});
+
+Deno.test("a session or phone without vision leaves the mode as it was", async () => {
+  // Setup: the mode on a fake session WITHOUT onVision (a scan_link.js from before T-0326), and
+  // separately one with it whose phone never sends (an older phone page).
+  // Test: open the mode, stream, hang up, close.
+  // Verifies: nothing throws, the picture comes and goes as before, the vision store stays null
+  // throughout, and the panel's readout (scanVisionText) has nothing to say (null): the studio
+  // shows exactly what it showed before vision existed.
+  const { link } = await page();
+
+  for (const factory of [fakeScanLink({ withVision: false }), link]) {
+    mode.setScanBackend({ createSession: factory });
+    assert(mode.enterScan(), "opens");
+    const session = factory.sessions.at(-1);
+    session.emitStream({ id: "camera" });
+    session.emitStatus("connected", "phone-peer");
+    assertEqual(get(mode.scanStream)?.id, "camera", "the picture as before");
+    assertEqual(get(mode.scanVision), null, "no vision");
+    assertEqual(mode.scanVisionText(get(mode.scanVision), 0), null, "nothing to read out");
+    session.emitStatus("disconnected", "phone-peer");
+    assertEqual(get(mode.scanStream), null, "the picture goes as before");
+    mode.exitScan();
+  }
+});
+
+Deno.test("scanVisionText reads out the board, the camera, the lens and the rock in words", () => {
+  // Setup: vision values as the store holds them, received at t = 1000 ms.
+  // Test: read each out, now and later.
+  // Verifies: a posed frame reads "Found (Large target with dots)", the camera's distance in cm
+  // and its height in degrees, the lens's state and "Outlined"; a frame without a board reads
+  // "Not in view" and dashes; an undecided sheet is not named; each intrinsics source reads as
+  // its own words; and a value more than VISION_GONE_MS old adds a note that the phone has gone
+  // quiet.
+  const posed = mode.scanVisionText({ message: visionMessage(), receivedAt: 1000 }, 1200);
+  assertEqual(posed.rows, [
+    { label: "Board", value: "Found (Large target with dots)" },
+    { label: "Camera", value: "31 cm from the target, 62° above the board" },
+    { label: "Lens", value: "First estimate, still measuring" },
+    { label: "Rock", value: "Outlined" },
+  ], "a posed frame");
+  assertEqual(posed.note, "", "no note while fresh");
+
+  const empty = mode.scanVisionText({
+    message: visionMessage({
+      board: { ...visionMessage().board, recognised: false, sheetFrom: "default" },
+      pose: null, outline: null, intrinsics: { f: 1088, cx: 640, cy: 360, k1: 0, source: "guess" },
+    }),
+    receivedAt: 1000,
+  }, 1000 + mode.VISION_GONE_MS + 1);
+  assertEqual(empty.rows.map(row => row.value), ["Not in view", "–", "Estimating", "–"], "nothing seen");
+  assert(empty.note.includes("has not sent anything"), "the quiet phone is noted");
+
+  const refined = mode.scanVisionText({ message: visionMessage({ outline: null, intrinsics: { f: 1088, cx: 640, cy: 360, k1: 0.01, source: "refined" } }), receivedAt: 0 }, 0);
+  assertEqual(refined.rows.map(row => row.value).slice(2), ["Measured", "None found on the target"], "measured lens, no rock");
+
+  const undecided = mode.scanVisionText({ message: visionMessage({ board: { ...visionMessage().board, sheetFrom: "default" } }), receivedAt: 0 }, 0);
+  assertEqual(undecided.rows[0].value, "Found", "an undecided sheet is not named");
+  assertEqual(posed.guide, null, "no guide from a phone that sends none");
+});
+
+Deno.test("scanVisionText adds a Speed row when the phone sends its speed (T-0332)", () => {
+  // Setup: a posed message with the optional speed: 9.6 poses a second, 4.1 of them tracked, the
+  // overlay 118.4 ms behind the picture (90% within 181 ms), detection 26.6 ms. Then speeds with
+  // only some fields, and none.
+  // Test: read each out.
+  // Verifies: the last row is "Speed", in words with whole milliseconds and one decimal for the
+  // rates; the tracked share shows only when there is one; missing fields are left out of the
+  // sentence rather than shown as blanks; no speed (an older phone), no row; speedText of nothing
+  // is null.
+  const speed = { posesPerS: 9.6, trackedPerS: 4.1, ageMs: 118.4, ageP90Ms: 181, detectMs: 26.6 };
+  const read = mode.scanVisionText({ message: { ...visionMessage(), speed }, receivedAt: 0 }, 0);
+  assertEqual(read.rows.at(-1), {
+    label: "Speed",
+    value: "9.6 poses a second (4.1 tracked) · position 118 ms old when drawn (90% within 181 ms) · finding the board takes 27 ms",
+  }, "the speed row");
+  assertEqual(mode.speedText({ posesPerS: 3, trackedPerS: 0, ageMs: 300 }), "3.0 poses a second · position 300 ms old when drawn", "some fields");
+  assertEqual(mode.speedText({ detectMs: 140 }), "finding the board takes 140 ms", "one field");
+  assert(!mode.scanVisionText({ message: visionMessage(), receivedAt: 0 }, 0).rows.some(row => row.label === "Speed"), "no speed, no row");
+  assertEqual(mode.speedText(null), null, "nothing");
+});
+
+Deno.test("scanVisionText reads out the phone's scan guidance when it sends one (T-0331)", () => {
+  // Setup: a posed message with the optional guide: the camera 18.2 cm from the rock, 35 degrees
+  // up, at azimuth 120 (2 o'clock); the 45-degree circle filmed from 0 to 180 degrees, nothing low;
+  // the phone showing the focus warning. Then the same without the warning, and without a pose.
+  // Verifies: the Camera row is measured from the rock and told as the phone tells it; "Filmed"
+  // counts each circle's sides; "Next" is the phone's own advice for this coverage (finish the 45°
+  // circle the camera is on, naming the nearest unfilmed stretch); "Warning" reads the warning's
+  // title and what to do, and is absent without one; the guide is handed on for the map; without a
+  // pose the guide is not read out at all.
+  const guide = { azimuthDeg: 120, elevationDeg: 35.2, distanceMm: 182, rockMm: [80, 110, 5], rockFrom: "views", cover: [0, 0b111111, 0, 0], warning: "focus" };
+  const read = mode.scanVisionText({ message: { ...visionMessage(), guide }, receivedAt: 0 }, 0);
+  const rows = Object.fromEntries(read.rows.map(row => [row.label, row.value]));
+  assertEqual(rows.Camera, "18 cm from the rock, 35° above the board, from 2 o'clock", "camera from the rock");
+  assertEqual(rows.Filmed, "Low circle 0 of 12 sides · 45° circle 6 of 12 · from above: not yet", "filmed");
+  assertEqual(rows.Next, "Circle at 45°: film the 6 to 12 o'clock side.", "next step");
+  assertEqual(rows.Warning, "Rock not in focus. Hold the phone still for a moment so it can focus, or move it a little further back.", "warning");
+  assertEqual(read.guide.cover, guide.cover, "the guide for the map");
+
+  const calm = mode.scanVisionText({ message: { ...visionMessage(), guide: { ...guide, warning: null } }, receivedAt: 0 }, 0);
+  assert(!calm.rows.some(row => row.label === "Warning"), "no warning row without a warning");
+  const lost = mode.scanVisionText({ message: { ...visionMessage({ pose: null, outline: null }), guide }, receivedAt: 0 }, 0);
+  assert(!lost.rows.some(row => row.label === "Filmed") && lost.guide === null, "no pose: no guidance read out");
+});

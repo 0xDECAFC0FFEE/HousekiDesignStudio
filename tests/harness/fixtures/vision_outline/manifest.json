@@ -1,0 +1,695 @@
+{
+ "format": "houseki.outline_fixtures.v1",
+ "source": "HousekiScanner work/captures/<capture>/{frames,masks}, selection.json, board.json",
+ "scale": 0.5,
+ "frames": [
+  {
+   "capture": "moissanite",
+   "index": 613,
+   "image": "moissanite_000613.jpg",
+   "mask": "moissanite_000613_mask.png",
+   "offset": [
+    0,
+    0
+   ],
+   "elevationDeg": 20.7,
+   "desktopConsistencyIou": 0.9505,
+   "boundCentreMm": [
+    80.076,
+    118.218
+   ],
+   "spec": {
+    "format": "houseki.board.v1",
+    "dictionary": "DICT_4X4_250",
+    "squares_x": 22,
+    "squares_y": 17,
+    "legacy": false,
+    "square_mm": 10.0,
+    "marker_ratio": 0.689,
+    "marker_mm": 6.89,
+    "target": {
+     "cells_row_col": [],
+     "x_range_mm": [
+      80.076,
+      80.076
+     ],
+     "y_range_mm": [
+      118.218,
+      118.218
+     ],
+     "centre_mm": [
+      80.076,
+      118.218
+     ],
+     "rings_diameter_mm": [],
+     "ring_grey": null,
+     "dots_mm": [],
+     "dot_diameter_mm": null,
+     "dot_seed": null
+    },
+    "removed_marker_ids": [],
+    "invalid_corner_ids": []
+   },
+   "pose": {
+    "frame": {
+     "width": 540,
+     "height": 960,
+     "timeMs": 0
+    },
+    "intrinsics": {
+     "width": 540,
+     "height": 960,
+     "f": 1735.8910857371864,
+     "cx": 270.0,
+     "cy": 480.0,
+     "k1": 0.05455373572368003,
+     "source": "refined"
+    },
+    "R": [
+     0.94229786,
+     -0.20467722,
+     0.26491882,
+     0.14128335,
+     -0.47427846,
+     -0.8689643,
+     0.30350249,
+     0.85625182,
+     -0.4179941
+    ],
+    "t": [
+     -50.68901,
+     41.43364,
+     -2.85567
+    ],
+    "center": [
+     42.77696514224291,
+     11.721369954861599,
+     48.2391734836732
+    ],
+    "valid": true
+   }
+  },
+  {
+   "capture": "moissanite",
+   "index": 985,
+   "image": "moissanite_000985.jpg",
+   "mask": "moissanite_000985_mask.png",
+   "offset": [
+    0,
+    0
+   ],
+   "elevationDeg": 43.3,
+   "desktopConsistencyIou": 0.972,
+   "boundCentreMm": [
+    80.076,
+    118.218
+   ],
+   "spec": {
+    "format": "houseki.board.v1",
+    "dictionary": "DICT_4X4_250",
+    "squares_x": 22,
+    "squares_y": 17,
+    "legacy": false,
+    "square_mm": 10.0,
+    "marker_ratio": 0.689,
+    "marker_mm": 6.89,
+    "target": {
+     "cells_row_col": [],
+     "x_range_mm": [
+      80.076,
+      80.076
+     ],
+     "y_range_mm": [
+      118.218,
+      118.218
+     ],
+     "centre_mm": [
+      80.076,
+      118.218
+     ],
+     "rings_diameter_mm": [],
+     "ring_grey": null,
+     "dots_mm": [],
+     "dot_diameter_mm": null,
+     "dot_seed": null
+    },
+    "removed_marker_ids": [],
+    "invalid_corner_ids": []
+   },
+   "pose": {
+    "frame": {
+     "width": 540,
+     "height": 960,
+     "timeMs": 0
+    },
+    "intrinsics": {
+     "width": 540,
+     "height": 960,
+     "f": 1735.8910857371864,
+     "cx": 270.0,
+     "cy": 480.0,
+     "k1": 0.05455373572368003,
+     "source": "refined"
+    },
+    "R": [
+     0.70531175,
+     -0.20996558,
+     0.6770892,
+     -0.07775278,
+     -0.97228056,
+     -0.22051082,
+     0.70462035,
+     0.10288331,
+     -0.70208631
+    ],
+    "t": [
+     -32.51296,
+     123.02078,
+     51.97302
+    ],
+    "center": [
+     -4.124267184908602,
+     107.43695403782381,
+     85.6311329822278
+    ],
+    "valid": true
+   }
+  },
+  {
+   "capture": "moissanite",
+   "index": 1453,
+   "image": "moissanite_001453.jpg",
+   "mask": "moissanite_001453_mask.png",
+   "offset": [
+    0,
+    198
+   ],
+   "elevationDeg": 71.6,
+   "desktopConsistencyIou": 0.957,
+   "boundCentreMm": [
+    80.076,
+    118.218
+   ],
+   "spec": {
+    "format": "houseki.board.v1",
+    "dictionary": "DICT_4X4_250",
+    "squares_x": 22,
+    "squares_y": 17,
+    "legacy": false,
+    "square_mm": 10.0,
+    "marker_ratio": 0.689,
+    "marker_mm": 6.89,
+    "target": {
+     "cells_row_col": [],
+     "x_range_mm": [
+      80.076,
+      80.076
+     ],
+     "y_range_mm": [
+      118.218,
+      118.218
+     ],
+     "centre_mm": [
+      80.076,
+      118.218
+     ],
+     "rings_diameter_mm": [],
+     "ring_grey": null,
+     "dots_mm": [],
+     "dot_diameter_mm": null,
+     "dot_seed": null
+    },
+    "removed_marker_ids": [],
+    "invalid_corner_ids": []
+   },
+   "pose": {
+    "frame": {
+     "width": 540,
+     "height": 960,
+     "timeMs": 0
+    },
+    "intrinsics": {
+     "width": 540,
+     "height": 960,
+     "f": 1735.8910857371864,
+     "cx": 270.0,
+     "cy": 480.0,
+     "k1": 0.05455373572368003,
+     "source": "refined"
+    },
+    "R": [
+     0.9645191,
+     -0.20090829,
+     0.17128565,
+     -0.23849383,
+     -0.94130823,
+     0.23887133,
+     0.11324137,
+     -0.27124653,
+     -0.95582515
+    ],
+    "t": [
+     -52.46979,
+     131.8902,
+     175.63661
+    ],
+    "center": [
+     62.1737832268993,
+     161.24853593425019,
+     145.360423696289
+    ],
+    "valid": true
+   }
+  },
+  {
+   "capture": "quartz",
+   "index": 2041,
+   "image": "quartz_002041.jpg",
+   "mask": "quartz_002041_mask.png",
+   "offset": [
+    0,
+    0
+   ],
+   "elevationDeg": 15.7,
+   "desktopConsistencyIou": 0.9745,
+   "boundCentreMm": [
+    84.917,
+    104.211
+   ],
+   "spec": {
+    "format": "houseki.board.v1",
+    "dictionary": "DICT_4X4_250",
+    "squares_x": 22,
+    "squares_y": 17,
+    "legacy": false,
+    "square_mm": 10.0,
+    "marker_ratio": 0.68,
+    "marker_mm": 6.800000000000001,
+    "target": {
+     "cells_row_col": [],
+     "x_range_mm": [
+      84.917,
+      84.917
+     ],
+     "y_range_mm": [
+      104.211,
+      104.211
+     ],
+     "centre_mm": [
+      84.917,
+      104.211
+     ],
+     "rings_diameter_mm": [],
+     "ring_grey": null,
+     "dots_mm": [],
+     "dot_diameter_mm": null,
+     "dot_seed": null
+    },
+    "removed_marker_ids": [],
+    "invalid_corner_ids": []
+   },
+   "pose": {
+    "frame": {
+     "width": 540,
+     "height": 960,
+     "timeMs": 0
+    },
+    "intrinsics": {
+     "width": 540,
+     "height": 960,
+     "f": 1763.0954414927542,
+     "cx": 270.0,
+     "cy": 480.0,
+     "k1": 0.11261164545338459,
+     "source": "refined"
+    },
+    "R": [
+     -0.54880246,
+     -0.83286523,
+     0.071773,
+     -0.2804491,
+     0.10255298,
+     -0.95437476,
+     0.78750502,
+     -0.54389189,
+     -0.28985763
+    ],
+    "t": [
+     136.83232,
+     14.89461,
+     111.08606
+    ],
+    "center": [
+     -8.209736109162993,
+     172.8542021528492,
+     36.59331581832139
+    ],
+    "valid": true
+   }
+  },
+  {
+   "capture": "quartz",
+   "index": 223,
+   "image": "quartz_000223.jpg",
+   "mask": "quartz_000223_mask.png",
+   "offset": [
+    15,
+    183
+   ],
+   "elevationDeg": 23.9,
+   "desktopConsistencyIou": 0.9328,
+   "boundCentreMm": [
+    84.917,
+    104.211
+   ],
+   "spec": {
+    "format": "houseki.board.v1",
+    "dictionary": "DICT_4X4_250",
+    "squares_x": 22,
+    "squares_y": 17,
+    "legacy": false,
+    "square_mm": 10.0,
+    "marker_ratio": 0.68,
+    "marker_mm": 6.800000000000001,
+    "target": {
+     "cells_row_col": [],
+     "x_range_mm": [
+      84.917,
+      84.917
+     ],
+     "y_range_mm": [
+      104.211,
+      104.211
+     ],
+     "centre_mm": [
+      84.917,
+      104.211
+     ],
+     "rings_diameter_mm": [],
+     "ring_grey": null,
+     "dots_mm": [],
+     "dot_diameter_mm": null,
+     "dot_seed": null
+    },
+    "removed_marker_ids": [],
+    "invalid_corner_ids": []
+   },
+   "pose": {
+    "frame": {
+     "width": 540,
+     "height": 960,
+     "timeMs": 0
+    },
+    "intrinsics": {
+     "width": 540,
+     "height": 960,
+     "f": 1763.0954414927542,
+     "cx": 270.0,
+     "cy": 480.0,
+     "k1": 0.11261164545338459,
+     "source": "refined"
+    },
+    "R": [
+     0.99648739,
+     -0.05297573,
+     0.06485724,
+     0.03967297,
+     -0.38341505,
+     -0.92272366,
+     0.0737492,
+     0.92205557,
+     -0.37996656
+    ],
+    "t": [
+     -79.37194,
+     45.32282,
+     82.21002
+    ],
+    "center": [
+     71.2321232446772,
+     -62.629542017386605,
+     78.205341810698
+    ],
+    "valid": true
+   }
+  },
+  {
+   "capture": "quartz",
+   "index": 1681,
+   "image": "quartz_001681.jpg",
+   "mask": "quartz_001681_mask.png",
+   "offset": [
+    0,
+    96
+   ],
+   "elevationDeg": 27.8,
+   "desktopConsistencyIou": 0.9747,
+   "boundCentreMm": [
+    84.917,
+    104.211
+   ],
+   "spec": {
+    "format": "houseki.board.v1",
+    "dictionary": "DICT_4X4_250",
+    "squares_x": 22,
+    "squares_y": 17,
+    "legacy": false,
+    "square_mm": 10.0,
+    "marker_ratio": 0.68,
+    "marker_mm": 6.800000000000001,
+    "target": {
+     "cells_row_col": [],
+     "x_range_mm": [
+      84.917,
+      84.917
+     ],
+     "y_range_mm": [
+      104.211,
+      104.211
+     ],
+     "centre_mm": [
+      84.917,
+      104.211
+     ],
+     "rings_diameter_mm": [],
+     "ring_grey": null,
+     "dots_mm": [],
+     "dot_diameter_mm": null,
+     "dot_seed": null
+    },
+    "removed_marker_ids": [],
+    "invalid_corner_ids": []
+   },
+   "pose": {
+    "frame": {
+     "width": 540,
+     "height": 960,
+     "timeMs": 0
+    },
+    "intrinsics": {
+     "width": 540,
+     "height": 960,
+     "f": 1763.0954414927542,
+     "cx": 270.0,
+     "cy": 480.0,
+     "k1": 0.11261164545338459,
+     "source": "refined"
+    },
+    "R": [
+     -0.95569669,
+     -0.28399267,
+     0.07740799,
+     -0.19310777,
+     0.4064329,
+     -0.8930407,
+     0.22215586,
+     -0.86842412,
+     -0.44326777
+    ],
+    "t": [
+     111.72799,
+     -18.432,
+     223.92836
+    ],
+    "center": [
+     53.471710412523514,
+     233.6860903826765,
+     74.1510594619171
+    ],
+    "valid": true
+   }
+  },
+  {
+   "capture": "spinel",
+   "index": 1423,
+   "image": "spinel_001423.jpg",
+   "mask": "spinel_001423_mask.png",
+   "offset": [
+    198,
+    0
+   ],
+   "elevationDeg": 34.1,
+   "desktopConsistencyIou": 0.9564,
+   "boundCentreMm": [
+    83.944,
+    108.083
+   ],
+   "spec": {
+    "format": "houseki.board.v1",
+    "dictionary": "DICT_4X4_250",
+    "squares_x": 22,
+    "squares_y": 17,
+    "legacy": false,
+    "square_mm": 10.0,
+    "marker_ratio": 0.685,
+    "marker_mm": 6.8500000000000005,
+    "target": {
+     "cells_row_col": [],
+     "x_range_mm": [
+      83.944,
+      83.944
+     ],
+     "y_range_mm": [
+      108.083,
+      108.083
+     ],
+     "centre_mm": [
+      83.944,
+      108.083
+     ],
+     "rings_diameter_mm": [],
+     "ring_grey": null,
+     "dots_mm": [],
+     "dot_diameter_mm": null,
+     "dot_seed": null
+    },
+    "removed_marker_ids": [],
+    "invalid_corner_ids": []
+   },
+   "pose": {
+    "frame": {
+     "width": 960,
+     "height": 540,
+     "timeMs": 0
+    },
+    "intrinsics": {
+     "width": 960,
+     "height": 540,
+     "f": 895.3948426428855,
+     "cx": 470.0402314992272,
+     "cy": 227.0875533215829,
+     "k1": -0.03083257447856321,
+     "source": "refined"
+    },
+    "R": [
+     0.3857105,
+     0.92096063,
+     0.05530761,
+     0.51902404,
+     -0.16703181,
+     -0.83828063,
+     -0.76278532,
+     0.35203963,
+     -0.54242663
+    ],
+    "t": [
+     -134.98667,
+     -16.22586,
+     136.85596
+    ],
+    "center": [
+     164.87910463121662,
+     73.4284523585007,
+     68.09828313468171
+    ],
+    "valid": true
+   }
+  },
+  {
+   "capture": "spinel",
+   "index": 307,
+   "image": "spinel_000307.jpg",
+   "mask": "spinel_000307_mask.png",
+   "offset": [
+    169,
+    0
+   ],
+   "elevationDeg": 45.6,
+   "desktopConsistencyIou": 0.9695,
+   "boundCentreMm": [
+    83.944,
+    108.083
+   ],
+   "spec": {
+    "format": "houseki.board.v1",
+    "dictionary": "DICT_4X4_250",
+    "squares_x": 22,
+    "squares_y": 17,
+    "legacy": false,
+    "square_mm": 10.0,
+    "marker_ratio": 0.685,
+    "marker_mm": 6.8500000000000005,
+    "target": {
+     "cells_row_col": [],
+     "x_range_mm": [
+      83.944,
+      83.944
+     ],
+     "y_range_mm": [
+      108.083,
+      108.083
+     ],
+     "centre_mm": [
+      83.944,
+      108.083
+     ],
+     "rings_diameter_mm": [],
+     "ring_grey": null,
+     "dots_mm": [],
+     "dot_diameter_mm": null,
+     "dot_seed": null
+    },
+    "removed_marker_ids": [],
+    "invalid_corner_ids": []
+   },
+   "pose": {
+    "frame": {
+     "width": 960,
+     "height": 540,
+     "timeMs": 0
+    },
+    "intrinsics": {
+     "width": 960,
+     "height": 540,
+     "f": 895.3948426428855,
+     "cx": 470.0402314992272,
+     "cy": 227.0875533215829,
+     "k1": -0.03083257447856321,
+     "source": "refined"
+    },
+    "R": [
+     0.04778305,
+     -0.99739805,
+     0.05398061,
+     -0.64765562,
+     -0.07207967,
+     -0.75851613,
+     0.76043342,
+     0.00128337,
+     -0.64941464
+    ],
+    "t": [
+     101.64579,
+     77.24808,
+     39.39857
+    ],
+    "center": [
+     15.213217952140697,
+     106.89876590846221,
+     78.6930210964633
+    ],
+    "valid": true
+   }
+  }
+ ]
+}

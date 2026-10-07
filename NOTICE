@@ -111,6 +111,76 @@ the page.
     https://github.com/unjs/uqr
     MIT License
 
+The phone scanner's camera pose (src/web/vendor/opencv/opencv.js, served next to the phone page
+as scanner/opencv.js; it also found the board and read QR codes until those moved to the vision
+module below) is OpenCV 4.14.0 compiled to WebAssembly with Emscripten
+4.0.23, reduced to the functions the phone uses, with one small patch of ours
+(src/web/vendor/opencv/patches/; src/web/vendor/opencv/build_opencv_js.sh rebuilds it). OpenCV
+is used under the Apache License 2.0. The file also contains, compiled in: quirc, OpenCV's QR
+code decoder (ISC licence); zlib (zlib licence); the AprilTag quad detection code in OpenCV's
+objdetect module (Copyright (C) 2013-2016 The Regents of The University of Michigan, distributed
+by OpenCV under its licence); and Emscripten's runtime and system libraries (MIT / University of
+Illinois NCSA licences; musl libc, MIT; libc++ and libc++abi, Apache-2.0 with LLVM exception).
+
+    OpenCV
+    Copyright (C) 2000-2022, Intel Corporation; Copyright (C) 2009-2011, Willow Garage Inc.;
+    Copyright (C) 2009-2016, NVIDIA Corporation; Copyright (C) 2010-2013, Advanced Micro
+    Devices, Inc.; Copyright (C) 2015-2023, OpenCV Foundation; Copyright (C) 2008-2016,
+    Itseez Inc.; Copyright (C) 2019-2023, Xperience AI; Copyright (C) 2019-2022, Shenzhen
+    Institute of Artificial Intelligence and Robotics for Society; Copyright (C) 2022-2023,
+    Southern University of Science And Technology; Copyright (C) 2023-2025, OpenCV AI;
+    all rights reserved.
+    https://opencv.org
+    Apache License, Version 2.0
+
+    quirc
+    Copyright (C) 2010-2012 Daniel Beer <dlbeer@gmail.com>
+    https://github.com/dlbeer/quirc
+    ISC License
+
+    zlib
+    Copyright (C) 1995-2026 Jean-loup Gailly and Mark Adler
+    https://zlib.net
+    zlib License
+
+    Emscripten
+    Copyright (c) 2010-2014 Emscripten authors
+    https://emscripten.org
+    MIT License / University of Illinois/NCSA Open Source License
+
+The phone scanner finds the printed board and reads QR codes with this project's vision module
+(src/vision, compiled to WebAssembly and served next to the phone page as
+scanner/houseki_vision.js). Its board detection is ported from OpenCV 4.14.0 (the ArUco and
+ChArUco detectors in modules/objdetect, and the image processing, geometry and linear algebra they
+use from modules/imgproc, modules/core and modules/calib3d). The ported files are derivative works
+distributed under the Apache License, Version 2.0, OpenCV's licence; each names the OpenCV sources
+it ports and carries OpenCV's copyright notice (listed above under OpenCV) alongside this
+project's. The module also contains, compiled in, these Rust crates, each used under its own
+permissive licence:
+
+    rqrr (QR code detection and decoding, a Rust port of quirc)
+    Copyright 2019 Moritz Wanzenböck; quirc Copyright (C) 2010-2012 Daniel Beer
+    https://github.com/WanzenBug/rqrr
+    MIT License or Apache License, Version 2.0; ISC License (the parts ported from quirc)
+
+    g2p (finite-field arithmetic, used by rqrr's error correction)
+    Copyright (c) 2018 Moritz Wanzenböck
+    https://github.com/WanzenBug/g2p
+    MIT License or Apache License, Version 2.0
+
+    lru (a cache used by rqrr)
+    Copyright (c) 2016 Jerome Froelich
+    https://github.com/jeromefroe/lru-rs
+    MIT License
+
+    hashbrown (Copyright (c) 2016 Amanieu d'Antras; MIT License or Apache License, Version 2.0)
+    and foldhash (Copyright (c) 2024 Orson Peters; Zlib License), used by lru
+
+    wasm-bindgen (the module's JavaScript bindings)
+    Copyright (c) 2014 Alex Crichton
+    https://github.com/rustwasm/wasm-bindgen
+    MIT License or Apache License, Version 2.0
+
 src/shaders/lux/ contains files ported from LuxCoreRender, a physically based
 renderer. The port is a derivative work distributed under the Apache License,
 Version 2.0, the same licence LuxCore itself uses, so it carries alongside

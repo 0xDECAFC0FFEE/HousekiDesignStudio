@@ -2,7 +2,8 @@
 #
 # Builds the renderer:
 #
-#   1. host tests (cargo test), so a broken build never reaches the browser;
+#   1. host tests (cargo test --workspace: the renderer and src/vision, the phone scanner's board
+#      and QR detection), so a broken build never reaches the browser;
 #   2. build/www/studio.html, the app, via src/scripts/make_page.py: the Svelte app in src/web
 #      is built with Vite (under Deno, into the single file build/web/index.html), then the wasm
 #      module and its no-modules bindings, the model and the skybox are inlined into it. One file
@@ -66,8 +67,9 @@ if [[ "$CLI_VERSION" != "$CRATE_VERSION" ]]; then
     exit 1
 fi
 
-echo "==> cargo test"
-cargo test
+# --workspace: the renderer and the phone scanner's vision crate (src/vision, T-0330).
+echo "==> cargo test --workspace"
+cargo test --workspace
 
 # make_page.py builds the src/web app (Vite), compiles the wasm and runs wasm-bindgen itself.
 # The app's npm packages come from ./setup.sh (`deno install` in src/web).

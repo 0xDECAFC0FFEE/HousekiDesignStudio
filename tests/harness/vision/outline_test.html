@@ -1,0 +1,15 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<title>Rock outline harness</title>
+</head>
+<body>
+<p>Rock outline harness page (T-0325); driven by tests/harness/test_vision_outline.py.</p>
+<script type="module">
+  import('./outline_page.js').catch((error) => {
+    window.visionError = String(error && error.stack || error);
+  });
+</script>
+</body>
+</html>

@@ -43,8 +43,13 @@ jobs:
   build:
     runs-on: ubuntu-latest
     steps:
+      # The whole history, not the default single commit: make_page.py dates each page in
+      # sitemap.xml (and each docs page's JSON-LD) by the last commit touching its sources, and
+      # a shallow clone would date every page to the newest commit.
       - name: Checkout
         uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
 
       - name: Setup Pages
         uses: actions/configure-pages@v5

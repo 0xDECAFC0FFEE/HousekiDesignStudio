@@ -98,7 +98,7 @@
         {
           "slug": "rough-scan",
           "title": "Rough scan",
-          "summary": "Connect your phone's camera to the studio with a QR code, and see it live.",
+          "summary": "Connect your phone's camera to the studio with a QR code, and see it live, with the board, the camera's position and the rock's outline drawn over it.",
           "wip": true
         }
       ]

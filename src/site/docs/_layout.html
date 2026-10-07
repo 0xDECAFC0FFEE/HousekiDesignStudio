@@ -8,9 +8,26 @@
 <meta name="theme-color" content="#2e3440">
 <meta name="color-scheme" content="dark light">
 @@THEME_SCRIPT@@
-<link rel="icon" href="@@LOGO_ICON@@">
 <!-- The shared layout of every documentation page (src/site/docs/, built by make_page.py's
-     build_docs). The sidebar is generated from pages.json; the article is one page's fragment. -->
+     build_docs). The sidebar is generated from pages.json; the article is one page's fragment.
+     Every line holding a site or page URL placeholder is dropped while src/site/site.json has no
+     url (make_page.py's with_site_url), so each such tag stays on a line of its own. -->
+<link rel="canonical" href="@@PAGE_URL@@">
+<link rel="icon" href="@@LOGO_ICON@@">
+<meta property="og:type" content="article">
+<meta property="og:site_name" content="Houseki Design Studio">
+<meta property="og:title" content="@@DOCS_TITLE@@ | Houseki Design Studio">
+<meta property="og:description" content="@@DOCS_DESCRIPTION@@">
+<meta property="og:url" content="@@PAGE_URL@@">
+<meta property="og:image" content="@@SITE_URL@@og-image.png">
+<meta property="og:image:width" content="1200">
+<meta property="og:image:height" content="630">
+<meta property="og:image:alt" content="The Houseki Design Studio window: a faceted stone rendered in the middle, its cutting instructions on the left and the render settings on the right.">
+<meta name="twitter:card" content="summary_large_image">
+<meta name="twitter:title" content="@@DOCS_TITLE@@ | Houseki Design Studio">
+<meta name="twitter:description" content="@@DOCS_DESCRIPTION@@">
+<meta name="twitter:image" content="@@SITE_URL@@og-image.png">
+@@DOCS_JSON_LD@@
 <style>
   :root {
     --panel: #2e3440;

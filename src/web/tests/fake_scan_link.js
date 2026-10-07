@@ -10,17 +10,20 @@
  * depends on is only the session's interface, which the double keeps exactly:
  *
  *   createScanSession({ scannerBaseUrl, relayUrls } = {})
- *     -> { url, onStatus(cb), onStream(cb), onRejected(cb), close() }
+ *     -> { url, onStatus(cb), onStream(cb), onRejected(cb), onVision(cb), close() }
  *   onStatus: cb(status, detail), status 'waiting' | 'connecting' | 'connected' | 'disconnected' |
  *             'error'; the latest value is replayed to a callback added late; returns an
  *             unsubscribe. onStream: cb(stream, peerId), replayed the same way.
+ *   onVision: cb(message, peerId) for each (already validated) vision message, NOT replayed
+ *             (T-0326); `{ vision: false }` in the options makes a session without onVision, as
+ *             an older scan_link.js would.
  *   close():  no callback fires after it.
  *
  * The link is made by the real scan_link_hash.js (fresh random room id and password, the relays in
  * `s=`), with the real default page: `<origin>/scanner` over http(s), the public page otherwise.
  *
- * What it adds for the tests, on each session: `emitStatus(status, detail)` and
- * `emitStream(stream)` play the phone's side, `closed` says whether close() was called, and
+ * What it adds for the tests, on each session: `emitStatus(status, detail)`, `emitStream(stream)`
+ * and `emitVision(message)` play the phone's side, `closed` says whether close() was called, and
  * `options` is what the session was made with. `fakeScanLink()` returns a factory that keeps
  * every session it made in `sessions`.
  */
@@ -54,12 +57,16 @@ function channel(initial) {
   };
 }
 
-/** One fake session, as createScanSession would return. */
-export function createFakeScanSession(options = {}) {
-  const { scannerBaseUrl, relayUrls = [], location = globalThis.location } = options;
+/**
+ * One fake session, as createScanSession would return. `withVision: false` leaves out onVision,
+ * as a scan_link.js from before T-0326 would.
+ */
+export function createFakeScanSession(options = {}, { withVision = true } = {}) {
+  const { scannerBaseUrl, relayUrls = [], location = globalThis.location } = options ?? {};
   const status = channel(['waiting']);
   const streams = channel(null);
   const rejected = channel(null);
+  const visions = new Set();
   const session = {
     url: scanLinkUrl(scannerBaseUrl ?? defaultScannerBaseUrl(location), { ...newScanSecrets(), relayUrls }),
     options,
@@ -72,6 +79,7 @@ export function createFakeScanSession(options = {}) {
       status.clear();
       streams.clear();
       rejected.clear();
+      visions.clear();
     },
     // The phone's side, for the tests.
     emitStatus(next, detail) {
@@ -80,16 +88,29 @@ export function createFakeScanSession(options = {}) {
     emitStream(stream) {
       streams.emit(stream, 'phone-peer');
     },
+    emitVision(message) {
+      [...visions].forEach(listener => listener(message, 'phone-peer'));
+    },
   };
+
+  if (withVision) {
+    session.onVision = listener => {
+      visions.add(listener);
+      return () => visions.delete(listener);
+    };
+  }
 
   return session;
 }
 
-/** A factory that keeps every session it makes, newest last. */
-export function fakeScanLink() {
+/**
+ * A factory that keeps every session it makes, newest last. `{ withVision: false }` makes
+ * sessions without onVision (an older scan_link.js).
+ */
+export function fakeScanLink(sessionKind = {}) {
   const sessions = [];
   const factory = options => {
-    const session = createFakeScanSession(options);
+    const session = createFakeScanSession(options, sessionKind);
 
     sessions.push(session);
     return session;

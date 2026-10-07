@@ -1,0 +1,770 @@
+{
+ "format": "houseki.board.v1",
+ "dictionary": "DICT_4X4_250",
+ "squares_x": 23,
+ "squares_y": 17,
+ "legacy": false,
+ "square_mm": 10.0,
+ "marker_mm": 7.0,
+ "marker_ratio": 0.7,
+ "frame": "origin at the top-left chessboard corner; X down the page (rows), Y right (columns), Z up out of the paper; millimetres",
+ "target": {
+  "cells_row_col": [],
+  "x_range_mm": [
+   80.0,
+   80.0
+  ],
+  "y_range_mm": [
+   110.0,
+   110.0
+  ],
+  "centre_mm": [
+   80.0,
+   110.0
+  ],
+  "rings_diameter_mm": [],
+  "ring_grey": null,
+  "dots_mm": [],
+  "dot_diameter_mm": null,
+  "dot_seed": null
+ },
+ "removed_marker_ids": [],
+ "invalid_corner_ids": [],
+ "print": {
+  "px_per_mm": 23.6,
+  "dpi": 599.44,
+  "page_mm": [
+   279.4,
+   215.9
+  ]
+ },
+ "strip": {
+  "ink_reflectance": 0.07,
+  "patch_mm": 10.0,
+  "gap_mm": 2.0,
+  "patch_ids": [
+   "paper",
+   "grey1",
+   "grey2",
+   "grey3",
+   "grey4",
+   "grey5",
+   "grey6",
+   "grey7",
+   "grey8",
+   "ink",
+   "red",
+   "green",
+   "blue"
+  ],
+  "copies": [
+   "left",
+   "right"
+  ],
+  "patches": [
+   {
+    "id": "paper",
+    "kind": "paper",
+    "srgb": [
+     255,
+     255,
+     255
+    ],
+    "nominal_reflectance_bgr": [
+     1.0,
+     1.0,
+     1.0
+    ],
+    "copy": "left",
+    "x_range_mm": [
+     8.0,
+     18.0
+    ],
+    "y_range_mm": [
+     -17.0,
+     -7.0
+    ],
+    "centre_mm": [
+     13.0,
+     -12.0
+    ]
+   },
+   {
+    "id": "grey1",
+    "kind": "grey",
+    "srgb": [
+     221,
+     221,
+     221
+    ],
+    "nominal_reflectance_bgr": [
+     0.74244,
+     0.74244,
+     0.74244
+    ],
+    "copy": "left",
+    "x_range_mm": [
+     20.0,
+     30.0
+    ],
+    "y_range_mm": [
+     -17.0,
+     -7.0
+    ],
+    "centre_mm": [
+     25.0,
+     -12.0
+    ]
+   },
+   {
+    "id": "grey2",
+    "kind": "grey",
+    "srgb": [
+     191,
+     191,
+     191
+    ],
+    "nominal_reflectance_bgr": [
+     0.55453,
+     0.55453,
+     0.55453
+    ],
+    "copy": "left",
+    "x_range_mm": [
+     32.0,
+     42.0
+    ],
+    "y_range_mm": [
+     -17.0,
+     -7.0
+    ],
+    "centre_mm": [
+     37.0,
+     -12.0
+    ]
+   },
+   {
+    "id": "grey3",
+    "kind": "grey",
+    "srgb": [
+     163,
+     163,
+     163
+    ],
+    "nominal_reflectance_bgr": [
+     0.41061,
+     0.41061,
+     0.41061
+    ],
+    "copy": "left",
+    "x_range_mm": [
+     44.0,
+     54.0
+    ],
+    "y_range_mm": [
+     -17.0,
+     -7.0
+    ],
+    "centre_mm": [
+     49.0,
+     -12.0
+    ]
+   },
+   {
+    "id": "grey4",
+    "kind": "grey",
+    "srgb": [
+     138,
+     138,
+     138
+    ],
+    "nominal_reflectance_bgr": [
+     0.30636,
+     0.30636,
+     0.30636
+    ],
+    "copy": "left",
+    "x_range_mm": [
+     56.0,
+     66.0
+    ],
+    "y_range_mm": [
+     -17.0,
+     -7.0
+    ],
+    "centre_mm": [
+     61.0,
+     -12.0
+    ]
+   },
+   {
+    "id": "grey5",
+    "kind": "grey",
+    "srgb": [
+     115,
+     115,
+     115
+    ],
+    "nominal_reflectance_bgr": [
+     0.22944,
+     0.22944,
+     0.22944
+    ],
+    "copy": "left",
+    "x_range_mm": [
+     68.0,
+     78.0
+    ],
+    "y_range_mm": [
+     -17.0,
+     -7.0
+    ],
+    "centre_mm": [
+     73.0,
+     -12.0
+    ]
+   },
+   {
+    "id": "grey6",
+    "kind": "grey",
+    "srgb": [
+     92,
+     92,
+     92
+    ],
+    "nominal_reflectance_bgr": [
+     0.16953,
+     0.16953,
+     0.16953
+    ],
+    "copy": "left",
+    "x_range_mm": [
+     80.0,
+     90.0
+    ],
+    "y_range_mm": [
+     -17.0,
+     -7.0
+    ],
+    "centre_mm": [
+     85.0,
+     -12.0
+    ]
+   },
+   {
+    "id": "grey7",
+    "kind": "grey",
+    "srgb": [
+     70,
+     70,
+     70
+    ],
+    "nominal_reflectance_bgr": [
+     0.12696,
+     0.12696,
+     0.12696
+    ],
+    "copy": "left",
+    "x_range_mm": [
+     92.0,
+     102.0
+    ],
+    "y_range_mm": [
+     -17.0,
+     -7.0
+    ],
+    "centre_mm": [
+     97.0,
+     -12.0
+    ]
+   },
+   {
+    "id": "grey8",
+    "kind": "grey",
+    "srgb": [
+     45,
+     45,
+     45
+    ],
+    "nominal_reflectance_bgr": [
+     0.0944,
+     0.0944,
+     0.0944
+    ],
+    "copy": "left",
+    "x_range_mm": [
+     104.0,
+     114.0
+    ],
+    "y_range_mm": [
+     -17.0,
+     -7.0
+    ],
+    "centre_mm": [
+     109.0,
+     -12.0
+    ]
+   },
+   {
+    "id": "ink",
+    "kind": "ink",
+    "srgb": [
+     0,
+     0,
+     0
+    ],
+    "nominal_reflectance_bgr": [
+     0.07,
+     0.07,
+     0.07
+    ],
+    "copy": "left",
+    "x_range_mm": [
+     116.0,
+     126.0
+    ],
+    "y_range_mm": [
+     -17.0,
+     -7.0
+    ],
+    "centre_mm": [
+     121.0,
+     -12.0
+    ]
+   },
+   {
+    "id": "red",
+    "kind": "colour",
+    "srgb": [
+     200,
+     55,
+     50
+    ],
+    "nominal_reflectance_bgr": [
+     0.09966,
+     0.10553,
+     0.60715
+    ],
+    "copy": "left",
+    "x_range_mm": [
+     128.0,
+     138.0
+    ],
+    "y_range_mm": [
+     -17.0,
+     -7.0
+    ],
+    "centre_mm": [
+     133.0,
+     -12.0
+    ]
+   },
+   {
+    "id": "green",
+    "kind": "colour",
+    "srgb": [
+     55,
+     150,
+     70
+    ],
+    "nominal_reflectance_bgr": [
+     0.12696,
+     0.35364,
+     0.10553
+    ],
+    "copy": "left",
+    "x_range_mm": [
+     140.0,
+     150.0
+    ],
+    "y_range_mm": [
+     -17.0,
+     -7.0
+    ],
+    "centre_mm": [
+     145.0,
+     -12.0
+    ]
+   },
+   {
+    "id": "blue",
+    "kind": "colour",
+    "srgb": [
+     50,
+     80,
+     185
+    ],
+    "nominal_reflectance_bgr": [
+     0.52119,
+     0.1446,
+     0.09966
+    ],
+    "copy": "left",
+    "x_range_mm": [
+     152.0,
+     162.0
+    ],
+    "y_range_mm": [
+     -17.0,
+     -7.0
+    ],
+    "centre_mm": [
+     157.0,
+     -12.0
+    ]
+   },
+   {
+    "id": "paper",
+    "kind": "paper",
+    "srgb": [
+     255,
+     255,
+     255
+    ],
+    "nominal_reflectance_bgr": [
+     1.0,
+     1.0,
+     1.0
+    ],
+    "copy": "right",
+    "x_range_mm": [
+     8.0,
+     18.0
+    ],
+    "y_range_mm": [
+     237.0,
+     247.0
+    ],
+    "centre_mm": [
+     13.0,
+     242.0
+    ]
+   },
+   {
+    "id": "grey1",
+    "kind": "grey",
+    "srgb": [
+     221,
+     221,
+     221
+    ],
+    "nominal_reflectance_bgr": [
+     0.74244,
+     0.74244,
+     0.74244
+    ],
+    "copy": "right",
+    "x_range_mm": [
+     20.0,
+     30.0
+    ],
+    "y_range_mm": [
+     237.0,
+     247.0
+    ],
+    "centre_mm": [
+     25.0,
+     242.0
+    ]
+   },
+   {
+    "id": "grey2",
+    "kind": "grey",
+    "srgb": [
+     191,
+     191,
+     191
+    ],
+    "nominal_reflectance_bgr": [
+     0.55453,
+     0.55453,
+     0.55453
+    ],
+    "copy": "right",
+    "x_range_mm": [
+     32.0,
+     42.0
+    ],
+    "y_range_mm": [
+     237.0,
+     247.0
+    ],
+    "centre_mm": [
+     37.0,
+     242.0
+    ]
+   },
+   {
+    "id": "grey3",
+    "kind": "grey",
+    "srgb": [
+     163,
+     163,
+     163
+    ],
+    "nominal_reflectance_bgr": [
+     0.41061,
+     0.41061,
+     0.41061
+    ],
+    "copy": "right",
+    "x_range_mm": [
+     44.0,
+     54.0
+    ],
+    "y_range_mm": [
+     237.0,
+     247.0
+    ],
+    "centre_mm": [
+     49.0,
+     242.0
+    ]
+   },
+   {
+    "id": "grey4",
+    "kind": "grey",
+    "srgb": [
+     138,
+     138,
+     138
+    ],
+    "nominal_reflectance_bgr": [
+     0.30636,
+     0.30636,
+     0.30636
+    ],
+    "copy": "right",
+    "x_range_mm": [
+     56.0,
+     66.0
+    ],
+    "y_range_mm": [
+     237.0,
+     247.0
+    ],
+    "centre_mm": [
+     61.0,
+     242.0
+    ]
+   },
+   {
+    "id": "grey5",
+    "kind": "grey",
+    "srgb": [
+     115,
+     115,
+     115
+    ],
+    "nominal_reflectance_bgr": [
+     0.22944,
+     0.22944,
+     0.22944
+    ],
+    "copy": "right",
+    "x_range_mm": [
+     68.0,
+     78.0
+    ],
+    "y_range_mm": [
+     237.0,
+     247.0
+    ],
+    "centre_mm": [
+     73.0,
+     242.0
+    ]
+   },
+   {
+    "id": "grey6",
+    "kind": "grey",
+    "srgb": [
+     92,
+     92,
+     92
+    ],
+    "nominal_reflectance_bgr": [
+     0.16953,
+     0.16953,
+     0.16953
+    ],
+    "copy": "right",
+    "x_range_mm": [
+     80.0,
+     90.0
+    ],
+    "y_range_mm": [
+     237.0,
+     247.0
+    ],
+    "centre_mm": [
+     85.0,
+     242.0
+    ]
+   },
+   {
+    "id": "grey7",
+    "kind": "grey",
+    "srgb": [
+     70,
+     70,
+     70
+    ],
+    "nominal_reflectance_bgr": [
+     0.12696,
+     0.12696,
+     0.12696
+    ],
+    "copy": "right",
+    "x_range_mm": [
+     92.0,
+     102.0
+    ],
+    "y_range_mm": [
+     237.0,
+     247.0
+    ],
+    "centre_mm": [
+     97.0,
+     242.0
+    ]
+   },
+   {
+    "id": "grey8",
+    "kind": "grey",
+    "srgb": [
+     45,
+     45,
+     45
+    ],
+    "nominal_reflectance_bgr": [
+     0.0944,
+     0.0944,
+     0.0944
+    ],
+    "copy": "right",
+    "x_range_mm": [
+     104.0,
+     114.0
+    ],
+    "y_range_mm": [
+     237.0,
+     247.0
+    ],
+    "centre_mm": [
+     109.0,
+     242.0
+    ]
+   },
+   {
+    "id": "ink",
+    "kind": "ink",
+    "srgb": [
+     0,
+     0,
+     0
+    ],
+    "nominal_reflectance_bgr": [
+     0.07,
+     0.07,
+     0.07
+    ],
+    "copy": "right",
+    "x_range_mm": [
+     116.0,
+     126.0
+    ],
+    "y_range_mm": [
+     237.0,
+     247.0
+    ],
+    "centre_mm": [
+     121.0,
+     242.0
+    ]
+   },
+   {
+    "id": "red",
+    "kind": "colour",
+    "srgb": [
+     200,
+     55,
+     50
+    ],
+    "nominal_reflectance_bgr": [
+     0.09966,
+     0.10553,
+     0.60715
+    ],
+    "copy": "right",
+    "x_range_mm": [
+     128.0,
+     138.0
+    ],
+    "y_range_mm": [
+     237.0,
+     247.0
+    ],
+    "centre_mm": [
+     133.0,
+     242.0
+    ]
+   },
+   {
+    "id": "green",
+    "kind": "colour",
+    "srgb": [
+     55,
+     150,
+     70
+    ],
+    "nominal_reflectance_bgr": [
+     0.12696,
+     0.35364,
+     0.10553
+    ],
+    "copy": "right",
+    "x_range_mm": [
+     140.0,
+     150.0
+    ],
+    "y_range_mm": [
+     237.0,
+     247.0
+    ],
+    "centre_mm": [
+     145.0,
+     242.0
+    ]
+   },
+   {
+    "id": "blue",
+    "kind": "colour",
+    "srgb": [
+     50,
+     80,
+     185
+    ],
+    "nominal_reflectance_bgr": [
+     0.52119,
+     0.1446,
+     0.09966
+    ],
+    "copy": "right",
+    "x_range_mm": [
+     152.0,
+     162.0
+    ],
+    "y_range_mm": [
+     237.0,
+     247.0
+    ],
+    "centre_mm": [
+     157.0,
+     242.0
+    ]
+   }
+  ],
+  "model": "printed reflectance relative to paper, per channel; nominal = ink + (1 - ink) x linear(sRGB intent); fitted per capture by tone.py"
+ }
+}

@@ -10,7 +10,19 @@
 </head>
 <body>
 <video id="scanner-video" autoplay playsinline muted></video>
+<canvas id="scanner-overlay" aria-hidden="true"></canvas>
+<div id="scanner-warning" role="alert" hidden><strong id="scanner-warning-title"></strong><span id="scanner-warning-text"></span></div>
+<div id="scanner-guide" hidden>
+<svg id="scanner-map" viewBox="-1.08 -1.08 2.16 2.16" role="img" aria-label="Where you have filmed the rock from, seen from above"></svg>
+<p id="scanner-angle"></p>
+<p id="scanner-advice"></p>
+</div>
+<div id="scanner-panel">
+<select id="scanner-sheet" aria-label="Which printed board" hidden></select>
+<p id="scanner-vision" hidden></p>
+<p id="scanner-diag" hidden></p>
 <p id="scanner-status" role="status" aria-live="polite">Starting the camera...</p>
+</div>
 <script type="module" src="./main.js"></script>
 </body>
 </html>

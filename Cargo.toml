@@ -2,6 +2,15 @@
 # the original manifest went missing from this copy of the project (ticket T-0001).
 # Dependency versions are chosen, not recovered: the original Cargo.lock is gone too.
 
+# Two crates share this workspace (T-0330): the renderer, this package, which the studio app
+# inlines; and src/vision, the phone scanner's board and QR detection, which only the phone page
+# loads (build/www/scanner/houseki_vision.js). They are separate crates so the studio does not
+# carry the phone's vision code, and one workspace so they share Cargo.lock (one wasm-bindgen,
+# pinned below, for both) and the release profile at the end of this file. `cargo test` here
+# runs the renderer's tests only; `cargo test --workspace` (build.sh) runs both.
+[workspace]
+members = ["src/vision"]
+
 [package]
 name = "gem-renderer"
 version = "0.1.0"

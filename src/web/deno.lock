@@ -5,6 +5,7 @@
     "npm:@lucide/svelte@1.47.0": "1.47.0_svelte@5.57.1__acorn@8.18.0",
     "npm:@sveltejs/vite-plugin-svelte@5.0.3": "5.0.3_svelte@5.57.1__acorn@8.18.0_vite@6.3.5__picomatch@4.0.7",
     "npm:@tailwindcss/vite@4.1.18": "4.1.18_vite@6.3.5__picomatch@4.0.7",
+    "npm:@techstark/opencv-js@4.12.0-release.1": "4.12.0-release.1",
     "npm:bits-ui@2.19.2": "2.19.2_@internationalized+date@3.12.4_svelte@5.57.1__acorn@8.18.0",
     "npm:clsx@2.1.1": "2.1.1",
     "npm:jsqr@1.4.0": "1.4.0",
@@ -470,6 +471,9 @@
         "tailwindcss",
         "vite"
       ]
+    },
+    "@techstark/opencv-js@4.12.0-release.1": {
+      "integrity": "sha512-LtTaph9v/HqLPXEg3m1xs2h7QJh10pUpuDT0nj8g77lelWnTwwQrehtd+fXElLOdrkqc4Fea6Z/sJBvEJLYPfw=="
     },
     "@trystero-p2p/core@0.25.4": {
       "integrity": "sha512-ehvSL1FqW962XyEctXngeDF/IOM1bWmfCKBNR4vwmVa0JGfM0+dlY4TEzSEGghYp3qqGCrpFIVTxdvlBUGVO6Q=="
@@ -989,6 +993,7 @@
         "npm:@lucide/svelte@1.47.0",
         "npm:@sveltejs/vite-plugin-svelte@5.0.3",
         "npm:@tailwindcss/vite@4.1.18",
+        "npm:@techstark/opencv-js@4.12.0-release.1",
         "npm:bits-ui@2.19.2",
         "npm:clsx@2.1.1",
         "npm:jsqr@1.4.0",

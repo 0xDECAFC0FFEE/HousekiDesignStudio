@@ -1,0 +1,15 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<title>Scan video generator</title>
+</head>
+<body>
+<p>Synthetic phone video generator (T-0326); driven by tests/harness/vision/make_scan_video.py.</p>
+<script type="module">
+  import('./scan_video.js').catch((error) => {
+    window.scanVideoError = String(error && error.stack || error);
+  });
+</script>
+</body>
+</html>

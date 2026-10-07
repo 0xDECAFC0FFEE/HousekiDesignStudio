@@ -1,0 +1,44 @@
+# The phone scanner's vision (T-0330): ChArUco board detection and QR code reading, compiled to
+# WebAssembly for the phone page (src/web/scanner). A crate of its own, in the root Cargo.toml's
+# workspace, so the studio app (the renderer crate, which make_page.py inlines into studio.html)
+# never carries it.
+#
+# Built by src/scripts/make_page.py (build_vision_wasm) for wasm32-unknown-unknown with SIMD
+# (`-C target-feature=+simd128`) and no threads, bound with the same wasm-bindgen as the renderer
+# (the workspace shares one Cargo.lock; the version is pinned in the root Cargo.toml, and pinned
+# again here because Cargo needs the requirement in each crate that uses it). The release profile
+# is the workspace's, in the root Cargo.toml.
+
+[package]
+name = "houseki-vision"
+version = "0.1.0"
+edition = "2021"
+description = "The phone scanner's ChArUco board detector and QR reader, compiled to WebAssembly"
+license = "Apache-2.0"
+publish = false
+
+[lib]
+# cdylib for the wasm module, rlib so `cargo test` can link the crate on the host.
+crate-type = ["cdylib", "rlib"]
+# Like the renderer (src/renderer/lib.rs), the sources sit directly in the crate's directory.
+path = "lib.rs"
+
+[features]
+# debug.rs: wasm entry points for each stage (thresholds, contours, markers, perspective,
+# findHomography), used to compare the port with opencv.js stage by stage. Off in the shipped
+# module.
+debug-exports = []
+
+[dependencies]
+# Pinned exactly, as in the root Cargo.toml: the wasm-bindgen CLI that build.sh checks must match.
+wasm-bindgen = "=0.2.128"
+
+# QR code detection and decoding: a Rust port of quirc (MIT OR Apache-2.0). Default features off:
+# the default `img` feature pulls in the `image` crate, which the phone does not need (frames
+# arrive as grey pixels already).
+rqrr = { version = "0.11", default-features = false }
+
+[dev-dependencies]
+# Makes the QR codes qr.rs's tests read back (MIT OR Apache-2.0). Test-only: never compiled into
+# the wasm module. Default features off (they render images and SVG, which the tests do not need).
+qrcode = { version = "0.14", default-features = false }

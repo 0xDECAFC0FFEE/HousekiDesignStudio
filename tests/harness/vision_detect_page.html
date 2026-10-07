@@ -1,0 +1,57 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<title>Phone vision harness</title>
+<!--
+  The page tests/harness/test_vision_detect.py drives (T-0323, T-0330). Served over HTTP from the
+  project root, it imports the phone's vision modules straight from src/ (no build, except the
+  Rust vision module, which the test loads from build/vision/houseki_vision.js) and publishes them,
+  with the synthetic-frame helpers, as window.vision: the phone's detectors (the Rust module's) and
+  the opencv.js ones they replaced, kept as the reference. uqr is mapped to its package so the QR
+  test can encode codes the way the studio does.
+-->
+<script type="importmap">
+{ "imports": { "uqr": "/src/web/node_modules/uqr/dist/index.mjs" } }
+</script>
+</head>
+<body>
+<script type="module">
+import { loadOpenCv, wasmHeapInUse } from '/src/web/src/lib/vision/opencv.js';
+import { loadVision, visionMemoryBytes } from '/src/web/src/lib/vision/vision_wasm.js';
+import { createBoardDetector } from '/src/web/src/lib/vision/board_detect.js';
+import { createBoardDetector as createOpenCvBoardDetector } from '/src/web/src/lib/vision/board_detect_opencv.js';
+import { createQrDetector } from '/src/web/src/lib/vision/qr_detect.js';
+import { createQrDetector as createOpenCvQrDetector } from '/src/web/src/lib/vision/qr_detect_opencv.js';
+import { BOARD_SPECS } from '/src/web/src/lib/vision/board_frame.js';
+import * as synth from '/src/web/tests/vision_synth.js';
+import { qrCode } from '/src/web/src/lib/scan_qr.js';
+
+// A JPEG fixture pasted into a full-size frame (mid-grey elsewhere) at its crop's place, as an
+// RGBA ImageData: what the phone page would hand the detector from a canvas.
+async function fixtureFrame(entry, base) {
+  const blob = await (await fetch(base + entry.file)).blob();
+  const bitmap = await createImageBitmap(blob, { colorSpaceConversion: 'none' });
+  const [width, height] = entry.size;
+  const canvas = new OffscreenCanvas(width, height);
+  const context = canvas.getContext('2d', { willReadFrequently: true });
+  context.fillStyle = 'rgb(128,128,128)';
+  context.fillRect(0, 0, width, height);
+  context.drawImage(bitmap, entry.crop[0], entry.crop[1]);
+  return context.getImageData(0, 0, width, height);
+}
+
+/** A grey cv.Mat as the { data, width, height } the Rust detector takes. */
+function greyImage(mat) {
+  return { data: new Uint8Array(mat.data), width: mat.cols, height: mat.rows };
+}
+
+window.vision = {
+  loadOpenCv, wasmHeapInUse, loadVision, visionMemoryBytes,
+  createBoardDetector, createOpenCvBoardDetector, createQrDetector, createOpenCvQrDetector,
+  BOARD_SPECS, synth, qrCode, fixtureFrame, greyImage,
+};
+window.visionReady = true;
+</script>
+</body>
+</html>

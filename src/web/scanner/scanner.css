@@ -1,4 +1,5 @@
-/* The phone scanner page: the camera full screen, and one line of status over its bottom edge.
+/* The phone scanner page: the camera full screen, the vision's drawing over it, and the status
+   lines over its bottom edge.
    Dark by default like the rest of the site; the light theme's tokens come from site/theme.css,
    keyed on <html data-theme>, which site/theme.js sets from the visitor's saved choice. */
 @import '../../site/theme.css';
@@ -27,11 +28,28 @@ body {
   background: #000;
 }
 
-#scanner-status {
+/* The vision's drawing (vision.js): the board, its axes and the rock, over the camera. */
+#scanner-overlay {
+  position: fixed;
+  inset: 0;
+  width: 100%;
+  height: 100%;
+  pointer-events: none;
+}
+
+/* Over the bottom edge: the board chooser, what the vision sees, and the connection. */
+#scanner-panel {
   position: fixed;
   left: 12px;
   right: 12px;
   bottom: calc(12px + env(safe-area-inset-bottom));
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+}
+
+#scanner-status,
+#scanner-vision {
   margin: 0;
   padding: 12px 16px;
   border: 1px solid var(--panel-edge);
@@ -39,4 +57,133 @@ body {
   background: var(--panel);
   color: var(--text);
   text-align: center;
+}
+
+/* What the vision sees: a little smaller, and see-through, so the picture shows behind it. */
+#scanner-vision {
+  padding: 8px 12px;
+  font-size: 15px;
+  background: color-mix(in srgb, var(--panel) 82%, transparent);
+}
+
+#scanner-sheet {
+  align-self: flex-start;
+  max-width: 100%;
+  padding: 6px 10px;
+  border: 1px solid var(--panel-edge);
+  border-radius: 8px;
+  background: var(--panel);
+  color: var(--text);
+  font: inherit;
+  font-size: 15px;
+}
+
+/* The speed diagnostics (T-0332), hidden until the status lines are long-pressed: small and
+   monospaced, so the numbers stay put as they change. Long-pressing must not select the text or
+   open the phone's callout menu. */
+#scanner-status,
+#scanner-vision,
+#scanner-diag {
+  -webkit-user-select: none;
+  user-select: none;
+  -webkit-touch-callout: none;
+}
+
+#scanner-diag {
+  margin: 0;
+  padding: 6px 10px;
+  border: 1px solid var(--panel-edge);
+  border-radius: 8px;
+  background: color-mix(in srgb, var(--panel) 82%, transparent);
+  color: var(--text);
+  font: 12px/1.35 ui-monospace, 'SF Mono', Menlo, monospace;
+}
+
+#scanner-vision[hidden],
+#scanner-diag[hidden],
+#scanner-sheet[hidden],
+#scanner-warning[hidden],
+#scanner-guide[hidden] {
+  display: none;
+}
+
+/* A warning in the middle of the screen (T-0331): large enough to read at arm's length, but a
+   compact card, never over the whole picture; a little above the centre, because the person keeps
+   the rock in the centre and must still see it to fix what the warning says. */
+#scanner-warning {
+  position: fixed;
+  top: 32%;
+  left: 50%;
+  transform: translate(-50%, -50%);
+  max-width: min(78vw, 420px);
+  padding: 12px 20px;
+  border: 2px solid #ebcb8b;
+  border-radius: 12px;
+  background: rgba(46, 52, 64, 0.82);
+  color: #eceff4;
+  text-align: center;
+  pointer-events: none;
+}
+
+#scanner-warning strong {
+  display: block;
+  font-size: 22px;
+  line-height: 1.2;
+  color: #ebcb8b;
+}
+
+#scanner-warning span {
+  display: block;
+  margin-top: 4px;
+  font-size: 16px;
+}
+
+/* The scan guidance, top right: the coverage map, the camera's angle and the next step. */
+#scanner-guide {
+  position: fixed;
+  top: calc(10px + env(safe-area-inset-top));
+  right: calc(10px + env(safe-area-inset-right));
+  width: 168px;
+  padding: 8px 10px;
+  border: 1px solid var(--panel-edge);
+  border-radius: 10px;
+  background: color-mix(in srgb, var(--panel) 80%, transparent);
+  color: var(--text);
+  font-size: 13px;
+  line-height: 1.3;
+  text-align: center;
+  pointer-events: none;
+}
+
+#scanner-map {
+  display: block;
+  width: 92px;
+  height: 92px;
+  margin: 0 auto 4px;
+}
+
+#scanner-map path {
+  fill: rgba(236, 239, 244, 0.14);
+  stroke: rgba(46, 52, 64, 0.9);
+  stroke-width: 0.02;
+}
+
+#scanner-map path.filled {
+  fill: #88c0d0;
+}
+
+#scanner-map .here {
+  fill: #ebcb8b;
+  stroke: #2e3440;
+  stroke-width: 0.03;
+}
+
+#scanner-angle,
+#scanner-advice {
+  margin: 0;
+}
+
+#scanner-advice {
+  margin-top: 4px;
+  color: #ebcb8b;
 }

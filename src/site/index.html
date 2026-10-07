@@ -3,21 +3,28 @@
 <head>
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width, initial-scale=1">
-<title>Houseki Design Studio: Gem Cut Designer and Planner</title>
-<meta name="description" content="Houseki Design Studio is a gem cut designer and planner in your browser. Open a faceting design (.gcs, .gem, .asc or .obj), see it path-traced, and read its cutting instructions.">
+<title>Houseki Design Studio: Free Gem Cut Designer and Faceting Planner</title>
+<meta name="description" content="A free gem cut designer and faceting planner in your browser. Open a faceting design (.gcs, .gem, .asc or .obj), see the stone path-traced, and read its cutting instructions.">
 <meta name="theme-color" content="#2e3440">
 <meta name="color-scheme" content="dark light">
 @@THEME_SCRIPT@@
-<link rel="canonical" href="@@SITE_URL@@">
+<!-- Every line holding a site or page URL placeholder is dropped while src/site/site.json has no
+     url (make_page.py's with_site_url), so each such tag stays on a line of its own. -->
+<link rel="canonical" href="@@PAGE_URL@@">
 <link rel="icon" href="@@LOGO_ICON@@">
 <meta property="og:type" content="website">
 <meta property="og:site_name" content="Houseki Design Studio">
-<meta property="og:title" content="Houseki Design Studio: Gem Cut Designer and Planner">
+<meta property="og:title" content="Houseki Design Studio: Free Gem Cut Designer and Faceting Planner">
 <meta property="og:description" content="An in-browser gem cut designer and planner: open a faceting design (.gcs, .gem, .asc or .obj), see it path-traced, and read its cutting instructions.">
-<meta property="og:url" content="@@SITE_URL@@">
-<meta name="twitter:card" content="summary">
-<meta name="twitter:title" content="Houseki Design Studio: Gem Cut Designer and Planner">
+<meta property="og:url" content="@@PAGE_URL@@">
+<meta property="og:image" content="@@SITE_URL@@og-image.png">
+<meta property="og:image:width" content="1200">
+<meta property="og:image:height" content="630">
+<meta property="og:image:alt" content="The Houseki Design Studio window: a faceted stone rendered in the middle, its cutting instructions on the left and the render settings on the right.">
+<meta name="twitter:card" content="summary_large_image">
+<meta name="twitter:title" content="Houseki Design Studio: Free Gem Cut Designer and Faceting Planner">
 <meta name="twitter:description" content="An in-browser gem cut designer and planner: open a faceting design (.gcs, .gem, .asc or .obj), see it path-traced, and read its cutting instructions.">
+<meta name="twitter:image" content="@@SITE_URL@@og-image.png">
 @@JSON_LD@@
 <style>
   :root {
@@ -104,6 +111,29 @@
 
   nav a:focus-visible { outline: 2px solid var(--accent); outline-offset: 3px; }
 
+  /* The picture of the studio, under the buttons, and the feature list under it (T-0320). */
+  .hero { margin: 2.5rem 0 0; }
+
+  .hero img {
+    display: block;
+    width: 100%;
+    height: auto;
+    border: 1px solid var(--panel-edge);
+    border-radius: 8px;
+  }
+
+  h2 { margin: 2.5rem 0 1rem; font-size: 1.4rem; line-height: 1.25; }
+
+  .features { margin: 0; padding: 0; list-style: none; }
+
+  .features li { padding: 0.6rem 0; border-bottom: 1px solid var(--panel-edge); }
+
+  .features li:last-child { border-bottom: 0; }
+
+  .features a { color: var(--accent); font-weight: 600; }
+
+  .features span { display: block; color: var(--muted); font-size: 0.95rem; }
+
   /* The footer's name stays centred, with the light/dark toggle at its right. */
   footer {
     position: relative;
@@ -129,7 +159,7 @@
     @@LOGO@@
     <h1>Houseki Design Studio</h1>
   </div>
-  <p>Houseki Design Studio is a gem cut designer and planner for faceters. Open a faceting design (<code>.gcs</code>, <code>.gem</code>, <code>.asc</code> or <code>.obj</code>) and see the stone path-traced, with dispersion, beside its cutting instructions: every tier's angle, index-gear teeth and notes, pavilion first, then crown, in the order you cut them. Click a tier to find its facets on the stone. It runs entirely in your web browser, with nothing to install.</p>
+  <p>Houseki Design Studio is a free gem cut designer and faceting planner. Open a faceting design (<code>.gcs</code>, <code>.gem</code>, <code>.asc</code> or <code>.obj</code>) and see the stone path-traced, with dispersion, beside its cutting instructions: every tier's angle, index-gear teeth and notes, pavilion first, then crown, in the order you cut them. Click a tier to find its facets on the stone. It runs entirely in your web browser, with nothing to install.</p>
   <nav aria-label="Get started">
     <ul>
       <li><a class="primary" href="studio.html">Open the design studio</a></li>
@@ -137,6 +167,18 @@
       <li><a href="about.html">About us</a></li>
     </ul>
   </nav>
+  <!-- A documentation screenshot, so it is re-taken with the docs; make_page.py fails the build
+       if it is missing. width and height reserve its space before it loads. -->
+  <figure class="hero">
+    <img src="docs/images/getting-started/overview.webp" width="1600" height="1000" alt="The studio window: a faceted stone rendered in the middle, its cutting instructions on the left, tier by tier with angles and index-gear teeth, and the render settings on the right.">
+  </figure>
+  <section aria-labelledby="features">
+    <h2 id="features">What you can do with it</h2>
+    <!-- Generated from src/site/docs/pages.json: a link per finished feature's documentation. -->
+    <ul class="features">
+@@FEATURES@@
+    </ul>
+  </section>
 </main>
 <footer>
   <span>&copy; 2026 Houseki Design Studio. All rights reserved.</span>

@@ -7,6 +7,12 @@
 // The status line's text is for the person holding the phone; its `data-status` attribute
 // ('starting', 'invalid-link', 'camera-refused', 'connecting', 'connected', 'disconnected',
 // 'wrong-password', 'timeout', 'error') is for tests/harness/test_scan_link.py.
+//
+// Once the phone has connected to the computer, the phone's vision starts (vision.js, T-0326;
+// not before, T-0329): it finds the printed
+// board, the camera's pose over it and the rock's outline, draws them over the picture, says what
+// it sees in a second line (#scanner-vision, its state in `data-state`), and sends a summary to
+// the computer through the session. It never holds up the camera or the connection.
 
 import '../../site/theme.js';
 import './scanner.css';
@@ -18,6 +24,7 @@ import {
   SCAN_APP_ID,
 } from '../src/lib/scan_link.js';
 import { encodeScanHash, newScanSecrets } from '../src/lib/scan_link_hash.js';
+import { startPhoneVision } from './vision.js';
 
 const MESSAGES = {
   'invalid-link': 'This link is invalid or has expired. Scan the QR code on your computer again.',
@@ -75,9 +82,12 @@ async function start() {
 
   try {
     // `ideal`, not `exact`: a phone uses its rear camera, and a laptop with only a front webcam
-    // still streams (the user tests with the phone page open on the computer itself).
+    // still streams (the user tests with the phone page open on the computer itself). 1280 x 720
+    // is asked for, again only as an ideal: browsers otherwise default to 640 x 480, and the
+    // board's pose is the more precise the more pixels its corners have; a phone in portrait
+    // gives 720 x 1280.
     stream = await navigator.mediaDevices.getUserMedia({
-      video: { facingMode: { ideal: 'environment' } },
+      video: { facingMode: { ideal: 'environment' }, width: { ideal: 1280 }, height: { ideal: 720 } },
       audio: false,
     });
   } catch (cause) {
@@ -90,11 +100,30 @@ async function start() {
   show('connecting');
 
   const session = joinScanSession(link, stream);
+  let visionStarted = false;
 
   session.onStatus((state, detail) => {
     show(state === 'error' && (detail === 'wrong-password' || detail === 'timeout') ? detail : state);
     // Why an 'error' happened, for diagnosis (the harness reads it; T-0316). Not shown.
     statusLine.dataset.detail = state === 'error' ? String(detail ?? '') : '';
+
+    // The vision starts once the phone has first connected, never before (T-0329). Loading
+    // OpenCV and finding the board while the connection is still being set up slowed pairing about
+    // four times over (public relays, studio and phone in one browser from file://: 11.9-14.3 s
+    // without it, 47.8-56.6 s with it), long enough for the page to tell the person it could not
+    // reach the computer. Its results are for the computer anyway, and the camera streams either
+    // way. It keeps running if the computer leaves and comes back.
+    if (state === 'connected' && !visionStarted) {
+      visionStarted = true;
+      startPhoneVision({
+        video,
+        stream,
+        overlay: document.getElementById('scanner-overlay'),
+        status: document.getElementById('scanner-vision'),
+        sheetSelect: document.getElementById('scanner-sheet'),
+        send: message => session.sendVision(message),
+      }).catch(error => console.error('vision', error));
+    }
   });
 
   addEventListener('pagehide', () => session.close());

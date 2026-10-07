@@ -8,7 +8,21 @@
 <meta name="theme-color" content="#2e3440">
 <meta name="color-scheme" content="dark light">
 @@THEME_SCRIPT@@
+<!-- Every line holding a site or page URL placeholder is dropped while src/site/site.json has no
+     url (make_page.py's with_site_url), so each such tag stays on a line of its own. -->
+<link rel="canonical" href="@@PAGE_URL@@">
 <link rel="icon" href="@@LOGO_ICON@@">
+<meta property="og:type" content="website">
+<meta property="og:site_name" content="Houseki Design Studio">
+<meta property="og:title" content="About us | Houseki Design Studio">
+<meta property="og:description" content="Houseki Design Studio is named after the manga Houseki no Kuni, and is written by Lucas Tong in Seattle.">
+<meta property="og:url" content="@@PAGE_URL@@">
+<meta property="og:image" content="@@SITE_URL@@og-image.png">
+<meta property="og:image:width" content="1200">
+<meta property="og:image:height" content="630">
+<meta property="og:image:alt" content="The Houseki Design Studio window: a faceted stone rendered in the middle, its cutting instructions on the left and the render settings on the right.">
+<meta name="twitter:card" content="summary_large_image">
+<meta name="twitter:image" content="@@SITE_URL@@og-image.png">
 <style>
   :root {
     --panel: #2e3440;

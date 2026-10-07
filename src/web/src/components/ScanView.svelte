@@ -11,14 +11,24 @@
   // the region allows up to 420px: a phone reads a big, high-contrast code from further away and at
   // a worse angle. The link is plain selectable text (one click selects all of it), so it can be
   // copied by hand where the clipboard refuses, as it can from a page opened as a file.
+  //
+  // Over the phone's video, what the phone sees (T-0326): the rock's outline, the board's edge and
+  // its axes at the target, drawn from the phone's latest vision message (scan_mode.js
+  // `scanVision`) on a canvas the size of the video element, mapped as the video's object-fit:
+  // contain maps the phone's frame. The messages are about 10 a second and can lead or lag the
+  // picture by a few frames; the latest is always drawn, faded once it is older than
+  // VISION_STALE_MS and gone after VISION_GONE_MS. Nothing is drawn while the video's shape does
+  // not match the message's frame (the phone was just turned).
   import CopyIcon from '@lucide/svelte/icons/copy';
   import CheckIcon from '@lucide/svelte/icons/check';
   import RefreshIcon from '@lucide/svelte/icons/refresh-cw';
   import { Button } from '$lib/components/ui/button/index.js';
   import {
-    scanning, scanStream, copyScanLink, newScanCode, scanStatusText,
+    scanning, scanStream, scanVision, copyScanLink, newScanCode, scanStatusText, visionAge,
+    VISION_STALE_MS, VISION_GONE_MS,
   } from '../lib/scan_mode.js';
   import { isMacPlatform } from '../lib/keys.js';
+  import { drawVisionOverlay, fitTransform, prepareCanvas } from '../lib/vision/overlay.js';
 
   // The modes' buttons, as RecordPanel and EditPanel draw them.
   const ACTION = 'h-8 border-[var(--panel-edge)] bg-[var(--raised)] px-3 text-[13px] text-[var(--text)] shadow-none hover:border-[var(--accent)] hover:bg-[var(--hover)] hover:text-[var(--text)] dark:border-[var(--panel-edge)] dark:bg-[var(--raised)] dark:hover:border-[var(--accent)] dark:hover:bg-[var(--hover)]';
@@ -35,7 +45,59 @@
   const copyKeys = isMacPlatform() ? '⌘C' : 'Ctrl+C';
 
   let video = $state(null);
+  let overlay = $state(null);
   let urlText = $state(null);
+
+  // The overlay, redrawn every animation frame while the phone streams (its age changes even when
+  // no message comes, and the element's size with the window).
+  $effect(() => {
+    if (!overlay || !stream) {
+      return;
+    }
+
+    let frame = requestAnimationFrame(function draw() {
+      frame = requestAnimationFrame(draw);
+      drawVision();
+    });
+
+    return () => {
+      cancelAnimationFrame(frame);
+      prepareCanvas(overlay);
+    };
+  });
+
+  /** One frame of the overlay; `data-drawn` on the canvas says what it showed (for the harness). */
+  function drawVision() {
+    const { ctx, width, height } = prepareCanvas(overlay);
+    const vision = $scanVision;
+    const age = visionAge(vision, performance.now());
+    let drawn = 'none';
+
+    if (vision && age <= VISION_GONE_MS && video?.videoWidth > 0) {
+      const { message } = vision;
+      const sameShape = Math.abs((video.videoWidth / video.videoHeight) / (message.frame.w / message.frame.h) - 1) < 0.02;
+
+      if (sameShape) {
+        const posed = Boolean(message.pose?.valid && message.intrinsics);
+        drawVisionOverlay(ctx, {
+          pose: posed ? message.pose : null,
+          intrinsics: posed ? message.intrinsics : null,
+          targetMm: message.board.targetMm,
+          sizeMm: message.board.sizeMm,
+          contour: posed ? message.outline?.contour ?? null : null,
+          corners: null,
+        }, fitTransform(message.frame.w, message.frame.h, width, height, 'contain'),
+        { alpha: age > VISION_STALE_MS ? 0.35 : 1, frame: [message.frame.w, message.frame.h] });
+        drawn = age > VISION_STALE_MS ? 'stale' : posed ? (message.outline ? 'pose+outline' : 'pose') : 'board';
+      } else {
+        drawn = 'shape-mismatch';
+      }
+    }
+
+    if (overlay.dataset.drawn !== drawn) {
+      overlay.dataset.drawn = drawn;
+    }
+  }
 
   // The phone's camera into the <video>. Muted (it has no sound to give) and inline, which is what
   // lets a browser play it without a click.
@@ -83,6 +145,8 @@
        element a stream is put into is never torn down and rebuilt as the status changes. -->
   <video id="scan-video" class="scan-video" class:scan-hidden={stream === null} bind:this={video}
     autoplay playsinline muted aria-label="Your phone's camera"></video>
+  <canvas id="scan-overlay" class="scan-overlay" class:scan-hidden={stream === null} bind:this={overlay}
+    aria-hidden="true"></canvas>
 
   {#if stream !== null}
     <div class="scan-badge" id="scan-live" role="status"><span class="scan-dot scan-dot-live"></span>Live from your phone</div>
@@ -157,6 +221,15 @@
     height: 100%;
     object-fit: contain;
     background: #000000;
+  }
+
+  /* What the phone sees, over its video and the same size: fitTransform letterboxes as it does. */
+  .scan-overlay {
+    position: absolute;
+    inset: 0;
+    width: 100%;
+    height: 100%;
+    pointer-events: none;
   }
 
   .scan-hidden {

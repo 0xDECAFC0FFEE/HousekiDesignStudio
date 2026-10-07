@@ -33,6 +33,13 @@
 //           'error'        the session could not be made or failed; `error` says why
 //           -- the statuses scan_link.js reports, passed on as they come.
 //
+// The phone's vision (T-0326): a phone page that finds the printed board, the camera's pose and
+// the rock's outline sends a summary of each frame (scan_vision.js); the latest is `scanVision`,
+// `{ message, receivedAt }` (receivedAt on performance.now()'s clock), or null while there is
+// none. ScanView draws it over the phone's video and ScanPanel reads it out (scanVisionText). It is
+// cleared whenever the picture goes (the phone left, New code, Done), and a phone page that sends
+// nothing (an older one) leaves it null: the mode then works exactly as before.
+//
 // The relays. In use the mode passes scan_link.js no options at all: Trystero's public Nostr
 // relays, and the phone page beside the studio. The one exception is for the browser tests
 // (tests/harness/test_scan_mode.py), which have no internet and run their own relay: a JSON list
@@ -47,6 +54,8 @@ import { setRenderHold, releaseRenderHold } from './viewport.js';
 import { qrCode } from './scan_qr.js';
 import { createScanSession } from './scan_link.js';
 import { readSetting } from './settings.js';
+import { SHEET_LABELS } from './scan_vision.js';
+import { angleText, coverageAdvice, coverageSummary, WARNINGS } from './vision/guidance.js';
 
 /** Added to every tier toolbar button's tooltip while the mode holds the design. */
 export const CLOSE_SCAN_TIP = ' Close the rough scan first: Done, or Escape.';
@@ -67,10 +76,12 @@ export const NO_LINK_MESSAGE = 'Scanning with a phone is not available in this c
 //                  when it is opened as a file (scan_link.js's own default).
 //   writeText      the clipboard, for Copy.
 //   setTimeout     the clock that takes "Copied" down again.
+//   now            the clock vision messages are stamped with on arrival (performance.now()).
 const DEFAULT_BACKEND = {
   createSession: createScanSession,
   writeText: text => globalThis.navigator.clipboard.writeText(text),
   setTimeout: (fn, ms) => globalThis.setTimeout(fn, ms),
+  now: () => globalThis.performance.now(),
 };
 
 let backend = DEFAULT_BACKEND;
@@ -93,6 +104,30 @@ export const scanning = writable(closedState());
 
 /** The phone's camera, a MediaStream, while it streams; null otherwise. */
 export const scanStream = writable(null);
+
+/**
+ * The phone's latest vision message, `{ message, receivedAt }`, while its camera streams; null
+ * otherwise, and while it has sent none (see the header).
+ */
+export const scanVision = writable(null);
+
+/** A vision message older than this is drawn faded: the phone has stopped seeing, or lags. */
+export const VISION_STALE_MS = 500;
+
+/** ... and older than this, not drawn at all. */
+export const VISION_GONE_MS = 3000;
+
+// For the browser harness (tests/harness/test_scan_vision.py), as the app publishes gemApp: the
+// latest vision value, read-only. Nothing in the studio's UI uses it.
+if (globalThis.window) {
+  globalThis.window.gemScanVision = () => get(scanVision);
+}
+
+/** The picture went: so did what was seen in it. */
+function dropPicture() {
+  scanStream.set(null);
+  scanVision.set(null);
+}
 
 // The open mode, or null: `{ link }`, the session it holds (null between one and the next), and
 // `copyTimer`, the copy readout's.
@@ -133,7 +168,7 @@ export function enterScan() {
   mode = { link: null, copyTimer: null };
   setLocalHistory(INERT_HISTORY);
   scanning.set({ ...closedState(), open: true });
-  scanStream.set(null);
+  dropPicture();
   syncToolbar();
   startSession();
   return true;
@@ -148,7 +183,7 @@ export function exitScan() {
   closeSession();
   mode = null;
   scanning.set(closedState());
-  scanStream.set(null);
+  dropPicture();
   setLocalHistory(null);
   syncToolbar();
   // The stone is drawn again, with whatever changed in the render settings meanwhile.
@@ -167,7 +202,7 @@ export function newScanCode() {
   }
 
   closeSession();
-  scanStream.set(null);
+  dropPicture();
   startSession();
 }
 
@@ -212,13 +247,21 @@ function startSession() {
 
     // The phone has gone: its last picture is not left frozen on the screen.
     if (status === 'disconnected' || status === 'error') {
-      scanStream.set(null);
+      dropPicture();
     }
   });
 
   link.onStream(stream => {
     if (current()) {
       scanStream.set(stream ?? null);
+    }
+  });
+
+  // What the phone sees, while its picture is up (scan_link.js validated it). A session made by
+  // an older scan_link.js, or a test double, may have no onVision.
+  link.onVision?.(message => {
+    if (current() && get(scanStream) !== null) {
+      scanVision.set({ message, receivedAt: backend.now() });
     }
   });
 }
@@ -331,4 +374,114 @@ export function scanStatusText(state, streaming) {
     default:
       return { title: 'Waiting for your phone', detail: 'Scan the code with your phone\'s camera, or send it the link.' };
   }
+}
+
+/** How old a vision value is, in ms (Infinity for none). */
+export function visionAge(vision, nowMs) {
+  return vision ? nowMs - vision.receivedAt : Infinity;
+}
+
+/**
+ * The "Speed" row (T-0332): how fast the phone's vision runs, from the message's optional `speed`,
+ * in words a person can compare between phones: "9.6 poses a second · position 120 ms old when
+ * drawn (90% within 180 ms) · finding the board takes 27 ms" (the position's age: how old the
+ * camera position the phone's drawing starts from is, when a picture is shown). Null without a speed.
+ */
+export function speedText(speed) {
+  if (!speed) {
+    return null;
+  }
+
+  const parts = [];
+
+  if (speed.posesPerS !== undefined) {
+    const tracked = speed.trackedPerS ? ` (${speed.trackedPerS.toFixed(1)} tracked)` : '';
+    parts.push(`${speed.posesPerS.toFixed(1)} poses a second${tracked}`);
+  }
+
+  if (speed.ageMs !== undefined) {
+    const p90 = speed.ageP90Ms !== undefined ? ` (90% within ${Math.round(speed.ageP90Ms)} ms)` : '';
+    parts.push(`position ${Math.round(speed.ageMs)} ms old when drawn${p90}`);
+  }
+
+  if (speed.detectMs !== undefined) {
+    parts.push(`finding the board takes ${Math.round(speed.detectMs)} ms`);
+  }
+
+  return parts.length ? parts.join(' · ') : null;
+}
+
+/**
+ * The panel's readout of what the phone sees, as rows of plain words: `{ rows: [{ label, value }],
+ * note }`, or null while the phone has sent nothing. `nowMs` is on the receivedAt clock.
+ */
+export function scanVisionText(vision, nowMs) {
+  if (!vision) {
+    return null;
+  }
+
+  const { board, pose, intrinsics, outline } = vision.message;
+  const stale = visionAge(vision, nowMs) > VISION_GONE_MS;
+  const posed = Boolean(pose?.valid);
+  const sheet = SHEET_LABELS[board.sheet];
+  const rows = [];
+
+  rows.push({
+    label: 'Board',
+    value: board.recognised ? `Found${sheet && board.sheetFrom !== 'default' ? ` (${sheet})` : ''}` : 'Not in view',
+  });
+
+  const guide = posed ? vision.message.guide ?? null : null;
+
+  if (guide) {
+    // The scan guidance (T-0331): the camera seen from the rock, as the phone shows it.
+    const cm = guide.distanceMm / 10;
+    rows.push({
+      label: 'Camera',
+      value: `${cm < 10 ? cm.toFixed(1) : Math.round(cm)} cm from the rock, ${angleText(guide)}`,
+    });
+  } else if (posed) {
+    const cm = pose.distanceMm / 10;
+    rows.push({
+      label: 'Camera',
+      value: `${cm < 10 ? cm.toFixed(1) : Math.round(cm)} cm from the target, ${Math.round(pose.elevationDeg)}° above the board`,
+    });
+  } else {
+    rows.push({ label: 'Camera', value: board.recognised ? 'Hold the phone steady' : '–' });
+  }
+
+  const lens = intrinsics?.source;
+  rows.push({
+    label: 'Lens',
+    value: lens === 'refined' ? 'Measured' : lens === 'closed-form' || lens === 'table' ? 'First estimate, still measuring' : 'Estimating',
+  });
+
+  rows.push({
+    label: 'Rock',
+    value: !posed ? '–' : outline ? 'Outlined' : 'None found on the target',
+  });
+
+  if (guide) {
+    const summary = coverageSummary(guide.cover);
+    rows.push({ label: 'Filmed', value: summary.text });
+    rows.push({ label: 'Next', value: coverageAdvice(guide.cover, guide).text });
+    const warning = WARNINGS.find((w) => w.id === guide.warning);
+
+    if (warning) {
+      rows.push({ label: 'Warning', value: `${warning.title}. ${warning.text}` });
+    }
+  }
+
+  const speed = speedText(vision.message.speed);
+
+  if (speed) {
+    rows.push({ label: 'Speed', value: speed });
+  }
+
+  return {
+    rows,
+    note: stale ? 'The phone has not sent anything for a few seconds.' : '',
+    // For the coverage map: the rings filmed and where the camera is (null without a guide).
+    guide,
+  };
 }

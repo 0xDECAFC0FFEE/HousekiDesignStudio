@@ -66,7 +66,7 @@ def _free_port():
 class Chrome:
     """One headless Chrome process, with a single page-level CDP websocket to it."""
 
-    def __init__(self, timeout=30, gl_backend=None):
+    def __init__(self, timeout=30, gl_backend=None, extra_args=()):
         """`gl_backend=None` (the default) is unchanged from before this parameter
         existed: forced software WebGL2 via SwiftShader, headless. This is what
         `tools/compare_luxcore.py`'s acceptance numbers were measured against
@@ -80,6 +80,9 @@ class Chrome:
         `gpu_renderer_string()` below -- Chrome can silently fall back to software
         (or to a `swiftshader`-named Metal shim) if the real backend is unavailable,
         which would look identical to this working.
+
+        `extra_args` are added to Chrome's command line, before the start URL: for
+        example the fake camera flags `tests/harness/test_scan_link.py` (T-0313) uses.
         """
         import websocket  # imported lazily so a clear error names the missing module
 
@@ -113,6 +116,7 @@ class Chrome:
             "--user-data-dir=%s" % self.user_data_dir,
             "--window-size=1024,1024",
             "--hide-scrollbars",
+            *extra_args,
             "about:blank",
         ]
         self.proc = subprocess.Popen(
@@ -151,6 +155,25 @@ class Chrome:
             target = json.loads(response.read().decode("utf-8"))
         return self._websocket_module.create_connection(
             target["webSocketDebuggerUrl"], timeout=timeout
+        )
+
+    def new_tab(self, timeout=30):
+        """Opens another tab in this same browser and returns a `Tab` driving it, with the
+        same `send`, `navigate`, `evaluate` and `wait_for_expression` as this object.
+
+        Two tabs share the browser's profile and network stack but each runs its own page
+        and scripts, as two tabs a person opens do. Added for T-0313, whose tests run the
+        scanner's host and phone in two tabs of one browser, the way the user tries it on
+        one laptop. The tab closes with the browser.
+        """
+        url = "http://127.0.0.1:%d/json/new?about:blank" % self.port
+        request = urllib.request.Request(url, method="PUT")
+        with urllib.request.urlopen(request, timeout=timeout) as response:
+            target = json.loads(response.read().decode("utf-8"))
+        return Tab(
+            self._websocket_module.create_connection(
+                target["webSocketDebuggerUrl"], timeout=timeout
+            )
         )
 
     def send(self, method, params=None, timeout=60):
@@ -275,3 +298,17 @@ class Chrome:
 
     def __exit__(self, *exc_info):
         self.close()
+
+
+class Tab:
+    """A further tab of a `Chrome` (`Chrome.new_tab()`), driven exactly like the first: the
+    page-level methods are Chrome's own, which need nothing but `ws` and `_next_id`."""
+
+    send = Chrome.send
+    navigate = Chrome.navigate
+    evaluate = Chrome.evaluate
+    wait_for_expression = Chrome.wait_for_expression
+
+    def __init__(self, ws):
+        self.ws = ws
+        self._next_id = 1

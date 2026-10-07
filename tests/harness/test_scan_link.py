@@ -520,8 +520,21 @@ class ScanLinkTest(unittest.TestCase):
             same_page = self.phone.evaluate("location.href.split('#')[0]") + "#" + second.split("#", 1)[1]
             self.assertEqual(same_page.split("#")[0], self.phone.evaluate("location.href.split('#')[0]"))
             self.phone.send("Page.navigate", {"url": same_page})
-            # The marker set on the old page is gone once the page has really loaded again.
-            self.phone.wait_for_expression("!!window.housekiScanLink && window.__oldPage === undefined", timeout=15)
+            # The marker set on the old page is gone once the page has really loaded again. An
+            # evaluation in flight when the reload commits fails ("Inspected target navigated or
+            # closed"); since the page runs its vision in a Worker (T-0326) its unloading takes
+            # long enough for a poll to land there every time, so such a failure is polled again.
+            deadline = time.time() + 15
+
+            while True:
+                try:
+                    self.phone.wait_for_expression("!!window.housekiScanLink && window.__oldPage === undefined", timeout=15)
+                    break
+                except RuntimeError as error:
+                    if "navigated" not in str(error) or time.time() > deadline:
+                        raise
+
+                    time.sleep(0.2)
             self.phone.wait_for_expression(
                 "document.getElementById('scanner-status').dataset.status === 'connected'", timeout=CONNECT_TIMEOUT
             )

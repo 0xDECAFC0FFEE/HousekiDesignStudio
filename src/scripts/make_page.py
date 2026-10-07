@@ -16,9 +16,10 @@ yields build/web/index.html: the app's script and styles inlined into a small HT
 (src/web/index.html), by vite-plugin-singlefile. It then inlines everything that page needs
 ahead of the app's script and writes build/www/studio.html, which opens directly from file://
 and works equally over HTTP. Last, it writes the landing page from src/site (build_site below):
-build/www/index.html, robots.txt and, once src/site/site.json has the site's URL, sitemap.xml.
-It also builds the phone scanner page (src/web/scanner, T-0313, its own Vite config) and copies
-it to build/www/scanner/index.html, served at /scanner (install_scanner_page below).
+build/www/index.html, robots.txt, the social preview og-image.png and, once src/site/site.json
+has the site's URL, sitemap.xml. It also builds the phone scanner page (src/web/scanner, T-0313, its own Vite config) and copies
+it to build/www/scanner/index.html, served at /scanner (install_scanner_page below), with the
+phone's prebuilt OpenCV next to it as build/www/scanner/opencv.js (install_scanner_opencv, T-0323).
 All of build/www is generated: edit the app under src/web or the landing page under src/site,
 then run ./build.sh (or this script).
 
@@ -82,9 +83,11 @@ Usage:  python3 src/scripts/make_page.py [--output build/www/studio.html] [--ski
 
 import argparse
 import base64
+import functools
 import gzip
 import html
 import json
+import os
 import pathlib
 import re
 import shutil
@@ -107,6 +110,13 @@ TEMPLATE = BUILD / "web" / "index.html"
 # (src/web/vite.scanner.config.js) into one file, and served at /scanner as
 # build/www/scanner/index.html. The computer's scan mode links phones to it with a QR code.
 SCANNER_BUILD = BUILD / "scanner" / "index.html"
+# The phone page's OpenCV (T-0323): a committed, prebuilt opencv.js (rebuilt only by
+# src/web/vendor/opencv/build_opencv_js.sh, never by this build), copied next to the phone page
+# as build/www/scanner/opencv.js. It is the one file the phone page loads besides itself: about
+# 6 MB, too big to inline into a page that must show the camera at once, so
+# src/web/src/lib/vision/opencv.js adds it as a classic <script src> after the camera starts (a
+# classic script loads from file:// too, where fetch() and module imports fail).
+SCANNER_OPENCV = SRC / "web" / "vendor" / "opencv" / "opencv.js"
 # The startup stone (T-0149): a Gem Cut Studio design, run through the page's own .gcs
 # reader (gcs.js) at load time -- see GEM_MODEL_GCS below. The bare mesh
 # src/resources/hex_cut_v2.obj is not inlined any more (2026-09-20); CLAUDE.md forbids editing
@@ -150,6 +160,23 @@ GEMCAD_SCRIPTS = (
 WASM_INPUT = BUILD / "target" / "wasm32-unknown-unknown" / "release" / "gem_renderer.wasm"
 BINDGEN_OUT = BUILD / "target" / "nomodules"
 
+# The phone scanner's vision (T-0330): the Rust crate src/vision (a workspace member, never part of
+# the studio), compiled to wasm with SIMD and bound like the renderer (no-modules glue), then packed
+# into ONE classic script, build/vision/houseki_vision.js, that defines
+# globalThis.HOUSEKI_VISION_WASM = { glue, wasm } (each gzip + base64). install_scanner_vision
+# copies it next to the phone page as build/www/scanner/houseki_vision.js;
+# src/web/src/lib/vision/vision_wasm.js loads it with a <script src> once the phone has connected
+# and hands it to the vision Worker. Its own Cargo target directory, because it is compiled with
+# different RUSTFLAGS (+simd128) from the renderer: sharing one would rebuild every dependency of
+# each whenever the other is built.
+VISION_PACKAGE = "houseki-vision"
+VISION_TARGET_DIR = BUILD / "target" / "vision"
+VISION_WASM_INPUT = VISION_TARGET_DIR / "wasm32-unknown-unknown" / "release" / "houseki_vision.wasm"
+VISION_BINDGEN_OUT = BUILD / "vision" / "bindgen"
+VISION_SCRIPT = BUILD / "vision" / "houseki_vision.js"
+VISION_GLOBAL = "HOUSEKI_VISION_WASM"
+VISION_RUSTFLAGS = "-C target-feature=+simd128"
+
 # The app is build/www/studio.html (renamed from houseki.html 2026-09-21; first split from the
 # landing page 2026-09-19). build/www/index.html is the landing page built
 # from src/site (see build_site), so a domain's root serves a small, crawlable page rather than
@@ -166,6 +193,21 @@ SITE_DIR = SRC / "site"
 SITE_CONFIG = SITE_DIR / "site.json"
 SITE_OUTPUT_DIR = BUILD / "www"
 SITE_URL_PLACEHOLDER = "@@SITE_URL@@"
+# A page's own absolute address (canonical, og:url): the site's URL plus the page's path. Like
+# @@SITE_URL@@, every line holding it is dropped while the site has no URL. See with_site_url.
+PAGE_URL_PLACEHOLDER = "@@PAGE_URL@@"
+# The social preview (T-0320): a 1200x630 capture of the app that link previews (Open Graph,
+# Twitter cards) show, and every site page names as its og:image. Checked in; regenerate it with
+# tools/capture_og_image.py after a visible change to the app. Copied to build/www/og-image.png.
+OG_IMAGE = SITE_DIR / "og-image.png"
+# The landing page's list of features, a link per documentation page (T-0320): every page
+# pages.json lists outside these sections, and not marked "wip".
+LANDING_FEATURES_PLACEHOLDER = "@@FEATURES@@"
+LANDING_SKIPPED_SECTIONS = ("Getting started",)
+# The source files behind each published page, for its sitemap <lastmod> and its docs JSON-LD
+# dateModified (T-0320): the date of the last commit touching any of them. Docs pages map to
+# their own fragment and screenshots, in last_modified_sources.
+APP_SOURCES = (SRC / "web", SRC / "renderer", SRC / "js", SRC / "resources")
 # The user documentation (2026-09-24): pages.json, the shared _layout.html, the home page's
 # _index.html, one article fragment per page and their screenshots in images/. See build_docs.
 DOCS_DIR = SITE_DIR / "docs"
@@ -314,6 +356,48 @@ def build_no_modules_bindings():
     )
 
     return BINDGEN_OUT / "gem_renderer.js", BINDGEN_OUT / "gem_renderer_bg.wasm"
+
+
+def build_vision_bindings():
+    """Compiles the phone's vision crate (src/vision) to wasm, with SIMD and no threads, and binds
+    it with the no-modules glue. Returns the glue's and the wasm's paths."""
+    if shutil.which("wasm-bindgen") is None:
+        fail("wasm-bindgen is not on PATH. Run ./setup.sh, and make sure ~/.cargo/bin precedes the system path.")
+
+    # WebAssembly SIMD (128-bit): Chrome 91+, Firefox 89+, Safari 16.4+, the same browsers the
+    # phone's vision Worker already needs (OffscreenCanvas), and what opencv.js was built with.
+    flags = " ".join(part for part in (os.environ.get("RUSTFLAGS", ""), VISION_RUSTFLAGS) if part)
+    run(["cargo", "build", "-p", VISION_PACKAGE, "--lib", "--target", "wasm32-unknown-unknown", "--release",
+         "--target-dir", str(VISION_TARGET_DIR)], env={**os.environ, "RUSTFLAGS": flags})
+    run(["wasm-bindgen", "--target", "no-modules", "--out-dir", str(VISION_BINDGEN_OUT), "--no-typescript",
+         str(VISION_WASM_INPUT)])
+    return VISION_BINDGEN_OUT / "houseki_vision.js", VISION_BINDGEN_OUT / "houseki_vision_bg.wasm"
+
+
+def build_vision_script(glue_path, wasm_path, minified):
+    """Writes VISION_SCRIPT, the classic script the phone page loads for its vision: the glue
+    (minified, when `minified`) and the wasm, each gzip-compressed (Zopfli) and base64 encoded,
+    as globalThis.HOUSEKI_VISION_WASM = { glue, wasm }. Returns (description, raw bytes, bytes in
+    the script) per part, for the size table."""
+    glue = glue_path.read_text()
+    glue_size = len(glue.encode("utf-8"))
+
+    if "let wasm_bindgen" not in glue:
+        fail(f"{glue_path} is not wasm-bindgen's no-modules glue (no `let wasm_bindgen`).")
+
+    if minified:
+        glue = minify(glue, "script", "vision wasm-bindgen glue")
+        check_no_comments(glue, "check-script", "vision wasm-bindgen glue")
+
+    wasm = wasm_path.read_bytes()
+    glue_literal = base64_literal(gzip_bytes(glue.encode("utf-8")))
+    wasm_literal = base64_literal(gzip_bytes(wasm))
+    VISION_SCRIPT.parent.mkdir(parents=True, exist_ok=True)
+    VISION_SCRIPT.write_text(f"globalThis.{VISION_GLOBAL}={{glue:{glue_literal},wasm:{wasm_literal}}};\n")
+    return [
+        ("phone vision wasm (gzip, base64)", len(wasm), len(wasm_literal)),
+        ("phone vision glue (min, gzip, base64)" if minified else "phone vision glue (gzip, base64)", glue_size, len(glue_literal)),
+    ]
 
 
 def check_template(template, minified):
@@ -641,6 +725,82 @@ def with_theme(page):
     return page
 
 
+def with_site_url(page, url, path):
+    """`page` (a site page's source) with its absolute URLs filled in: @@SITE_URL@@ becomes `url`
+    and @@PAGE_URL@@ the page's own address, `url` + `path` (its path from the site root, "" for
+    the landing page). With no `url`, every line holding either is dropped instead, rather than
+    published pointing nowhere -- which is why each such tag sits on a line of its own."""
+    if url:
+        return page.replace(PAGE_URL_PLACEHOLDER, url + path).replace(SITE_URL_PLACEHOLDER, url)
+
+    return "".join(line for line in page.splitlines(keepends=True)
+                   if SITE_URL_PLACEHOLDER not in line and PAGE_URL_PLACEHOLDER not in line)
+
+
+def json_ld_script(data):
+    """`data` as a <script type="application/ld+json"> element. Written from Python rather than
+    in a page's source, so it is always valid JSON, whatever is or is not set."""
+    return ('<script type="application/ld+json">'
+            + json.dumps(data, indent=2).replace("</", "<\\/")
+            + "</script>")
+
+
+@functools.lru_cache(maxsize=None)
+def last_modified(*sources):
+    """The date (YYYY-MM-DD) of the last commit touching any of `sources` (paths), or None when
+    git cannot say: no git, not a checkout, or none of them ever committed. A build must still
+    work without it, so this never fails; the page just goes without a date.
+
+    A shallow clone sees every file as last changed in its one commit, which is why the deploy
+    workflow checks out the whole history (fetch-depth: 0)."""
+    # Absolute paths, which git takes as long as they are inside the checkout; one outside it (a
+    # test's copy of the docs, say) makes git fail, which is answered with None like the rest.
+    try:
+        result = subprocess.run(["git", "log", "-1", "--format=%cs", "--", *map(str, sources)],
+                                capture_output=True, text=True, cwd=PROJECT_ROOT)
+    except OSError:
+        return None
+
+    date = result.stdout.strip()
+
+    return date if result.returncode == 0 and re.fullmatch(r"\d{4}-\d{2}-\d{2}", date) else None
+
+
+def last_modified_sources(path, app_name):
+    """The source files behind the published page at `path` (from the site root), for
+    last_modified."""
+    if path == "":
+        return (SITE_DIR / "index.html",)
+
+    if path == app_name:
+        return APP_SOURCES
+
+    if path == "docs.html":
+        return (DOCS_DIR / "_index.html", DOCS_DIR / "pages.json")
+
+    if path.startswith("docs/"):
+        slug = path[len("docs/"):-len(".html")]
+        return (DOCS_DIR / f"{slug}.html", DOCS_DIR / "images" / slug)
+
+    return (SITE_DIR / path,)
+
+
+def feature_pages(sections):
+    """The documentation pages that describe a finished feature: every page outside
+    LANDING_SKIPPED_SECTIONS not marked "wip", in pages.json's order. The landing page lists them
+    and its JSON-LD names them as the app's featureList, so a new page shows up in both without
+    anyone remembering to add it."""
+    return [page for section in sections if section["title"] not in LANDING_SKIPPED_SECTIONS
+            for page in section["pages"] if not page.get("wip")]
+
+
+def landing_features(sections):
+    """The landing page's feature list: a link to each feature_pages page, with its summary."""
+    return "\n".join(f'      <li><a href="docs/{page["slug"]}.html">{html.escape(page["title"])}</a>'
+                     f' <span>{html.escape(page["summary"])}</span></li>'
+                     for page in feature_pages(sections))
+
+
 def docs_nav(sections, current, to_docs):
     """The documentation sidebar: one heading per section of pages.json and a link per page,
     `current` (a slug, or None on the home page) marked as the page being read. `to_docs` is the
@@ -681,23 +841,67 @@ def docs_cards(sections):
     return "\n".join(lines)
 
 
-def docs_page(layout, sections, title, description, body, current, to_docs, to_root, docs_index):
-    """One documentation page: `layout` with its own placeholders filled, then the theme's."""
+def docs_structured_data(title, description, url, path, modified):
+    """A documentation page's JSON-LD (T-0320): a TechArticle, and with the site's `url` also a
+    BreadcrumbList (home, documentation, this page) for the trail search results show under its
+    title. `path` is the page's path from the site root and `modified` its last_modified date,
+    or None."""
+    article = {
+        "@type": "TechArticle",
+        "headline": title,
+        "description": description,
+        "inLanguage": "en",
+        "isPartOf": {"@type": "WebSite", "name": "Houseki Design Studio"},
+        "publisher": {"@type": "Organization", "name": "Houseki Design Studio"},
+    }
+
+    if modified:
+        article["dateModified"] = modified
+
+    if not url:
+        return {"@context": "https://schema.org", **article}
+
+    article["url"] = url + path
+    article["image"] = url + OG_IMAGE.name
+    article["isPartOf"]["url"] = url
+    article["publisher"]["url"] = url
+    trail = [("Houseki Design Studio", url), ("Documentation", url + "docs.html")]
+
+    if path != "docs.html":
+        trail.append((title, url + path))
+
+    breadcrumbs = {
+        "@type": "BreadcrumbList",
+        "itemListElement": [{"@type": "ListItem", "position": position, "name": name, "item": item}
+                            for position, (name, item) in enumerate(trail, 1)],
+    }
+
+    return {"@context": "https://schema.org", "@graph": [article, breadcrumbs]}
+
+
+def docs_page(layout, sections, title, description, body, current, to_docs, to_root, docs_index,
+              url, path, modified):
+    """One documentation page: `layout` with its own placeholders filled, then its absolute URLs
+    (`url` + `path`, see with_site_url), then the theme's. `modified` is the page's
+    last_modified date, or None."""
     if "@@" in body:
         fail(f"the documentation page {title!r} contains '@@', which the layout uses for its placeholders.")
 
+    structured = docs_structured_data(title, description, url, path, modified)
     page = (layout.replace("@@DOCS_TITLE@@", html.escape(title))
             .replace("@@DOCS_DESCRIPTION@@", html.escape(description, quote=True))
+            .replace("@@DOCS_JSON_LD@@", json_ld_script(structured))
             .replace("@@DOCS_NAV@@", docs_nav(sections, current, to_docs))
             .replace("@@DOCS_INDEX@@", docs_index)
             .replace("@@DOCS_ROOT@@", to_root)
             .replace("@@DOCS_BODY@@", body.strip()))
 
-    return with_theme(page)
+    return with_theme(with_site_url(page, url, path))
 
 
-def build_docs():
-    """Writes the user documentation from src/site/docs/ and returns the paths written.
+def build_docs(url, app_name):
+    """Writes the user documentation from src/site/docs/ and returns the paths written. `url` is
+    the site's address, or "" (see with_site_url), and `app_name` the app's file name.
 
     pages.json lists the pages in order, in sections. Each page's article is the fragment
     src/site/docs/<slug>.html, wrapped in the shared _layout.html with the sidebar generated from
@@ -740,7 +944,8 @@ def build_docs():
     index = SITE_OUTPUT_DIR / "docs.html"
     index.write_text(docs_page(layout, sections, "Documentation",
                                "How to use Houseki Design Studio, the in-browser gem cut designer.",
-                               index_body, None, "docs/", "", "docs.html"))
+                               index_body, None, "docs/", "", "docs.html", url, "docs.html",
+                               last_modified(*last_modified_sources("docs.html", app_name))))
     written.append(index)
 
     for page in pages:
@@ -751,8 +956,10 @@ def build_docs():
                 fail(f"{DOCS_DIR / (page['slug'] + '.html')} shows {source}, which does not exist.")
 
         path = output_dir / f"{page['slug']}.html"
+        site_path = f"docs/{page['slug']}.html"
         path.write_text(docs_page(layout, sections, page["title"], page["summary"], body,
-                                  page["slug"], "", "../", "../docs.html"))
+                                  page["slug"], "", "../", "../docs.html", url, site_path,
+                                  last_modified(*last_modified_sources(site_path, app_name))))
         written.append(path)
 
     return written
@@ -781,43 +988,91 @@ def install_scanner_page(output_dir=None):
     return path
 
 
+def install_scanner_opencv(output_dir=None):
+    """Copies the phone page's OpenCV (SCANNER_OPENCV) to <output_dir>/scanner/opencv.js, next to
+    the page, and returns that path. `output_dir` defaults to build/www.
+
+    The page itself stays one file (install_scanner_page still refuses a <script src> in its
+    HTML): OpenCV is added at runtime by src/web/src/lib/vision/opencv.js, which asks for
+    "opencv.js" relative to the page. Fails if the committed file is missing or is not the UMD
+    script that defines `cv`, so a broken copy is caught here rather than on a phone."""
+    output_dir = SITE_OUTPUT_DIR if output_dir is None else output_dir
+
+    if not SCANNER_OPENCV.is_file():
+        fail(f"{SCANNER_OPENCV} is missing; it is committed (rebuild it with build_opencv_js.sh).")
+
+    script = SCANNER_OPENCV.read_bytes()
+
+    if b"root.cv = factory()" not in script:
+        fail(f"{SCANNER_OPENCV} does not look like opencv.js (no UMD definition of cv).")
+
+    path = output_dir / "scanner" / "opencv.js"
+    path.parent.mkdir(parents=True, exist_ok=True)
+    path.write_bytes(script)
+    return path
+
+
+def install_scanner_vision(output_dir=None):
+    """Copies the phone's vision script (VISION_SCRIPT) to <output_dir>/scanner/houseki_vision.js,
+    next to the page, and returns that path. `output_dir` defaults to build/www. Fails if the
+    script is missing or does not define its global, so a broken build is caught here rather than
+    on a phone."""
+    output_dir = SITE_OUTPUT_DIR if output_dir is None else output_dir
+
+    if not VISION_SCRIPT.is_file():
+        fail(f"{VISION_SCRIPT} is missing; build it (make_page.py without --skip-build).")
+
+    script = VISION_SCRIPT.read_text()
+
+    if not script.startswith(f"globalThis.{VISION_GLOBAL}="):
+        fail(f"{VISION_SCRIPT} does not define globalThis.{VISION_GLOBAL}.")
+
+    path = output_dir / "scanner" / VISION_SCRIPT.name
+    path.parent.mkdir(parents=True, exist_ok=True)
+    path.write_text(script)
+    return path
+
+
 def build_site(app_output):
     """Writes the landing page (src/site/index.html) to build/www/index.html, with robots.txt and, once
     the site has a URL, sitemap.xml. Returns the paths written.
 
-    The page's absolute URLs (canonical, og:url) need the site's own
-    address. Until src/site/site.json has one, every line holding the URL placeholder is dropped,
+    The pages' absolute URLs (canonical, og:url, og:image) need the site's own address. Until
+    src/site/site.json has one, every line holding a URL placeholder is dropped (with_site_url),
     rather than published pointing nowhere, and there is no sitemap, which must list absolute
     URLs. The structured data (JSON-LD) is written here rather than in the source, so it is
-    always valid JSON whether or not the URL is set."""
+    always valid JSON whether or not the URL is set.
+
+    The landing page's feature list and its JSON-LD featureList come from the documentation's
+    pages.json (feature_pages), and its picture is a documentation screenshot, so both are
+    checked once the docs are written: an <img> on the landing page that the site does not
+    contain fails the build."""
     url, docs = read_site_config()
-    source = (SITE_DIR / "index.html").read_text()
-
-    if url:
-        page = source.replace(SITE_URL_PLACEHOLDER, url)
-    else:
-        page = "".join(line for line in source.splitlines(keepends=True)
-                       if SITE_URL_PLACEHOLDER not in line)
-
     app_name = app_output.name
+    sections = json.loads((DOCS_DIR / "pages.json").read_text())["sections"]
+    page = with_site_url((SITE_DIR / "index.html").read_text(), url, "")
+
     structured = {
         "@context": "https://schema.org",
         "@type": "WebApplication",
         "name": "Houseki Design Studio",
-        "description": "A gem cut designer and planner: open a faceting design (.gcs, .gem, .asc or .obj), "
+        "description": "A free gem cut designer and planner: open a faceting design (.gcs, .gem, .asc or .obj), "
                        "see the stone path-traced, and read its cutting instructions.",
         "applicationCategory": "DesignApplication",
         "operatingSystem": "Any",
         "browserRequirements": "Requires a web browser with WebGL 2",
+        "isAccessibleForFree": True,
+        "offers": {"@type": "Offer", "price": "0", "priceCurrency": "USD"},
+        "featureList": [feature["title"] for feature in feature_pages(sections)],
     }
 
     if url:
         structured["url"] = url + app_name
+        structured["screenshot"] = url + OG_IMAGE.name
 
-    json_ld = ('<script type="application/ld+json">'
-               + json.dumps(structured, indent=2).replace("</", "<\\/")
-               + "</script>")
-    page = page.replace("@@JSON_LD@@", json_ld, 1).replace("@@DOCS_URL@@", docs)
+    page = (page.replace("@@JSON_LD@@", json_ld_script(structured), 1)
+            .replace(LANDING_FEATURES_PLACEHOLDER, landing_features(sections), 1)
+            .replace("@@DOCS_URL@@", docs))
     page = with_theme(page)
 
     if "@@" in page:
@@ -832,28 +1087,47 @@ def build_site(app_output):
     (SITE_OUTPUT_DIR / "robots.txt").write_text(robots)
     written.append(SITE_OUTPUT_DIR / "robots.txt")
 
+    # The social preview every page names as its og:image. A checked-in file, so a missing one
+    # is a broken checkout, not something to publish without.
+    if not OG_IMAGE.is_file():
+        fail(f"{OG_IMAGE} does not exist; capture it with tools/capture_og_image.py.")
+
+    shutil.copyfile(OG_IMAGE, SITE_OUTPUT_DIR / OG_IMAGE.name)
+    written.append(SITE_OUTPUT_DIR / OG_IMAGE.name)
+
     # The user documentation (2026-09-24): build/www/docs.html, its home page, and one page per
     # entry in src/site/docs/pages.json under build/www/docs/. Indexed and in the sitemap since
     # 2026-09-24, when it replaced the noindex "coming soon" placeholder with real pages.
-    docs_written = build_docs()
+    docs_written = build_docs(url, app_name)
     written += docs_written
     docs_paths = [path.relative_to(SITE_OUTPUT_DIR).as_posix() for path in docs_written]
+
+    # The landing page shows a documentation screenshot, which only exists once the docs are
+    # written; a renamed screenshot would otherwise leave the home page with a broken picture.
+    for source in re.findall(r'<img[^>]*\bsrc="([^"]+)"', page):
+        if not (SITE_OUTPUT_DIR / source).is_file():
+            fail(f"the landing page shows {source}, which the built site does not contain.")
 
     sitemap = SITE_OUTPUT_DIR / "sitemap.xml"
 
     if url:
-        entries = "".join(f"  <url><loc>{url}{path}</loc></url>\n"
-                          for path in ("", app_name, "about.html", *docs_paths))
+        entries = []
+
+        for path in ("", app_name, "about.html", *docs_paths):
+            modified = last_modified(*last_modified_sources(path, app_name))
+            lastmod = f"<lastmod>{modified}</lastmod>" if modified else ""
+            entries.append(f"  <url><loc>{url}{path}</loc>{lastmod}</url>\n")
+
         sitemap.write_text('<?xml version="1.0" encoding="UTF-8"?>\n'
                            '<urlset xmlns="http://www.sitemaps.org/schemas/sitemap/0.9">\n'
-                           f"{entries}</urlset>\n")
+                           f"{''.join(entries)}</urlset>\n")
         written.append(sitemap)
     elif sitemap.exists():
         # A sitemap from a build that had a URL would now list a stale address.
         sitemap.unlink()
 
-    # The about page, with the theme filled in the same way.
-    about_page = with_theme((SITE_DIR / "about.html").read_text())
+    # The about page, with its absolute URLs and the theme filled in the same way.
+    about_page = with_theme(with_site_url((SITE_DIR / "about.html").read_text(), url, "about.html"))
     (SITE_OUTPUT_DIR / "about.html").write_text(about_page)
     written.append(SITE_OUTPUT_DIR / "about.html")
 
@@ -892,13 +1166,21 @@ def main():
     if arguments.skip_build:
         glue_path = BINDGEN_OUT / "gem_renderer.js"
         wasm_path = BINDGEN_OUT / "gem_renderer_bg.wasm"
+        vision_glue = VISION_BINDGEN_OUT / "houseki_vision.js"
+        vision_wasm = VISION_BINDGEN_OUT / "houseki_vision_bg.wasm"
 
         if not (glue_path.exists() and wasm_path.exists()):
             fail(f"--skip-build but {BINDGEN_OUT} has no bindings in it")
+
+        if not (vision_glue.exists() and vision_wasm.exists()):
+            fail(f"--skip-build but {VISION_BINDGEN_OUT} has no bindings in it")
     else:
         glue_path, wasm_path = build_no_modules_bindings()
+        vision_glue, vision_wasm = build_vision_bindings()
 
     page, parts = build_page(glue_path, wasm_path, minified=not arguments.no_minify)
+    # The phone's vision is not part of the studio page; its parts are listed after the page's.
+    vision_parts = build_vision_script(vision_glue, vision_wasm, minified=not arguments.no_minify)
 
     output = arguments.output.resolve()
     output.parent.mkdir(parents=True, exist_ok=True)
@@ -918,11 +1200,18 @@ def main():
     print()
     print(f"wrote {output} ({size_kib:.0f} KiB)")
     print("open it directly in a browser; no server required.")
+    print()
+    print(f"  {'phone vision script (KiB)':<{width}} {'source':>8}  {'in file':>8}")
+
+    for description, raw_size, embedded_size in vision_parts:
+        print(f"  {description:<{width}} {raw_size / 1024:8.1f}  {embedded_size / 1024:8.1f}")
+
+    print(f"wrote {VISION_SCRIPT} ({VISION_SCRIPT.stat().st_size / 1024:.1f} KiB)")
 
     # The landing page links to the app by its file name, so it is only built alongside the
     # app at its default path; an app written elsewhere (--output) leaves build/www/ alone.
     if output == DEFAULT_OUTPUT.resolve():
-        for path in [*build_site(output), install_scanner_page()]:
+        for path in [*build_site(output), install_scanner_page(), install_scanner_opencv(), install_scanner_vision()]:
             print(f"wrote {path} ({path.stat().st_size / 1024:.1f} KiB)")
 
 

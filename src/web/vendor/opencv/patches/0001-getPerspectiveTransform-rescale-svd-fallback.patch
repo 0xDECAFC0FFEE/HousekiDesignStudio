@@ -1,0 +1,22 @@
+diff --git a/modules/imgproc/src/imgwarp.cpp b/modules/imgproc/src/imgwarp.cpp
+index 17f77c1..cb23b24 100644
+--- a/modules/imgproc/src/imgwarp.cpp
++++ b/modules/imgproc/src/imgwarp.cpp
+@@ -3142,6 +3142,17 @@ cv::Mat cv::getPerspectiveTransform(const Point2f src[], const Point2f dst[], in
+     Mat X9(9, 1, CV_64F, M.ptr());
+     U.col(8).copyTo(X9);
+ 
++    // Houseki patch (src/web/vendor/opencv/patches): the unit-norm solution above is only
++    // defined up to scale. Rescale it to c22 = 1 whenever c22 is not negligible, as the first
++    // branch returns, so callers that read the matrix's scale (the ChArUco detector tests
++    // |det| > 1e-6 on it) get the same matrix whichever branch ran. In opencv.js the c22 = 1
++    // branch can miss its absolute 1e-8 residual test where native builds pass it (measured on a
++    // 1080 x 1920 phone frame with ~140 px markers); the unit-norm matrix then has |det| ~ 3e-7
++    // and the ChArUco detector drops every corner of the frame.
++    double c22 = M.ptr<double>()[8];
++    if (std::abs(c22) > 1e-12)
++        M *= 1. / c22;
++
+     return M;
+ }
+ 
