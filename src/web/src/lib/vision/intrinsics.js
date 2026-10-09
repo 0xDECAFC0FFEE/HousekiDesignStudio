@@ -11,6 +11,18 @@
 //                  1080p video (spinel) 0.93; its 2x zoom (moissanite, quartz) 1.81-1.84.
 //   'table'        a per-device table (DEVICE_TABLE, empty for now), matched on what the browser
 //                  says about the camera (describeCamera, describeDevice);
+//   'one-view'     (T-0336) from the first slanted views of the board, before the seed has its
+//                  dozen: each view's two closed-form constraints (camera_model.oneViewFocal) when
+//                  it has >= ONE_VIEW_MIN_CORNERS corners next to two markers, is tilted
+//                  >= ONE_VIEW_MIN_TILT_DEG from facing the camera, and its two constraints agree
+//                  within ONE_VIEW_MAX_SPREAD; f is the median of the last ONE_VIEW_WINDOW such
+//                  views, k1 = 0. The user, 2026-10-07: "Can you measure the lens from the charuco
+//                  board distortion?" -- the 0.85 guess failed every pose on cameras far from it
+//                  (a laptop webcam at f 700-900 px on 1280 x 720) until the seed, 2.75 s or more;
+//                  measured on 2700 synthetic views (f 700-2300 px, 0.3-1.5 px corner noise, k1
+//                  +-0.05), the accepted single views (63%) were within 0.6% median, 2.7% for 90%
+//                  and 9.1% at worst of the true f. A view facing the camera gives none: the
+//                  guess stays;
 //   'closed-form'  once SEED_VIEWS (12) well-spread board views are in hand: the median of every
 //                  view's closed-form focal lengths (Zhang's constraints with the centre fixed,
 //                  calibrate.homography_focal), k1 = 0 (a table's k1 is kept);
@@ -53,7 +65,9 @@
 
 import { cornerPoint } from './board_frame.js';
 import { calibrateSteps } from './calibrate.js';
-import { median, pixelScale, scaleIntrinsics, selectSpread, spansPlane, viewFocals } from './camera_model.js';
+import {
+  median, oneViewFocal, pixelScale, scaleIntrinsics, selectSpread, spansPlane, viewFocals, viewHomography,
+} from './camera_model.js';
 import { createPoseSolver } from './pose.js';
 
 export const GUESS_F_OVER_LONG_SIDE = 0.85;
@@ -69,6 +83,14 @@ export const LENS_JUMP = 0.3;
 export const MAX_REFINED_RMS_PX = 3.0;   // x s: a refinement worse than this is not adopted
 export const ADMIT_RMS_SEED_PX = 6.0;    // x s: a view's pose residual limit while K is a seed
 export const ADMIT_RMS_REFINED_PX = 2.0; // x s: ... once K is refined
+// The 'one-view' lens (T-0336; see the header): a view's corners next to two markers, its tilt from
+// facing the camera, how far its two constraints may disagree, and how many good views the median
+// runs over. Chosen on 2700 synthetic views: tilt >= 15 and spread < 0.1 kept 63% of them at 0.6%
+// median / 2.7% p90 / 9.1% max error (tilt 10-15 alone: 11.6% p90; under 10: 69%).
+export const ONE_VIEW_MIN_CORNERS = 20;
+export const ONE_VIEW_MIN_TILT_DEG = 15;
+export const ONE_VIEW_MAX_SPREAD = 0.1;
+export const ONE_VIEW_WINDOW = 5;
 
 /**
  * Per-device intrinsics, matched in order; the first match wins. Each entry:
@@ -235,6 +257,7 @@ export function createIntrinsicsEstimator(cv, spec, frameSize, options = {}) {
   let seedFrames;
   let lastSeedMs;
   let lensRing;        // the last frames' closed-form focal lengths
+  let oneViewRing;     // the last good single views' focal lengths ('one-view', T-0336)
   let refineRuns;
   let retryAt;         // after a rejected refinement: the pool size to try again at
   let job;            // { generation } of the running refinement, or null
@@ -262,6 +285,7 @@ export function createIntrinsicsEstimator(cv, spec, frameSize, options = {}) {
     seedFrames = 0;
     lastSeedMs = -Infinity;
     lensRing = [];
+    oneViewRing = [];
     refineRuns = 0;
     retryAt = 0;
     frozen = false;
@@ -300,6 +324,20 @@ export function createIntrinsicsEstimator(cv, spec, frameSize, options = {}) {
     return { ids, points, pixels, calib };
   }
 
+  /** One view's focal length ('one-view', T-0336), or null when the view does not fix one well. */
+  function oneViewOf(detection) {
+    const twoMarker = detection.corners.filter((c) => c.markers === undefined || c.markers >= 2);
+    const { points, pixels } = cornersOf({ corners: twoMarker });
+
+    if (points.length < ONE_VIEW_MIN_CORNERS) {
+      return null;
+    }
+
+    const H = viewHomography(cv, points, pixels, size);
+    const single = H ? oneViewFocal(H) : null;
+    return single && single.tiltDeg >= ONE_VIEW_MIN_TILT_DEG && single.spread < ONE_VIEW_MAX_SPREAD ? single : null;
+  }
+
   function featureOf(pose) {
     const target = spec.target?.centre_mm ?? [0, 0];
     const u = [pose.center[0] - target[0], pose.center[1] - target[1], pose.center[2]];
@@ -329,6 +367,7 @@ export function createIntrinsicsEstimator(cv, spec, frameSize, options = {}) {
 
     seedFocals = seedFocals.map((f) => f * k);
     lensRing = lensRing.map((f) => f * k);
+    oneViewRing = oneViewRing.map((f) => f * k);
     set(scaled);
   }
 
@@ -353,6 +392,28 @@ export function createIntrinsicsEstimator(cv, spec, frameSize, options = {}) {
     const focals = viewFocals(cv, points, pixels, size);
     const timeMs = frame?.timeMs ?? now();
 
+    // Before the seed, the lens from single slanted views ('one-view', T-0336): this view's two
+    // constraints, from its corners next to two markers (all of them when the detector does not
+    // say), if it has enough, is tilted enough and its two constraints agree.
+    if (intrinsics.source === 'guess' || intrinsics.source === 'one-view') {
+      const single = oneViewOf(detection);
+
+      if (single) {
+        oneViewRing.push(single.f);
+
+        if (oneViewRing.length > ONE_VIEW_WINDOW) {
+          oneViewRing.shift();
+        }
+
+        const f = median(oneViewRing);
+        const long = Math.max(size.width, size.height);
+
+        if (Number.isFinite(f) && f > 0.2 * long && f < 6 * long && f !== intrinsics.f) {
+          set({ ...guessIntrinsics(size), f, source: 'one-view', oneViews: oneViewRing.length });
+        }
+      }
+    }
+
     // the seed: frames at least seedGapMs apart (the phone moves between them), until refined.
     // It needs no pose, so it works however wrong the guess is (the 2x reference captures are at
     // 1.81 x the long side against the guess's 0.85, too far off for any pose gate).
@@ -373,7 +434,9 @@ export function createIntrinsicsEstimator(cv, spec, frameSize, options = {}) {
       }
     }
 
-    if (focals.length && intrinsics.source !== 'guess') {
+    // (not on 'one-view', whose own median over good views already follows the lens: the ring takes
+    // every frame's focals, squarely facing views' wild ones included)
+    if (focals.length && intrinsics.source !== 'guess' && intrinsics.source !== 'one-view') {
       lensRing.push(median(focals));
 
       if (lensRing.length > lensWindow) {

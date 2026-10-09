@@ -23,7 +23,10 @@ import { createBoardDetector } from '/src/web/src/lib/vision/board_detect.js';
 import { createBoardDetector as createOpenCvBoardDetector } from '/src/web/src/lib/vision/board_detect_opencv.js';
 import { createQrDetector } from '/src/web/src/lib/vision/qr_detect.js';
 import { createQrDetector as createOpenCvQrDetector } from '/src/web/src/lib/vision/qr_detect_opencv.js';
-import { BOARD_SPECS } from '/src/web/src/lib/vision/board_frame.js';
+import { boardFit } from '/src/web/src/lib/vision/board_fit.js';
+import { BOARD_SPEC } from '/src/web/src/lib/vision/board_frame.js';
+// The shipped strip board plus the tests' own sheets with a blank centre target (T-0335).
+import { TEST_BOARD_SPECS as BOARD_SPECS } from '/src/web/tests/vision_test_boards.js';
 import * as synth from '/src/web/tests/vision_synth.js';
 import { qrCode } from '/src/web/src/lib/scan_qr.js';
 
@@ -49,7 +52,7 @@ function greyImage(mat) {
 window.vision = {
   loadOpenCv, wasmHeapInUse, loadVision, visionMemoryBytes,
   createBoardDetector, createOpenCvBoardDetector, createQrDetector, createOpenCvQrDetector,
-  BOARD_SPECS, synth, qrCode, fixtureFrame, greyImage,
+  BOARD_SPECS, BOARD_SPEC, boardFit, synth, qrCode, fixtureFrame, greyImage,
 };
 window.visionReady = true;
 </script>

@@ -17,12 +17,16 @@
 //     board: { recognised,    enough of the board seen for a pose (types.js BoardDetection)
 //              corners,       how many chessboard corners were found (a count, not positions)
 //              markers,       how many square codes were read
-//              sheet,         which printed sheet the phone takes the board to be (a BOARD_SPECS
-//                             name, e.g. 'charuco_23x17_10mm_centre3x3_dots')
-//              sheetFrom,     'auto' (recognised from the frames), 'chosen' (the person picked it
-//                             on the phone) or 'default' (not decided yet)
+//              sheet,         the printed board's name: 'charuco_23x17_10mm_strip' since T-0335
+//                             (the one board the phone supports); before, one of four sheets the
+//                             phone recognised or was told, which an older phone still sends
+//              sheetFrom,     'default' since T-0335; before, also 'auto' (recognised from the
+//                             frames) or 'chosen' (picked on the phone)
 //              targetMm,      [X, Y] the sheet's target centre (where the axes stand), mm
-//              sizeMm },      [X, Y] the chessboard's extent, mm (board_frame.boardSizeMm)
+//              sizeMm,        [X, Y] the chessboard's extent, mm (board_frame.boardSizeMm)
+//              wrongBoard? }  OPTIONAL (T-0335): true when the markers in view are not laid out as
+//                             the scanner's board prints them (another ChArUco board; there is no
+//                             pose then). An older phone sends none; anything but true is dropped
 //     pose: null | { R, t,    board -> camera, row-major 3x3 and mm (types.js CameraPose)
 //                    center,  the camera in the board frame, mm
 //                    azimuthDeg, elevationDeg, distanceMm,   from the sheet's target centre
@@ -86,18 +90,11 @@ export const MAX_SENT_POINTS = 64;
  *  send a little more without being refused). */
 export const MAX_RECEIVED_POINTS = 256;
 
-/** The printed sheets' names as the phone and the studio show them (vision/boards/). */
-export const SHEET_LABELS = Object.freeze({
-  charuco_23x17_10mm_centre3x3_dots: 'Large target with dots',
-  charuco_23x17_10mm_centre3x3: 'Large target with rings',
-  charuco_23x17_10mm_centre1: 'Small target',
-  charuco_23x17_10mm_strip: 'Colour strips',
-});
+/** Intrinsics sources (types.js Intrinsics.source). 'one-view' is accepted, though this build sends
+ *  it as 'closed-form' (makeVisionMessage), so a later phone may send it as it is. */
+const SOURCES = new Set(['guess', 'table', 'one-view', 'closed-form', 'refined']);
 
-/** Intrinsics sources (types.js Intrinsics.source). */
-const SOURCES = new Set(['guess', 'table', 'closed-form', 'refined']);
-
-/** Where the phone's idea of the sheet came from. */
+/** Where the phone's idea of the sheet came from ('auto' and 'chosen' from phones before T-0335). */
 const SHEET_FROM = new Set(['auto', 'chosen', 'default']);
 
 /** Outline flags a phone may send (types.js RockOutline.flags). */
@@ -222,13 +219,14 @@ export function simplifyContour(contour, maxPoints = MAX_SENT_POINTS) {
  * @param {object|null} [parts.pose]        types.js CameraPose
  * @param {object|null} [parts.intrinsics]  types.js Intrinsics
  * @param {object|null} [parts.outline]     types.js RockOutline
- * @param {{ name: string, from: string, targetMm?: number[], sizeMm?: number[] }} [parts.sheet]
+ * @param {{ name: string, targetMm?: number[], sizeMm?: number[] }} [parts.sheet]
+ * @param {boolean} [parts.wrongBoard]  the markers in view are not our board's (T-0335)
  * @param {{ view: object|null, rockMm, rockFrom, cover }|null} [parts.guide]  the frame's scan guide
  *        (guidance.js observe), sent only when it has a view
  * @param {string|null} [parts.warning]  the warning the phone shows now
  * @param {object|null} [parts.speed]  the phone's speed (vision/latency.js speedForMessage)
  */
-export function makeVisionMessage({ frame, detection = null, pose = null, intrinsics = null, outline = null, sheet = null, guide = null, warning = null, speed = null }) {
+export function makeVisionMessage({ frame, detection = null, pose = null, intrinsics = null, outline = null, sheet = null, wrongBoard = false, guide = null, warning = null, speed = null }) {
   const message = {
     v: VISION_VERSION,
     timeMs: round(frame.timeMs ?? 0, 1),
@@ -246,6 +244,10 @@ export function makeVisionMessage({ frame, detection = null, pose = null, intrin
     intrinsics: null,
     outline: null,
   };
+
+  if (wrongBoard) {
+    message.board.wrongBoard = true;
+  }
 
   if (pose) {
     message.pose = {
@@ -268,7 +270,9 @@ export function makeVisionMessage({ frame, detection = null, pose = null, intrin
       cx: round(lens.cx, 2),
       cy: round(lens.cy, 2),
       k1: round(lens.k1 ?? 0, 5),
-      source: lens.source,
+      // 'one-view' (T-0336) travels as 'closed-form': a studio built before it refuses a source it
+      // does not know, and would drop the whole message; both are a first estimate to the studio.
+      source: lens.source === 'one-view' ? 'closed-form' : lens.source,
     };
 
     if (Number.isInteger(lens.views)) {
@@ -411,6 +415,11 @@ function validate(raw) {
     intrinsics: null,
     outline: null,
   };
+
+  // Optional (T-0335): kept only as true; anything else is dropped on its own.
+  if (board.wrongBoard === true) {
+    message.board.wrongBoard = true;
+  }
 
   const { pose } = raw;
 

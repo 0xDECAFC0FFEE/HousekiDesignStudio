@@ -62,8 +62,8 @@ except ImportError as error:  # websocket-client, numpy or PIL missing
     cdp = None
     IMPORT_ERROR = str(error)
 
+# The board the video shows: the strip sheet, the one board the phone supports (T-0335).
 SHEET = "charuco_23x17_10mm_strip"
-SHEET_SETTING = "houseki.scannerSheet"
 
 # How long the phone's frames are logged: two loops of the 27.5 s video, so the second loop runs
 # with the rock found and the lens estimated.
@@ -131,8 +131,7 @@ class ScanGuideTest(unittest.TestCase):
         """Grid, axes at the centre, the rock's position, the angle, coverage and the two warnings.
 
         Setup: the studio with Rough scan open; a phone browser whose camera plays the guidance video
-        on the strip sheet, the sheet chosen on the phone as a person would (its saved choice), and
-        connected. Test: log every frame the phone processes for COLLECT_S seconds (in the page,
+        on the strip sheet, connected. Test: log every frame the phone processes for COLLECT_S seconds (in the page,
         every 40 ms), then match each to the video. Verifies: see the module's docstring.
         """
         phone = native_chrome(gl_backend="metal", extra_args=tuple(list(CHROME_ARGS) + [
@@ -140,9 +139,6 @@ class ScanGuideTest(unittest.TestCase):
 
         try:
             link = self.open_mode()
-            # The person's choice of sheet, saved on the phone before the link is opened.
-            phone.navigate(self.server.origin + "/scanner/")
-            phone.evaluate("localStorage.setItem(%s, %s), true" % (js(SHEET_SETTING), js(SHEET)))
             phone.navigate(link)
             phone.wait_for_expression("document.getElementById('scanner-status')?.dataset.status === 'connected'", timeout=CONNECT_TIMEOUT)
             self.studio.wait_for_expression("document.getElementById('scan-view').dataset.streaming === 'true'", timeout=CONNECT_TIMEOUT)
@@ -164,7 +160,7 @@ class ScanGuideTest(unittest.TestCase):
                 log.push({ at: performance.now(), valid: !!r.pose?.valid, R: r.pose?.R, t: r.pose?.t, center: r.pose?.center,
                   lens: r.pose?.intrinsics ? { f: r.pose.intrinsics.f, cx: r.pose.intrinsics.cx,
                   cy: r.pose.intrinsics.cy, k1: r.pose.intrinsics.k1, source: r.pose.intrinsics.source } : null,
-                  sheet: r.sheet.name, view: g?.view, rockMm: g?.rockMm, rockFrom: g?.rockFrom, rockViews: g?.rockViews,
+                  sheet: r.sheet.name, wrongBoard: !!r.board?.wrong, view: g?.view, rockMm: g?.rockMm, rockFrom: g?.rockFrom, rockViews: g?.rockViews,
                   cover: g?.cover, conditions: g?.conditions, speed: g?.speedMmS, blurMm: g?.blurMm, blurWindowPx: g?.blurWindowPx,
                   usable: g?.usable, reasons: g?.reasons, warning: s.warning, advice: s.shown?.advice ?? null,
                   gridLines: d?.gridLines ?? 0, edgeLines: d?.edgeLines ?? 0, axes,
@@ -192,7 +188,8 @@ class ScanGuideTest(unittest.TestCase):
         say("%d frames logged; guideMs %s; frameMs %s; detectMs %s" % (
             len(log), timings.get("guideMs"), timings.get("frameMs"), timings.get("detectMs")))
         self.assertGreater(len(log), 150, "too few frames processed")
-        self.assertTrue(all(entry["sheet"] == SHEET for entry in log), "the chosen sheet is used")
+        self.assertTrue(all(entry["sheet"] == SHEET for entry in log), "the strip board is used")
+        self.assertFalse(any(entry["wrongBoard"] for entry in log), "the strip board taken for another (T-0335)")
 
         # Each frame's segment: by the nearest camera for posed frames; a frame without a pose takes
         # the segment of the last posed one.

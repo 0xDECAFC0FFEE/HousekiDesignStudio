@@ -5,7 +5,7 @@ playing the synthetic board video (make_scan_video.py), connected to the studio 
 Chrome over the local relay, and reports for SECONDS of steady state:
 
   * the phone page's per-stage times (housekiScanVision.timings(): bitmap copy, grab, detect,
-    pose, intrinsics, outline, sheet picking, whole frame), where it ran (Worker or page), its
+    board check (fitMs, T-0335), pose, intrinsics, outline, whole frame), where it ran (Worker or page), its
     processing scale and outline cadence, OpenCV's load and the warm-up;
   * the CPU the phone browser used (ps %CPU summed over its processes, sampled every 2 s);
   * the vision messages the studio took: rate and size;

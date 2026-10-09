@@ -65,7 +65,6 @@ except ImportError as error:  # websocket-client, numpy or PIL missing
     IMPORT_ERROR = str(error)
 
 SHEET = "charuco_23x17_10mm_strip"
-SHEET_SETTING = "houseki.scannerSheet"
 BOARD_CENTRE_MM = [85.0, 115.0, 0.0]
 # Board points every 20 mm over the 170 x 230 mm chessboard, for the whole grid's misplacement.
 GRID_MM = [[float(x), float(y), 0.0] for x in range(5, 170, 20) for y in range(5, 230, 20)]
@@ -348,7 +347,7 @@ class ScanLagTest(unittest.TestCase):
         """The overlay's misplacement and age while the phone moves, and its shimmer when still.
 
         Setup: the studio with Rough scan open; a phone browser whose camera plays the lag video on
-        the strip sheet (chosen on the phone, as a person would), connected. Test: log every drawn
+        the strip sheet (the one board the phone supports), connected. Test: log every drawn
         overlay for COLLECT_S seconds with the stamp of the frame on screen, then compare it with
         the truth. Verifies: the stamps are read; the overlay is drawn on most frames; the
         misplacement while moving, the pose age and the shimmer when still are within the targets
@@ -359,8 +358,6 @@ class ScanLagTest(unittest.TestCase):
 
         try:
             link = self.open_mode()
-            phone.navigate(self.server.origin + "/scanner/")
-            phone.evaluate("localStorage.setItem(%s, %s), true" % (js(SHEET_SETTING), js(SHEET)))
             phone.navigate(link)
             phone.wait_for_expression("document.getElementById('scanner-status')?.dataset.status === 'connected'", timeout=CONNECT_TIMEOUT)
             self.studio.wait_for_expression("document.getElementById('scan-view').dataset.streaming === 'true'", timeout=CONNECT_TIMEOUT)

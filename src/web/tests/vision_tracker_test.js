@@ -40,9 +40,9 @@ const view = (azimuthDeg, elevationDeg = 45, distanceMm = 230) => cameraPose([80
 });
 const frameAt = (timeMs) => ({ width: WIDTH, height: HEIGHT, timeMs });
 
-/** A live vision on the strip sheet (chosen), refinement never scheduled, no outline. */
+/** A live vision (on the strip sheet, the one board it supports), refinement never scheduled, no outline. */
 const newLive = () => createLiveVision(cv, {
-  vision, frameSize: { width: WIDTH, height: HEIGHT }, glCanvas: null, schedule: () => {}, sheet: SHEET,
+  vision, frameSize: { width: WIDTH, height: HEIGHT }, glCanvas: null, schedule: () => {},
 });
 
 const error = (pose, truth) => ({

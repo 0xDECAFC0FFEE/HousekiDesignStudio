@@ -415,8 +415,61 @@ class VisionDetectTest(unittest.TestCase):
             self.assertLess(abs(mean_dy + 0.5), 0.2)
             self.assertLess(percentile(blurred_shifted, 0.5), 0.05)
 
+    def test_real_frames_of_the_older_board_are_not_taken_for_the_strip_board(self):
+        # Setup: the same four real fixture frames, which show the scanner's OLDER 22 x 22 board
+        # (their spec in fixture.json), pasted into full-size frames as above.
+        # Test: detect each as the phone does, with the strip board's spec and the fast path (two
+        # frames, the first tunes the marker-size factor); judge its markers with board_fit.js
+        # against the strip layout; as a control, detect with the frame's own spec and judge against
+        # that.
+        # Verifies (T-0335): the markers are read (the phone's detector reads any board with these
+        # markers), but no frame's markers 'fit' the strip layout and every frame with enough of them
+        # to judge is 'wrong' -- so the phone says it is the wrong board instead of trying for a
+        # pose -- while against its own layout no frame is 'wrong' and those with enough markers
+        # fit: the check tells the layouts apart on real, blurred, distorted phone frames. Prints
+        # each frame's counts and shares.
+        fixture = json.load(open(os.path.join(FIXTURE_DIR, "fixture.json")))
+        rows = []
+
+        for entry in fixture["frames"]:
+            result = evaluate(self.chrome, """(async () => {
+                const entry = %s;
+                const image = await vision.fixtureFrame(entry, '/tests/fixtures/charuco_real/');
+                const wasm = await vision.loadVision();
+                const judge = (spec) => {
+                    const detector = vision.createBoardDetector(wasm, spec, { fast: true });
+                    detector.detect(image);
+                    const detection = detector.detect(image);
+                    detector.dispose();
+                    return { corners: detection.corners.length, fit: vision.boardFit(detection, spec) };
+                };
+                return { strip: judge(vision.BOARD_SPEC), own: judge(entry.spec) };
+            })()""" % json.dumps(entry))
+            rows.append((entry["file"], result))
+            print("  %-22s against the strip: %s (%d corners); against its own board: %s"
+                  % (entry["file"], result["strip"]["fit"], result["strip"]["corners"], result["own"]["fit"]))
+
+        for name, result in rows:
+            strip, own = result["strip"]["fit"], result["own"]["fit"]
+            self.assertGreater(strip["markers"], 0, "%s: no marker read" % name)
+            self.assertNotEqual(strip["verdict"], "fits", "%s taken for the strip board" % name)
+
+            if strip["markers"] >= 8 and strip["share"] is not None:
+                self.assertEqual(strip["verdict"], "wrong", name)
+
+            self.assertNotEqual(own["verdict"], "wrong", "%s: its own board judged wrong" % name)
+
+            if own["markers"] >= 15:
+                self.assertEqual(own["verdict"], "fits", name)
+
+        # The crops are small: two of the four show 13-14 markers (judged), the others 2-6 (unsure).
+        self.assertGreaterEqual(sum(1 for _, r in rows if r["strip"]["fit"]["verdict"] == "wrong"), 2,
+                                "the real frames of the older board with markers enough are judged wrong")
+
     def test_synthetic_frames_from_480p_to_1080p(self):
-        # Setup: the strip board (the phone's default sheet) and the 3 x 3-target board, rendered
+        # Setup: the strip board (the phone's one board) and the 3 x 3-target board (a test-only
+        # spec since T-0335, src/web/tests/vision_test_boards.js: removed markers and invalid
+        # corners exercise the detector's generic paths), rendered
         # as in vision_synth.js, seen in perspective at 854 x 480, 1280 x 720 and 1920 x 1080 (the
         # same view scaled, so the markers are 18-40 px), each sharp and with a 1.5 px blur, with
         # noise; a close-up with 2.5 px blur at 720p.

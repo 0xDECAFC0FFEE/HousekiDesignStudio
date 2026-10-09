@@ -8,8 +8,19 @@
 // rock's true silhouette as a PNG mask (white where at least half of the pixel is rock) and the
 // camera (R, t, centre, board -> camera, mm), all in the frame's own pixels (types.js convention).
 
-import { BOARD_SPECS } from '../../../src/web/src/lib/vision/board_frame.js';
+import { REFERENCE_22X22, TEST_BOARD_SPECS } from '../../../src/web/tests/vision_test_boards.js';
 import { createSynth, lookAt, rockPlanes } from './synth.js';
+
+// The boards a video can show, by name: the phone's strip board, the tests' other 23 x 17 sheets,
+// and the scanner's older 22 x 22 reference board (T-0335: a video of ANOTHER board, which the phone
+// must refuse).
+const BOARD_SPECS = { ...TEST_BOARD_SPECS, reference_22x22: REFERENCE_22X22 };
+
+/** Where a video's camera aims and the rock stands: the board's target, or the middle of a board
+ *  without one. */
+function aimOf(spec) {
+  return spec.target?.centre_mm ?? [(spec.squares_y * spec.square_mm) / 2, (spec.squares_x * spec.square_mm) / 2];
+}
 
 const synths = new Map();
 
@@ -40,7 +51,7 @@ function toDataUrl(rgba, width, height, type, quality) {
  */
 export async function renderViews(c) {
   const spec = BOARD_SPECS[c.sheet];
-  const [X, Y] = spec.target.centre_mm;
+  const [X, Y] = aimOf(spec);
   const rock = c.rock
     ? {
       kind: 'opaque',
@@ -102,7 +113,7 @@ export async function renderViews(c) {
  */
 export async function renderFrames(c, specs) {
   const spec = BOARD_SPECS[c.sheet];
-  const [X, Y] = spec.target.centre_mm;
+  const [X, Y] = aimOf(spec);
   const rock = c.rock
     ? {
       kind: 'opaque',

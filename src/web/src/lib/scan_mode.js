@@ -54,7 +54,6 @@ import { setRenderHold, releaseRenderHold } from './viewport.js';
 import { qrCode } from './scan_qr.js';
 import { createScanSession } from './scan_link.js';
 import { readSetting } from './settings.js';
-import { SHEET_LABELS } from './scan_vision.js';
 import { angleText, coverageAdvice, coverageSummary, WARNINGS } from './vision/guidance.js';
 
 /** Added to every tier toolbar button's tooltip while the mode holds the design. */
@@ -423,12 +422,13 @@ export function scanVisionText(vision, nowMs) {
   const { board, pose, intrinsics, outline } = vision.message;
   const stale = visionAge(vision, nowMs) > VISION_GONE_MS;
   const posed = Boolean(pose?.valid);
-  const sheet = SHEET_LABELS[board.sheet];
+  // Another printed board than the scanner's (T-0335): the phone says so and finds no position.
+  const wrongBoard = board.wrongBoard === true;
   const rows = [];
 
   rows.push({
     label: 'Board',
-    value: board.recognised ? `Found${sheet && board.sheetFrom !== 'default' ? ` (${sheet})` : ''}` : 'Not in view',
+    value: wrongBoard ? 'Not the scanner board' : board.recognised ? 'Found' : 'Not in view',
   });
 
   const guide = posed ? vision.message.guide ?? null : null;
@@ -447,13 +447,13 @@ export function scanVisionText(vision, nowMs) {
       value: `${cm < 10 ? cm.toFixed(1) : Math.round(cm)} cm from the target, ${Math.round(pose.elevationDeg)}° above the board`,
     });
   } else {
-    rows.push({ label: 'Camera', value: board.recognised ? 'Hold the phone steady' : '–' });
+    rows.push({ label: 'Camera', value: board.recognised && !wrongBoard ? 'Hold the phone steady' : '–' });
   }
 
   const lens = intrinsics?.source;
   rows.push({
     label: 'Lens',
-    value: lens === 'refined' ? 'Measured' : lens === 'closed-form' || lens === 'table' ? 'First estimate, still measuring' : 'Estimating',
+    value: lens === 'refined' ? 'Measured' : lens === 'closed-form' || lens === 'table' || lens === 'one-view' ? 'First estimate, still measuring' : 'Estimating',
   });
 
   rows.push({

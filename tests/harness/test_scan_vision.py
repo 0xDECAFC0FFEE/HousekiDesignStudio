@@ -11,8 +11,11 @@ three views, each held 4 s, looped). They check:
   * the phone recognises the board and draws its overlay (pixels on the overlay canvas), and says
     so in its vision line;
   * the studio receives vision messages at about 10 a second, draws them over the phone's video,
-    and reads them out in the panel, with the sheet recognised (the video's sheet is NOT the one
-    the phone assumes before it has seen any);
+    and reads them out in the panel; the board is the strip sheet, the one the phone supports
+    (T-0335), and it is never taken for another board;
+  * a phone shown ANOTHER ChArUco board (the scanner's older 22 x 22 reference board, a second
+    synthetic video) says it is not the scanner board, sends no pose and leaves its lens estimate
+    alone, and the studio reads out "Not the scanner board" (T-0335);
   * the received pose matches the video's true pose (rotation, camera position, the azimuth,
     elevation and distance read out), within stated tolerances, once the phone's first lens
     estimate is in;
@@ -54,7 +57,7 @@ try:
     import cdp
     from test_scan_link import CHROME_ARGS, CONNECT_TIMEOUT, Relay, Server
     from test_vision_detect import native_chrome
-    from make_scan_video import ensure_video
+    from make_scan_video import ensure_video, ensure_wrong_board_video
     import numpy as np
     from PIL import Image, ImageDraw
 except ImportError as error:  # websocket-client, numpy or PIL missing
@@ -170,13 +173,13 @@ class ScanVisionTest(unittest.TestCase):
 
     # --- the two browsers -------------------------------------------------------------------
 
-    def start_phone(self, camera_file=True):
-        """A separate, native Chrome for the phone, its fake camera playing the video file (or
-        Chrome's own test pattern)."""
+    def start_phone(self, camera_file=True, video=None):
+        """A separate, native Chrome for the phone, its fake camera playing the video file (`video`,
+        else the strip board's), or Chrome's own test pattern."""
         args = list(CHROME_ARGS)
 
         if camera_file:
-            args.append("--use-file-for-fake-video-capture=%s" % self.video["mjpeg"])
+            args.append("--use-file-for-fake-video-capture=%s" % (video or self.video)["mjpeg"])
 
         self.phone = native_chrome(gl_backend="metal", extra_args=tuple(args), timeout=60)
         return self.phone
@@ -282,16 +285,16 @@ class ScanVisionTest(unittest.TestCase):
         """The phone finds the board, draws it, and the studio receives the true pose and outline.
 
         Setup: the studio with Rough scan open; a phone browser whose camera plays the synthetic
-        video (three views of a rock on the ringed large-target sheet, 4 s each, looped; true focal
-        length 1000 px against the phone's first guess of 1088). Test: open the link on the phone;
-        wait for its vision; then record every vision value the studio takes for COLLECT_S
-        seconds. Verifies:
+        video (three views of a rock on the strip sheet, 4 s each, looped; true focal length 1000 px
+        against the phone's first guess of 1088). Test: open the link on the phone; wait for its
+        vision; then record every vision value the studio takes for COLLECT_S seconds. Verifies:
           - the phone's vision line says the board is found ('pose') and its overlay canvas has
             drawn pixels;
           - the studio takes 5-11 messages a second, each under 2 kB, draws them over the video
-            ('pose+outline'), and its panel reads out the board (with the recognised sheet), the
-            camera, the lens and the rock;
-          - the sheet is recognised as the ringed large target ('auto'), not the default;
+            ('pose+outline'), and its panel reads out the board ("Found"), the camera, the lens and
+            the rock;
+          - every message names the strip board ('default': nothing is recognised or chosen since
+            T-0335), none says it is another board, and the phone never took a frame for one;
           - every valid pose received after the lens's first estimate matches the true pose of
             the view it shows: rotation within MAX_ROTATION_DEG, camera centre within
             MAX_CENTRE_MM, azimuth and elevation within MAX_ANGLE_DEG, distance within
@@ -334,11 +337,14 @@ class ScanVisionTest(unittest.TestCase):
         self.assertTrue(5 <= rate <= 11, "message rate %.1f/s" % rate)
         self.assertLess(sizes[-1], 2048, "a message over 2 kB")
         self.assertIn(overlay, ("pose+outline", "pose"))
-        self.assertIn("Found (Large target with rings)", readout)
+        self.assertIn("Found", readout)
+        self.assertNotIn("Not the scanner board", readout)
         self.assertIn("above the board", readout)
 
-        last = log[-1]["message"]["board"]
-        self.assertEqual((last["sheet"], last["sheetFrom"]), (self.truth["sheet"], "auto"), "the sheet was not recognised")
+        boards = {(e["message"]["board"]["sheet"], e["message"]["board"]["sheetFrom"]) for e in log}
+        self.assertEqual(boards, {(self.truth["sheet"], "default")}, "the board named in the messages")
+        self.assertFalse(any(e["message"]["board"].get("wrongBoard") for e in log), "the strip board taken for another")
+        self.assertEqual(json.loads(phone_state)["state"]["wrongBoards"], 0, "the phone took a frame for another board")
 
         # The poses, once the lens has its first estimate.
         errors = []
@@ -355,11 +361,8 @@ class ScanVisionTest(unittest.TestCase):
             view, _ = self.nearest_view(pose)
             truth = self.truth["views"][view]
             seen.add(view)
-            # Azimuth, elevation and distance are measured from the target of the sheet the phone
-            # assumed for that message (board.targetMm): the default strip sheet's (80, 110 mm)
-            # until the picker recognises the video's ringed sheet (85, 115 mm). So the truth is
-            # measured from the same point (T-0330 made the strip the default; the dotted sheet
-            # it replaced shares the ringed sheet's target, so the truth's own angles fitted then).
+            # Azimuth, elevation and distance are measured from the board's target as the message
+            # gives it (board.targetMm: the strip sheet's 80, 110 mm), and so is the truth.
             target = message["board"]["targetMm"] + [0.0]
             u = [c - t for c, t in zip(truth["center"], target)]
             true_azimuth = math.degrees(math.atan2(u[1], u[0])) % 360
@@ -399,6 +402,97 @@ class ScanVisionTest(unittest.TestCase):
         print("[scan_vision] outline IoU on %d frames: min %.3f, median %.3f, max %.3f (a received outline's box %s, flags %s)"
               % (len(ious), min(ious), median(ious), max(ious), sample["box"], sample["flags"]), file=sys.stderr)
         self.assertGreaterEqual(median(ious), MIN_MEDIAN_IOU)
+
+    def test_a_board_without_a_pose_still_shows_its_corners(self):
+        """A board found but never posed still shows its red points and blue lines (T-0335 follow-up).
+
+        The user, on the real strip board with every pose failing its checks: "still not showing the
+        board - the old slower opencv version would show the dots without any problems". Setup: the
+        phone page's harness-only residual limit (houseki.scannerTestPoseMaxRmsPx = 0.001 px, saved in
+        the phone's storage before the link is opened) makes every pose invalid; the camera plays the
+        strip board's video. Test: connect, wait for the phone's 'unsteady' state, then sample what
+        its overlay draws for 3 s. Verifies: no pose is ever valid, yet the overlay draws the
+        detection's corners (cornersFrom 'detection') with more than 20 red points and blue lines
+        between them on most samples, and pixels on the overlay canvas.
+        """
+        phone = self.start_phone()
+        link = self.open_mode()
+        phone.navigate(link.split("#", 1)[0])
+        phone.evaluate("localStorage.setItem('houseki.scannerTestPoseMaxRmsPx', '0.001'), true")
+        phone.navigate("about:blank")
+        phone.navigate(link)
+        phone.wait_for_expression(
+            "document.getElementById('scanner-status')?.dataset.status === 'connected'", timeout=CONNECT_TIMEOUT)
+        phone.wait_for_expression("document.getElementById('scanner-vision')?.dataset.state === 'unsteady'", timeout=90)
+        phone.send("Page.bringToFront")
+        samples = []
+
+        for _ in range(30):
+            samples.append(phone.evaluate("(() => { const d = housekiScanVision.state.drawn;"
+                                          " return d ? { n: d.foundCorners, lines: d.foundLines, from: d.cornersFrom } : null; })()"))
+            time.sleep(0.1)
+
+        poses = phone.evaluate("housekiScanVision.state.poses")
+        pixels = phone.evaluate("""(() => {
+          const c = document.getElementById('scanner-overlay');
+          const d = c.getContext('2d').getImageData(0, 0, c.width, c.height).data;
+          let n = 0; for (let i = 3; i < d.length; i += 4) n += d[i] > 0 ? 1 : 0;
+          return n;
+        })()""")
+        shown = [s for s in samples if s and s["from"] == "detection" and s["n"] > 20 and s["lines"] > 20]
+        print("\n[scan_vision] no pose: %d of %d samples drew the detection's corners (e.g. %s); poses %d; %d overlay pixels"
+              % (len(shown), len(samples), samples[-1], poses, pixels), file=sys.stderr)
+        self.assertEqual(poses, 0, "a pose was valid despite the harness's limit")
+        self.assertGreaterEqual(len(shown), 0.8 * len(samples), "the found corners were not drawn without a pose")
+        self.assertGreater(pixels, 1000)
+
+    def test_another_board_is_named_and_never_posed(self):
+        """A phone shown another ChArUco board says so, and nothing is measured from it (T-0335).
+
+        Setup: the studio with Rough scan open; a phone browser whose camera plays a synthetic video
+        of the scanner's OLDER 22 x 22 reference board (make_scan_video.WRONG_BOARD_CONFIG: three
+        views of a rock on it, 3 s each, looped; the same DICT_4X4_250 markers as the strip sheet,
+        in other squares) -- the board the user's phone was pointed at when it "wasn't recognising
+        the board". Test: open the link on the phone; wait for its vision line; record every vision
+        value the studio takes for 8 s. Verifies:
+          - the phone's vision line is in its 'wrong-board' state and tells the person to print the
+            scanner's board at 100% -- not to hold the phone steady;
+          - the phone reads the board's markers but posed no frame, and its lens estimate never left
+            the first guess (the frames of the other board once dragged it far off);
+          - every message the studio takes has no pose and the lens as 'guess', and those with the
+            board in view say wrongBoard; the panel reads out "Not the scanner board".
+        """
+        video = ensure_wrong_board_video()
+        phone = self.start_phone(video=video)
+        self.connect()
+        self.start_log()
+        phone.wait_for_expression("document.getElementById('scanner-vision')?.dataset.state === 'wrong-board'", timeout=90)
+        phone_line = phone.evaluate("document.getElementById('scanner-vision').textContent")
+        self.studio.send("Page.bringToFront")
+        time.sleep(8)
+        log = self.stop_log()
+        readout = self.studio.evaluate("document.getElementById('scan-vision-readout')?.textContent ?? ''")
+        state = json.loads(phone.evaluate(
+            "JSON.stringify({ state: housekiScanVision.state, latest: housekiScanVision.latest() }, (k, v) => k === 'last' ? undefined : v)"))
+        states = phone.evaluate("document.getElementById('scanner-vision').dataset.state")
+
+        print("\n[scan_vision] another board: phone %r (%s); processed %d, wrong-board frames %d, poses %d; lens %s; "
+              "studio %d messages, %d flagged; readout %r"
+              % (phone_line, states, state["state"]["processed"], state["state"]["wrongBoards"], state["state"]["poses"],
+                 json.dumps(state["latest"]["intrinsics"]), len(log), sum(1 for e in log if e["message"]["board"].get("wrongBoard")),
+                 readout), file=sys.stderr)
+        self.assertIn("isn't the Houseki scanner board", phone_line)
+        self.assertIn("100 mm", phone_line)
+        self.assertNotIn("steady", phone_line)
+        self.assertGreater(state["state"]["wrongBoards"], 10, "few frames taken for another board")
+        self.assertEqual(state["state"]["poses"], 0, "a pose from another board")
+        self.assertEqual(state["latest"]["intrinsics"]["source"], "guess", "the lens estimate moved")
+        self.assertTrue(log, "the studio took no message")
+        self.assertTrue(all(e["message"]["pose"] is None for e in log), "a pose reached the studio")
+        self.assertTrue(all(e["message"]["intrinsics"]["source"] == "guess" for e in log), "the lens estimate moved")
+        self.assertTrue(all(e["message"]["board"].get("wrongBoard") for e in log if e["message"]["board"]["markers"] > 0),
+                        "a message with the board in view without the flag")
+        self.assertIn("Not the scanner board", readout)
 
     def test_a_phone_without_vision_leaves_the_studio_as_it_was(self):
         """A phone that sends no vision: the studio streams it exactly as before.
@@ -456,6 +550,7 @@ class ScanVisionTest(unittest.TestCase):
             { appId: housekiScanLink.SCAN_APP_ID, password: link.password, relayConfig: { urls: link.relayUrls } }, link.roomId);
           room.onPeerJoin = peerId => room.addStream(stream, { target: peerId });
           const action = room.makeAction('vision');
+          // As a phone from before T-0335 sent it: a sheet it recognised ('auto'), still valid.
           const good = { v: 1, timeMs: 4242, frame: { w: 640, h: 480 },
             board: { recognised: true, corners: 50, markers: 20, sheet: 'charuco_23x17_10mm_centre3x3', sheetFrom: 'auto', targetMm: [85, 115], sizeMm: [170, 230] },
             pose: { R: [1, 0, 0, 0, -1, 0, 0, 0, -1], t: [-85, 115, 250], center: [85, 115, 250], azimuthDeg: 0, elevationDeg: 89, distanceMm: 250, rmsPx: 0.3, valid: true },

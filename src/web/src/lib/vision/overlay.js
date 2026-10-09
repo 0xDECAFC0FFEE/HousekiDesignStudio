@@ -35,6 +35,10 @@
 // Which points there are still says what the phone found: a corner it lost has no point. The studio
 // keeps the full grid (it gets no corner ids). drawVisionOverlay still draws raw detected corners as
 // small dots when given `corners`.
+//
+// WITHOUT A POSE (T-0335 follow-up) the same red points and blue lines are drawn from the latest
+// detection's corners at the pixels they were found at (`detectedCorners`), so a board that is found
+// but whose pose fails its checks (a lens estimate still far off, say) still shows as found.
 
 import { projectPoints } from './camera_model.js';
 
@@ -451,6 +455,10 @@ export function transferContour(contour, from, fromLens, to, toLens, planeMm = 0
  *   corners     detected corners [{ x, y }] (or null): drawn as dots
  *   foundCornerIds  ids of the corners the pose was solved from (or null): with a pose, a red point
  *               on each and a blue line between neighbours, placed through the pose (T-0333)
+ *   detectedCorners  the latest detection's corners [{ id, x, y }] frame pixels (or null): WITHOUT
+ *               a pose, drawn the same way at the pixels they were found at (T-0335 follow-up);
+ *               ignored when there is a pose
+ * `drawn.cornersFrom` says which drew the red points: 'pose', 'detection' or null.
  * @param {{ scale: number, dx: number, dy: number }} transform  fitTransform's
  * @param {{ alpha?: number, frame?: [number, number], grid?: boolean }} [style]  alpha fades the
  *        whole overlay (stale data); frame, the camera frame's [width, height] in pixels, clips the
@@ -463,7 +471,7 @@ export function transferContour(contour, from, fromLens, to, toLens, planeMm = 0
 export function drawVisionOverlay(ctx, view, transform, style = {}) {
   const { scale, dx, dy } = transform;
   const map = ([x, y]) => [dx + scale * x, dy + scale * y];
-  const drawn = { gridLines: 0, edgeLines: 0, foundCorners: 0, foundLines: 0, axes: null, rock: false };
+  const drawn = { gridLines: 0, edgeLines: 0, foundCorners: 0, foundLines: 0, cornersFrom: null, axes: null, rock: false };
   ctx.save();
   ctx.globalAlpha = style.alpha ?? 1;
 
@@ -542,10 +550,51 @@ export function drawVisionOverlay(ctx, view, transform, style = {}) {
     }
   }
 
+  // The found corners WITHOUT a pose (T-0335 follow-up): the user, on the real board with the pose
+  // failing its checks, "still not showing the board - the old slower opencv version would show the
+  // dots without any problems". So when there is no pose to place them through, the latest
+  // detection's corners are drawn where they were found in the picture, in the same red and blue:
+  // a blue line between each two found corners that are neighbours on the board (by id, as
+  // foundCornerGraph pairs them), then a red point on each. They trail a moving picture by a
+  // detection's time, which the posed path avoids, but they show that the board is found.
+  if (!posed && view.detectedCorners?.length && view.sizeMm) {
+    const squareMm = view.squareMm ?? DEFAULT_SQUARE_MM;
+    const at = new Map();
+
+    for (const corner of view.detectedCorners) {
+      if (Number.isInteger(corner.id) && Number.isFinite(corner.x) && Number.isFinite(corner.y) && !at.has(corner.id)) {
+        at.set(corner.id, [corner.x, corner.y]);
+      }
+    }
+
+    const graph = foundCornerGraph([...at.keys()], view.sizeMm, squareMm);
+
+    for (const [a, b] of graph.edges) {
+      path([at.get(a), at.get(b)], false);
+      stroke(OVERLAY_COLOURS.foundLine, 1.5);
+      drawn.foundLines += 1;
+    }
+
+    for (const id of graph.points.keys()) {
+      const [x, y] = map(at.get(id));
+      ctx.beginPath();
+      ctx.arc(x, y, 3, 0, 2 * Math.PI);
+      ctx.fillStyle = OVERLAY_COLOURS.foundCorner;
+      ctx.fill();
+      ctx.strokeStyle = OVERLAY_COLOURS.shadow;
+      ctx.lineWidth = 1;
+      ctx.stroke();
+      drawn.foundCorners += 1;
+    }
+
+    drawn.cornersFrom = drawn.foundCorners ? 'detection' : null;
+  }
+
   // The found corners (T-0333): blue lines between neighbours first, then red points over them.
   // Lines are clipped in 3D like the grid's; a point is drawn only if it is in front of the camera
   // and inside the view's margin (the same bounds), so nothing behind the camera lands on screen.
   if (posed && view.foundCornerIds?.length) {
+    drawn.cornersFrom = 'pose';
     const squareMm = view.squareMm ?? DEFAULT_SQUARE_MM;
     const graph = foundCornerGraph(view.foundCornerIds, view.sizeMm, squareMm);
     const bounds = viewBounds(view.intrinsics);

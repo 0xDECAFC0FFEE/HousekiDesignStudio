@@ -465,8 +465,8 @@ function visionMessage(overrides = {}) {
     timeMs: 1000,
     frame: { w: 1280, h: 720 },
     board: {
-      recognised: true, corners: 120, markers: 60, sheet: "charuco_23x17_10mm_centre3x3_dots", sheetFrom: "auto",
-      targetMm: [85, 115], sizeMm: [170, 230],
+      recognised: true, corners: 120, markers: 60, sheet: "charuco_23x17_10mm_strip", sheetFrom: "default",
+      targetMm: [80, 110], sizeMm: [170, 230],
     },
     pose: {
       R: [1, 0, 0, 0, -1, 0, 0, 0, -1], t: [-85, 115, 300], center: [85, 115, 300],
@@ -552,14 +552,15 @@ Deno.test("a session or phone without vision leaves the mode as it was", async (
 Deno.test("scanVisionText reads out the board, the camera, the lens and the rock in words", () => {
   // Setup: vision values as the store holds them, received at t = 1000 ms.
   // Test: read each out, now and later.
-  // Verifies: a posed frame reads "Found (Large target with dots)", the camera's distance in cm
-  // and its height in degrees, the lens's state and "Outlined"; a frame without a board reads
-  // "Not in view" and dashes; an undecided sheet is not named; each intrinsics source reads as
-  // its own words; and a value more than VISION_GONE_MS old adds a note that the phone has gone
-  // quiet.
+  // Verifies: a posed frame reads "Found", the camera's distance in cm and its height in degrees,
+  // the lens's state and "Outlined"; a frame without a board reads "Not in view" and dashes; an
+  // older phone's message naming the sheet it recognised still reads plain "Found" (the studio
+  // names no sheet since T-0335); a frame of another printed board (wrongBoard, T-0335) reads "Not
+  // the scanner board" with no camera advice; each intrinsics source reads as its own words; and a
+  // value more than VISION_GONE_MS old adds a note that the phone has gone quiet.
   const posed = mode.scanVisionText({ message: visionMessage(), receivedAt: 1000 }, 1200);
   assertEqual(posed.rows, [
-    { label: "Board", value: "Found (Large target with dots)" },
+    { label: "Board", value: "Found" },
     { label: "Camera", value: "31 cm from the target, 62° above the board" },
     { label: "Lens", value: "First estimate, still measuring" },
     { label: "Rock", value: "Outlined" },
@@ -579,9 +580,19 @@ Deno.test("scanVisionText reads out the board, the camera, the lens and the rock
   const refined = mode.scanVisionText({ message: visionMessage({ outline: null, intrinsics: { f: 1088, cx: 640, cy: 360, k1: 0.01, source: "refined" } }), receivedAt: 0 }, 0);
   assertEqual(refined.rows.map(row => row.value).slice(2), ["Measured", "None found on the target"], "measured lens, no rock");
 
-  const undecided = mode.scanVisionText({ message: visionMessage({ board: { ...visionMessage().board, sheetFrom: "default" } }), receivedAt: 0 }, 0);
-  assertEqual(undecided.rows[0].value, "Found", "an undecided sheet is not named");
+  const older = mode.scanVisionText({
+    message: visionMessage({ board: { ...visionMessage().board, sheet: "charuco_23x17_10mm_centre3x3_dots", sheetFrom: "auto" } }),
+    receivedAt: 0,
+  }, 0);
+  assertEqual(older.rows[0].value, "Found", "an older phone's recognised sheet is not named");
   assertEqual(posed.guide, null, "no guide from a phone that sends none");
+
+  const wrong = mode.scanVisionText({
+    message: visionMessage({ board: { ...visionMessage().board, wrongBoard: true }, pose: null, outline: null }),
+    receivedAt: 0,
+  }, 0);
+  assertEqual(wrong.rows.map(row => row.value).slice(0, 2), ["Not the scanner board", "–"], "another printed board");
+  assertEqual(wrong.rows[3].value, "–", "no rock from another board");
 });
 
 Deno.test("scanVisionText adds a Speed row when the phone sends its speed (T-0332)", () => {

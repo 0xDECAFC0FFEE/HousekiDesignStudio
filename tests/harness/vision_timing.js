@@ -19,7 +19,7 @@ import {
   fixtureDetection, fixtureIntrinsics, lookAtPose, seededRandom, syntheticDetection,
 } from '../../src/web/tests/vision_test_support.js';
 
-const spec = BOARD_SPECS.charuco_23x17_10mm_centre1;
+const spec = BOARD_SPECS.charuco_23x17_10mm_strip;
 const K = { width: 1080, height: 1920, f: 1500, cx: 540, cy: 960, k1: -0.05, source: 'refined' };
 
 // summary statistics, plus where in the sequence the five slowest calls were (to tell one-off

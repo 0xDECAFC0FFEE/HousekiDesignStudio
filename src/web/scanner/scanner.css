@@ -37,7 +37,7 @@ body {
   pointer-events: none;
 }
 
-/* Over the bottom edge: the board chooser, what the vision sees, and the connection. */
+/* Over the bottom edge: what the vision sees, and the connection. */
 #scanner-panel {
   position: fixed;
   left: 12px;
@@ -66,16 +66,10 @@ body {
   background: color-mix(in srgb, var(--panel) 82%, transparent);
 }
 
-#scanner-sheet {
-  align-self: flex-start;
-  max-width: 100%;
-  padding: 6px 10px;
-  border: 1px solid var(--panel-edge);
-  border-radius: 8px;
-  background: var(--panel);
-  color: var(--text);
-  font: inherit;
-  font-size: 15px;
+/* Another printed board in view (T-0335): the line that says so is outlined in the warnings'
+   yellow, since nothing works until the right board is printed. */
+#scanner-vision[data-state='wrong-board'] {
+  border: 2px solid #ebcb8b;
 }
 
 /* The speed diagnostics (T-0332), hidden until the status lines are long-pressed: small and
@@ -101,7 +95,6 @@ body {
 
 #scanner-vision[hidden],
 #scanner-diag[hidden],
-#scanner-sheet[hidden],
 #scanner-warning[hidden],
 #scanner-guide[hidden] {
   display: none;

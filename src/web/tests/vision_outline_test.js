@@ -11,7 +11,7 @@
  * HOW TO RUN (from src/web/): deno test --allow-read --allow-env tests/   (also `deno task test`)
  */
 
-import { BOARD_SPECS } from '../src/lib/vision/board_frame.js';
+import { TEST_BOARD_SPECS } from './vision_test_boards.js';
 import {
   markerBits,
   markerSquares,
@@ -60,8 +60,10 @@ function assertClose(actual, expected, tolerance, message) {
   );
 }
 
-const centre3x3 = BOARD_SPECS.charuco_23x17_10mm_centre3x3;
-const centre1 = BOARD_SPECS.charuco_23x17_10mm_centre1;
+// Two test-only sheets (vision_test_boards.js): the texture code still draws any spec's removed
+// markers, rings and dots, though the one board the phone ships (the strip) has none of them.
+const centre3x3 = TEST_BOARD_SPECS.charuco_23x17_10mm_centre3x3;
+const centre1 = TEST_BOARD_SPECS.charuco_23x17_10mm_centre1;
 
 // --------------------------------------------------------------------------- board texture
 

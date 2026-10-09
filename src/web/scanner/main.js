@@ -120,7 +120,6 @@ async function start() {
         stream,
         overlay: document.getElementById('scanner-overlay'),
         status: document.getElementById('scanner-vision'),
-        sheetSelect: document.getElementById('scanner-sheet'),
         send: message => session.sendVision(message),
       }).catch(error => console.error('vision', error));
     }

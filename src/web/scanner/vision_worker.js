@@ -12,14 +12,14 @@
 // runs the same live.js itself (vision.js, "main thread").
 //
 // Messages, page -> worker:
-//   { type: 'init', opencvUrl, visionPayload, frameSize, camera, device, sheet }
+//   { type: 'init', opencvUrl, visionPayload, frameSize, camera, device, poseMaxRmsPx? (harness) }
 //   { type: 'frame', bitmap (ImageBitmap of the full frame, transferred), work: { width, height },
 //     track: { width, height } | null (the tracker's size, T-0332), frame: { width, height, timeMs },
 //     outline: boolean, predicted: { R, t } | null (the overlay's predicted pose: the region the
 //     detection searches, T-0332) }
 //   { type: 'track', bitmap, track, frame, predicted: { R, t } | null }   (T-0332: a frame between
 //     detections, read at the tracker's size only; live.trackFrame)
-//   { type: 'sheet', name }       { type: 'camera', camera, device }
+//   { type: 'camera', camera, device }
 // worker -> page:
 //   { type: 'ready', loadMs, warmMs }        { type: 'failed', message }  (init failed: fall back)
 //   { type: 'result', result, grabMs, canTrack }   { type: 'error', message }   (one frame failed)
@@ -34,7 +34,7 @@ import { createLiveVision } from '../src/lib/vision/live.js';
 let live = null;
 let grabs = null;
 
-async function init({ opencvUrl, visionPayload, frameSize, camera, device, sheet }) {
+async function init({ opencvUrl, visionPayload, frameSize, camera, device, poseMaxRmsPx = null }) {
   const loadStarted = performance.now();
   const [cv, vision] = await Promise.all([loadOpenCv({ url: opencvUrl }), loadVision({ payload: visionPayload })]);
   const loadMs = performance.now() - loadStarted;
@@ -48,7 +48,7 @@ async function init({ opencvUrl, visionPayload, frameSize, camera, device, sheet
     glCanvas = null;
   }
 
-  live = createLiveVision(cv, { vision, frameSize, camera, device, sheet, glCanvas });
+  live = createLiveVision(cv, { vision, frameSize, camera, device, glCanvas, poseMaxRmsPx });
   grabs = [0, 1].map(() => {
     const canvas = new OffscreenCanvas(1, 1);
     return { canvas, context: canvas.getContext('2d', { willReadFrequently: true }) };
@@ -133,8 +133,6 @@ self.onmessage = async ({ data }) => {
       const { result, grabMs } = trackFrame(data);
       emulateSlower(started, data.slowdown ?? 1);
       self.postMessage({ type: 'result', result, grabMs, canTrack: live.canTrack });
-    } else if (data.type === 'sheet') {
-      live?.chooseSheet(data.name);
     } else if (data.type === 'camera') {
       live?.setCamera(data.camera, data.device);
     }

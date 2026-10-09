@@ -22,6 +22,10 @@ Run directly to (re)make it:  ~/.pyenv/versions/anaconda3-2019.07/bin/python3 te
 The scan guidance's video (T-0331, GUIDE_CONFIG below: a moving camera, a fast motion-blurred swing
 and a defocused hold, on the strip sheet) is ensure_guide_video(), cached in
 tests/output/scan_guide_video/; `make_scan_video.py --guide` makes it.
+
+A video of ANOTHER board (T-0335, WRONG_BOARD_CONFIG: the scanner's older 22 x 22 reference board,
+which the phone must refuse) is ensure_wrong_board_video(), in tests/output/scan_wrong_board_video/;
+`make_scan_video.py --wrong-board` makes it.
 """
 
 import base64
@@ -46,15 +50,15 @@ sys.path.insert(0, HARNESS)
 
 # The video. A phone held sideways (1280 x 720, its main camera's focal length 1000 px: a 1x lens,
 # 8% narrower than the phone page's first guess, so the live calibration has something to do),
-# 165-185 mm from a rock on the target of the large target sheet WITHOUT dots: not the sheet the
-# phone assumes before it has seen any (that is the dotted one), so the test also sees it
-# recognise the sheet. Three views, each held HOLD_S seconds.
+# 165-185 mm from a rock on the target of the strip sheet, the one board the phone supports (T-0335;
+# until then the large target sheet without dots, to see the phone recognise the sheet). Three
+# views, each held HOLD_S seconds.
 #
 # Landscape because the phone page asks for 1280 x 720: a phone reads that in its sensor's own
 # (landscape) orientation and turns the frames upright itself, but Chrome's fake camera does not,
 # and CROPS a portrait file to fit (measured: a 720 x 1280 file arrived as its middle 720 x 720).
 CONFIG = {
-    "sheet": "charuco_23x17_10mm_centre3x3",
+    "sheet": "charuco_23x17_10mm_strip",
     "width": 1280,
     "height": 720,
     "f": 1000,
@@ -72,6 +76,17 @@ CONFIG = {
     "holdS": 4,
     "fps": 30,
 }
+
+# A video of ANOTHER board (T-0335): the scanner's older 22 x 22 reference board (the one its
+# reference videos show; src/web/tests/vision_test_boards.js REFERENCE_22X22), whose markers the
+# phone reads but which is not the strip board: the phone must say so and never pose from it. The
+# same camera and rock as CONFIG, the rock on the board's middle. ensure_wrong_board_video().
+WRONG_BOARD_CONFIG = dict(CONFIG, sheet="reference_22x22", holdS=3, views=[
+    {"azimuth": 200, "elevation": 55, "distanceMm": 210, "roll": 0},
+    {"azimuth": 320, "elevation": 42, "distanceMm": 230, "roll": 6},
+    {"azimuth": 80, "elevation": 66, "distanceMm": 200, "roll": -5},
+])
+OUTPUT_WRONG = os.path.join(PROJECT_ROOT, "tests", "output", "scan_wrong_board_video")
 
 # The scan guidance's video (T-0331): the camera MOVING, on the strip sheet (the one in use), with a
 # known pose for every distinct frame. Segments (azimuths in synth.js lookAt's convention: the camera
@@ -235,9 +250,9 @@ def rock_centre(config):
 
 
 # The sheet's target centre (board_frame / the spec's target.centre_mm), where the angles are
-# measured from.
-TARGET_MM = {"charuco_23x17_10mm_centre3x3": [85.0, 115.0], "charuco_23x17_10mm_centre3x3_dots": [85.0, 115.0],
-             "charuco_23x17_10mm_centre1": [85.0, 115.0], "charuco_23x17_10mm_strip": [80.0, 110.0]}
+# measured from. The strip sheet is the only board the phone supports (T-0335); the older reference
+# board has no target, and its videos aim at its middle (scan_video.js aimOf).
+TARGET_MM = {"charuco_23x17_10mm_strip": [80.0, 110.0], "reference_22x22": [110.0, 110.0]}
 
 
 def config_hash(config):
@@ -352,6 +367,12 @@ def ensure_video(config=CONFIG, out_dir=OUTPUT):
         json.dump(truth, handle, indent=1)
 
     return _paths(truth, out_dir)
+
+
+def ensure_wrong_board_video():
+    """The video of the older reference board (WRONG_BOARD_CONFIG), made if not already made; as
+    ensure_video's."""
+    return ensure_video(WRONG_BOARD_CONFIG, OUTPUT_WRONG)
 
 
 def angles_from(center, point):
@@ -518,6 +539,9 @@ if __name__ == "__main__":
     elif "--guide" in sys.argv:
         made = ensure_guide_video()
         print(json.dumps({k: v for k, v in made["truth"].items() if k not in ("config", "frames")}, indent=1))
+    elif "--wrong-board" in sys.argv:
+        made = ensure_wrong_board_video()
+        print(json.dumps({k: v for k, v in made["truth"].items() if k != "config"}, indent=1)[:3000])
     else:
         made = ensure_video()
         print(json.dumps({k: v for k, v in made["truth"].items() if k != "config"}, indent=1)[:3000])

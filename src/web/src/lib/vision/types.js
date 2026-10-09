@@ -56,7 +56,9 @@
  *                         OpenCV's, whose pixel centres are on integers); refinement keeps it fixed
  * @property {number} cy
  * @property {number} k1
- * @property {'table'|'closed-form'|'refined'|'guess'} source  where f came from
+ * @property {'table'|'one-view'|'closed-form'|'refined'|'guess'} source  where f came from ('one-view':
+ *                         single slanted views before the seed, T-0336)
+ * @property {number} [oneViews]   'one-view' only: good single views the median is over
  * @property {number} [rmsPx]      'refined' only: the calibration's reprojection RMS
  * @property {number} [views]      'refined' only: views the calibration used
  * @property {number} [seedViews]  'closed-form' only: frames the seed's median is over

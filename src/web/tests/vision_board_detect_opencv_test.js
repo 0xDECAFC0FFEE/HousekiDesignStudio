@@ -36,6 +36,7 @@ import {
 } from '../src/lib/vision/board_detect.js';
 import { BOARD_SPECS, cornerPoint } from '../src/lib/vision/board_frame.js';
 import { boardImage, cornerErrors, makeFrame, visibleIds } from './vision_synth.js';
+import { TEST_BOARD_SPECS } from './vision_test_boards.js';
 
 function assert(condition, message) {
   if (!condition) {
@@ -134,8 +135,9 @@ Deno.test('the pixel scale is the short side over 1080, and collinear corners do
 
 const cv = await loadOpenCv({ source: await Deno.readTextFile(OPENCV_JS) });
 
-Deno.test('every shipped board is found in a perspective view, to a tenth of a pixel, without its invalid corners', () => {
-  // Setup: for each of the four printable boards, one sharp perspective frame of the whole board
+Deno.test('every 23 x 17 board is found in a perspective view, to a tenth of a pixel, without its invalid corners', () => {
+  // Setup: for the shipped strip board and the three test-only sheets with a blank centre target
+  // (vision_test_boards.js), one sharp perspective frame of the whole board
   // (markers about 25-30 px) with mild sensor noise (sigma 2 grey levels).
   // Test: detect once.
   // Verifies: (1) at least 95% of the board's valid corners that lie well inside the frame are
@@ -145,7 +147,7 @@ Deno.test('every shipped board is found in a perspective view, to a tenth of a p
   // returned id is one board_frame refuses (the centre target's corners), and no returned marker
   // is one the spec removed; (4) the frame is `recognised`; (5) the frame info defaults to the
   // frame's own size.
-  for (const [name, spec] of Object.entries(BOARD_SPECS)) {
+  for (const [name, spec] of Object.entries(TEST_BOARD_SPECS)) {
     const printed = boardImage(cv, spec, { pps: 48 });
     const { frame, truth } = makeFrame(cv, spec, printed, { width: WIDTH, height: HEIGHT, quad: OVERVIEW, noise: 2, seed: 3 });
     const detector = createBoardDetector(cv, spec);
@@ -180,7 +182,7 @@ Deno.test('a blurred close-up keeps its corners, and blurred corners are re-refi
   // ran; (3) with the desktop's shift, every re-refined corner moves by about (+0.5, +0.5) px and
   // their error grows -- the measurement behind leaving the shift out (see the KB article
   // opencv-js-for-the-phone-scanner-build-charuco-po).
-  const spec = BOARD_SPECS.charuco_23x17_10mm_centre3x3;
+  const spec = TEST_BOARD_SPECS.charuco_23x17_10mm_centre3x3;
   const printed = boardImage(cv, spec, { pps: 48 });
   const { frame, truth } = makeFrame(cv, spec, printed, { width: WIDTH, height: HEIGHT, quad: CLOSE_UP, blur: 2.5, noise: 2, seed: 5 });
   const detector = createBoardDetector(cv, spec);
@@ -261,7 +263,7 @@ Deno.test('a processing scale of 0.5 reports full-resolution coordinates, and Im
   // 0.35 px median on 2-marker corners (twice the pixel size costs some accuracy, but no
   // half-pixel or scale slip, which would show as >= 0.5 px everywhere); the RGBA path gives the
   // same corners as the grey Mat path to within 0.01 px.
-  const spec = BOARD_SPECS.charuco_23x17_10mm_centre1;
+  const spec = TEST_BOARD_SPECS.charuco_23x17_10mm_centre1;
   const printed = boardImage(cv, spec, { pps: 48 });
   const close = makeFrame(cv, spec, printed, { width: WIDTH, height: HEIGHT, quad: CLOSE_UP, noise: 2 });
 
@@ -300,7 +302,7 @@ Deno.test('detecting frame after frame leaks no memory, and dispose frees the de
   // frame -- a MatVector, an output Mat, an roi view -- would add at least its header); and
   // after dispose() it is back within a few KB of where it started (OpenCV keeps some
   // process-wide caches, so not to the byte).
-  const spec = BOARD_SPECS.charuco_23x17_10mm_centre3x3_dots;
+  const spec = TEST_BOARD_SPECS.charuco_23x17_10mm_centre3x3_dots;
   const printed = boardImage(cv, spec, { pps: 32 });
   const view = makeFrame(cv, spec, printed, { width: 960, height: 540, quad: [[170, 80], [800, 60], [880, 490], [110, 460]], blur: 1.5, noise: 2 });
   const empty = new cv.Mat(540, 960, cv.CV_8UC1, new cv.Scalar(70));

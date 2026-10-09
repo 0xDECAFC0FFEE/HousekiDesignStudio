@@ -348,4 +348,58 @@ Deno.test('drawVisionOverlay: red points on the found corners, blue lines betwee
 
   const none = drawVisionOverlay(recordingContext().ctx, { ...view, foundCornerIds: null }, transform, { grid: false });
   assert(none.foundCorners === 0 && none.foundLines === 0, 'no ids, no points');
+  assert(drawn.cornersFrom === 'pose' && none.cornersFrom === null, 'which path drew the points');
+});
+
+Deno.test('drawVisionOverlay: without a pose, the detected corners are drawn where they were found (T-0335)', () => {
+  // Setup: NO pose (the board found, but its pose failed its checks: the case the user hit on the
+  // real board, "still not showing the board"). The latest detection's corners, as the detector
+  // gives them ({ id, x, y } in frame pixels): a 3 x 3 block of corners (rows 7-9, columns 9-11 of
+  // the 23 x 17 board: 9 corners, 12 neighbour pairs) at made-up pixels 40 px apart, plus a repeat
+  // of one id at another pixel (kept once), an id beyond the board (dropped) and a corner with a
+  // NaN position (dropped). The phone's cover transform of a 1280 x 720 frame on a 844 x 390 screen.
+  // Test: draw with detectedCorners, recording every path and every point; then draw the same
+  // detection WITH a pose (and no foundCornerIds), and without the board's size.
+  // Verifies: 9 red points and 12 blue lines, reported as from the 'detection'; each point at its
+  // corner's detected pixel through the transform (no pose involved); each blue line stroked in the
+  // found-line colour between two neighbours' pixels (a row neighbour 40 px to the right, a column
+  // neighbour 40 px down); with a pose the detected pixels are ignored (the posed path places the
+  // points, here none since no ids are given), so the two paths never draw twice; and without the
+  // board's size (no way to tell neighbours) nothing is drawn.
+  const transform = fitTransform(1280, 720, 844, 390, 'cover');
+  const corners = [];
+
+  for (let row = 7; row <= 9; row += 1) {
+    for (let col = 9; col <= 11; col += 1) {
+      corners.push({ id: row * 22 + col, x: 500 + 40 * (col - 9), y: 300 + 40 * (row - 7) });
+    }
+  }
+
+  const detected = [...corners, { id: corners[0].id, x: 5, y: 5 }, { id: 22 * 16 + 3, x: 10, y: 10 }, { id: 3, x: NaN, y: 4 }];
+  const { ctx, strokes } = recordingContext();
+  const arcs = [];
+  ctx.arc = (x, y) => arcs.push([x, y]);
+  const view = { pose: null, intrinsics: null, sizeMm: [170, 230], contour: null, foundCornerIds: null, detectedCorners: detected };
+  const drawn = drawVisionOverlay(ctx, view, transform, { grid: false });
+
+  assert(drawn.foundCorners === 9 && drawn.foundLines === 12, `${drawn.foundCorners} points, ${drawn.foundLines} lines`);
+  assert(drawn.cornersFrom === 'detection', `from ${drawn.cornersFrom}`);
+  const at = (corner) => [transform.dx + transform.scale * corner.x, transform.dy + transform.scale * corner.y];
+  corners.forEach((corner, i) => {
+    assertClose(arcs[i][0], at(corner)[0], 1e-9, `point ${i} x`);
+    assertClose(arcs[i][1], at(corner)[1], 1e-9, `point ${i} y`);
+  });
+
+  const lines = strokes.filter((s) => s.colour === OVERLAY_COLOURS.foundLine);
+  assert(lines.length === 12, `${lines.length} blue lines`);
+  const step = 40 * transform.scale;
+  assert(lines.every(({ points: [[ax, ay], [bx, by]] }) => Math.abs(Math.hypot(bx - ax, by - ay) - step) < 1e-9),
+    'every line joins two neighbours one square (40 px) apart');
+
+  const posed = drawVisionOverlay(recordingContext().ctx, { ...view, pose: lookAtPose([85, 115, 0], 210, 70, 450), intrinsics: INTRINSICS },
+    transform, { grid: false });
+  assert(posed.foundCorners === 0 && posed.cornersFrom === null, 'with a pose the detected pixels are not drawn');
+
+  const sizeless = drawVisionOverlay(recordingContext().ctx, { ...view, sizeMm: null }, transform, { grid: false });
+  assert(sizeless.foundCorners === 0, 'no board size, nothing drawn');
 });

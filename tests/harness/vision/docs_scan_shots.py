@@ -15,7 +15,7 @@ live.webp (the studio with the phone's picture and what it found) and readout.we
 phone sees card) into src/site/docs/images/rough-scan/. Look at each before committing.
 
 Since T-0331 the phone plays the scan guidance's video (make_scan_video.GUIDE_CONFIG: the strip
-sheet, chosen on the phone; a slow orbit, a fast swing, a defocused hold), so the pictures show the
+sheet, the one board the phone supports; a slow orbit, a fast swing, a defocused hold), so the pictures show the
 grid, the arrows, the coverage map filling and the angle; it also writes phone-guide.webp (the map
 and advice, cropped), phone-fast.webp ("Moving too fast") and phone-focus.webp ("Rock not in
 focus"), each taken when the phone itself shows that state.
@@ -23,6 +23,10 @@ focus"), each taken when the phone itself shows that state.
 Since T-0332 it also writes phone-speed.webp: the phone's speed line, opened as a person opens it
 (a long press on the status lines at the bottom), cropped to the lines. Names given on the command
 line (e.g. `readout live phone-speed`) retake only those pictures.
+
+Since T-0335 it also writes phone-wrong-board.webp: a second phone, its camera playing a video of
+the scanner's older reference board (make_scan_video.WRONG_BOARD_CONFIG), saying that it is not the
+scanner board.
 """
 
 import json
@@ -40,7 +44,7 @@ sys.path.insert(0, HERE)
 
 import cdp  # noqa: E402
 from docs_screenshot import Studio  # noqa: E402
-from make_scan_video import ensure_guide_video  # noqa: E402
+from make_scan_video import ensure_guide_video, ensure_wrong_board_video  # noqa: E402
 from test_scan_link import CHROME_ARGS, Relay, Server  # noqa: E402
 from test_vision_detect import native_chrome  # noqa: E402
 
@@ -114,9 +118,6 @@ def main():
         phone = native_chrome(gl_backend="metal", extra_args=tuple(list(CHROME_ARGS) + [
             "--use-file-for-fake-video-capture=%s" % video["mjpeg"]]), timeout=60)
         phone.send("Emulation.setDeviceMetricsOverride", PHONE)
-        # The strip sheet, chosen on the phone (its saved choice), as a person using it would.
-        phone.navigate(server.origin + "/scanner/")
-        phone.evaluate("localStorage.setItem('houseki.scannerSheet', 'charuco_23x17_10mm_strip'), true")
         phone.navigate(link)
         phone.wait_for_expression("document.getElementById('scanner-status')?.dataset.status === 'connected'", timeout=60)
         phone_shot = Studio.__new__(Studio)
@@ -154,7 +155,7 @@ def main():
 
         studio_chrome.send("Page.bringToFront")
         studio_chrome.wait_for_expression("document.getElementById('scan-overlay')?.dataset.drawn === 'pose+outline'", timeout=30)
-        studio_chrome.wait_for_expression("!!document.getElementById('scan-vision-map') && document.getElementById('scan-vision-readout').textContent.includes('Colour strips')"
+        studio_chrome.wait_for_expression("!!document.getElementById('scan-vision-map') && document.getElementById('scan-vision-readout').textContent.includes('Found')"
                                           " && document.getElementById('scan-vision-readout').textContent.includes('Speed')", timeout=30)
         time.sleep(0.3)
         take(studio, "live")
@@ -162,6 +163,26 @@ def main():
         studio_chrome.evaluate("document.getElementById('scan-vision-map').scrollIntoView({ block: 'center' }), true")
         time.sleep(0.3)
         take(studio, "readout", selector="#scan-vision-section", padding=6)
+
+        # T-0335: a phone pointed at ANOTHER printed board (the scanner's older reference board,
+        # make_scan_video.WRONG_BOARD_CONFIG) says so. The same code connects a second phone once
+        # the first has gone.
+        if not ONLY or "phone-wrong-board" in ONLY:
+            phone.close()
+            phone = None
+            studio_chrome.wait_for_expression("document.getElementById('scan-view')?.dataset.streaming !== 'true'", timeout=60)
+            wrong = ensure_wrong_board_video()
+            phone = native_chrome(gl_backend="metal", extra_args=tuple(list(CHROME_ARGS) + [
+                "--use-file-for-fake-video-capture=%s" % wrong["mjpeg"]]), timeout=60)
+            phone.send("Emulation.setDeviceMetricsOverride", PHONE)
+            phone.navigate(link)
+            phone.wait_for_expression("document.getElementById('scanner-status')?.dataset.status === 'connected'", timeout=60)
+            phone.wait_for_expression("document.getElementById('scanner-vision')?.dataset.state === 'wrong-board'", timeout=90)
+            time.sleep(1.0)
+            wrong_shot = Studio.__new__(Studio)
+            wrong_shot.chrome = phone
+            take(wrong_shot, "phone-wrong-board")
+
         print("wrote %s into %s" % (", ".join(sorted(ONLY)) or "every picture", IMAGES))
     finally:
         if phone:

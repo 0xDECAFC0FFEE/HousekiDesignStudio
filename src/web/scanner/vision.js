@@ -62,8 +62,6 @@ import { createLiveVision } from '../src/lib/vision/live.js';
 import { describeCamera, describeDevice, REFINE_MIN_VIEWS } from '../src/lib/vision/intrinsics.js';
 import { drawVisionOverlay, fitTransform, prepareCanvas, transferContour } from '../src/lib/vision/overlay.js';
 import { createPoseFilter, MAX_PREDICT_MS } from '../src/lib/vision/pose_filter.js';
-import { SHEET_LABELS } from '../src/lib/vision/board_pick.js';
-import { BOARD_SPECS } from '../src/lib/vision/board_frame.js';
 import { makeVisionMessage } from '../src/lib/scan_vision.js';
 import {
   angleText, coverageAdvice, coverageMapCells, createWarningFilter, mapPoint, viewAngles,
@@ -87,8 +85,8 @@ export const POSE_HOLD_MS = 500;
 /** Track the board between detections (T-0332). */
 export const TRACKING = true;
 /** While tracking works, a full detection at least this far apart (ms): the tracked frames between
- *  carry the overlay, the detections reset any drift and bring the outline, the guidance, the sheet
- *  and the lens. */
+ *  carry the overlay, the detections reset any drift and bring the outline, the guidance and the
+ *  lens. */
 export const TRACKED_DETECT_INTERVAL_MS = 250;
 /** The tracker reads frames at this share of the processing size: a quarter of the pixels to move
  *  and read back per tracked frame (measured on the M1 Pro: the 960 x 540 read was 4 of a tracked
@@ -101,11 +99,11 @@ const trackSize = (work) => ({ width: Math.max(1, Math.round(work.width * TRACK_
 /** How long the Worker may take to load OpenCV and warm up before the page gives up on it. */
 export const WORKER_START_MS = 60000;
 
-/** Where the person's choice of sheet is kept on the phone. */
-export const SHEET_SETTING = 'houseki.scannerSheet';
-
 /** Whether the speed diagnostics line is shown (T-0332), kept on the phone. */
 export const DIAGNOSTICS_SETTING = 'houseki.scannerDiagnostics';
+
+/** The harness's residual limit for every pose (T-0335 follow-up; see startPhoneVision). */
+export const TEST_POSE_MAX_RMS_SETTING = 'houseki.scannerTestPoseMaxRmsPx';
 
 /** How long a press on the status lines toggles the diagnostics line, ms. */
 export const LONG_PRESS_MS = 600;
@@ -164,10 +162,21 @@ function stats() {
   };
 }
 
-/** The status line's words for a result: { state, text }. */
+/** What the status line says when the markers in view are another board's (T-0335). */
+export const WRONG_BOARD_TEXT = 'This isn\'t the Houseki scanner board. Print charuco_23x17_10mm_strip.pdf at 100% (the bar must measure 100 mm).';
+
+/**
+ * The status line's words for a result: { state, text }. `state` is the status line's
+ * `data-state` (for the harness): 'searching', 'partial', 'wrong-board', 'unsteady' or 'pose'.
+ */
 export function visionStatusText(result) {
   const lines = [];
   let state;
+
+  // Another printed board (T-0335): nothing else is worth saying until the right one is in view.
+  if (result.board?.wrong) {
+    return { state: 'wrong-board', text: WRONG_BOARD_TEXT };
+  }
 
   if (!result.detection.recognised) {
     state = result.detection.markers.length ? 'partial' : 'searching';
@@ -194,7 +203,8 @@ export function visionStatusText(result) {
 
   if (source === 'refined') {
     lines.push('Camera measured.');
-  } else if (source === 'closed-form' || source === 'table') {
+  } else if (source === 'closed-form' || source === 'table' || source === 'one-view') {
+    // 'one-view' (T-0336): a first estimate from a slanted view is in; the slant is no longer needed.
     lines.push(`Measuring the camera: move around the board slowly (${Math.min(views, REFINE_MIN_VIEWS)} of ${REFINE_MIN_VIEWS} views).`);
   } else {
     lines.push('Measuring the camera: show it the board from a slant.');
@@ -459,9 +469,6 @@ async function startWorker(setup, { slowdown = () => 1 } = {}) {
         worker.postMessage({ type: 'track', bitmap, track, frame, predicted, slowdown: slowdown() }, [bitmap]);
       });
     },
-    chooseSheet(name) {
-      worker.postMessage({ type: 'sheet', name });
-    },
     setCamera(camera, device) {
       worker.postMessage({ type: 'camera', camera, device });
     },
@@ -523,9 +530,6 @@ async function startInPage(setup) {
       const result = live.trackFrame({ image, scale: work.width / frame.width, frame, predicted });
       return { result, grabMs, canTrack: live.canTrack };
     },
-    chooseSheet(name) {
-      live.chooseSheet(name);
-    },
     setCamera(camera, device) {
       live.setCamera(camera, device);
     },
@@ -541,12 +545,11 @@ async function startInPage(setup) {
  * @param {MediaStream} parts.stream
  * @param {HTMLCanvasElement} parts.overlay  laid over the video
  * @param {HTMLElement} parts.status         the vision status line
- * @param {HTMLSelectElement} [parts.sheetSelect]  the sheet chooser
  * @param {(message: object) => void} parts.send   where messages go
- * @param {Storage} [parts.storage]
+ * @param {Storage} [parts.storage]          where the diagnostics line's toggle is kept
  * @param {boolean} [parts.useWorker=true]
  */
-export async function startPhoneVision({ video, stream, overlay, status, sheetSelect, send, storage = globalThis.localStorage, useWorker = true }) {
+export async function startPhoneVision({ video, stream, overlay, status, send, storage = globalThis.localStorage, useWorker = true }) {
   const timing = stats();
   const state = {
     phase: 'loading',
@@ -560,6 +563,8 @@ export async function startPhoneVision({ video, stream, overlay, status, sheetSe
     frames: 0,
     processed: 0,
     poses: 0,
+    // Processed frames taken to show another printed board (T-0335).
+    wrongBoards: 0,
     // Tracking between detections (T-0332): on (the harness may turn it off to compare), frames
     // tracked, valid poses from them, why not.
     tracking: TRACKING,
@@ -629,20 +634,24 @@ export async function startPhoneVision({ video, stream, overlay, status, sheetSe
   const track = stream.getVideoTracks()[0];
   let camera = describeCamera(track);
   const device = await describeDevice();
-  let saved = null;
-
-  try {
-    saved = storage?.getItem(SHEET_SETTING) ?? null;
-  } catch {
-    saved = null;
-  }
-
   const setup = {
     frameSize: { width: video.videoWidth, height: video.videoHeight },
     camera,
     device,
-    sheet: saved && BOARD_SPECS[saved] ? saved : null,
   };
+
+  // For the harness only (T-0335 follow-up): a residual limit no pose meets, saved in the phone's
+  // storage before the page opens, to see the board drawn with every pose failing. Nothing in the
+  // page writes it.
+  try {
+    const limit = Number(storage?.getItem(TEST_POSE_MAX_RMS_SETTING));
+
+    if (limit > 0) {
+      setup.poseMaxRmsPx = limit;
+    }
+  } catch {
+    // No storage: the usual limit.
+  }
   let processor = null;
 
   if (useWorker) {
@@ -672,7 +681,6 @@ export async function startPhoneVision({ video, stream, overlay, status, sheetSe
   state.thread = processor.kind;
   state.loadMs = processor.loadMs;
   state.warmMs = processor.warmMs;
-  setUpSheetSelect(sheetSelect, processor, storage, saved);
   say('searching', 'Point the camera at the printed board.');
 
   const costAverage = average(0.2);
@@ -684,7 +692,6 @@ export async function startPhoneVision({ video, stream, overlay, status, sheetSe
   let cameraCheckAt = 0;
   // The pose the overlay is drawn with (T-0332): filtered and carried forward to each frame shown.
   const overlayFilter = createPoseFilter();
-  let filterSheet = null;
 
   const shortSide = () => Math.min(video.videoWidth, video.videoHeight);
   state.scale = Math.min(1, TARGET_SHORT_SIDE / Math.max(1, shortSide()));
@@ -759,7 +766,7 @@ export async function startPhoneVision({ video, stream, overlay, status, sheetSe
     timing.add('poseMs', result.timings.poseMs);
     timing.add('intrinsicsMs', result.timings.intrinsicsMs);
     timing.add('outlineMs', result.timings.outlineMs);
-    timing.add('pickMs', result.timings.pickMs);
+    timing.add('fitMs', result.timings.fitMs);
     timing.add('guideMs', result.timings.guideMs);
     timing.add('frameMs', done - started);
     // The region searched (T-0332): how often, and what share of the frame.
@@ -768,9 +775,10 @@ export async function startPhoneVision({ video, stream, overlay, status, sheetSe
     state.regionDetections += result.region ? 1 : 0;
     latency.addResult(done, { kind: 'detect', posed: Boolean(result.pose?.valid), timings: { ...result.timings, frameMs: done - started } });
 
-    // The overlay's filter (T-0332): a new sheet starts it afresh; every valid pose feeds it.
-    if (result.sheet.name !== filterSheet) {
-      filterSheet = result.sheet.name;
+    // The overlay's filter (T-0332): every valid pose feeds it; another board in view (T-0335)
+    // starts it afresh, so nothing is drawn from before it.
+    if (result.board?.wrong) {
+      state.wrongBoards += 1;
       overlayFilter.reset();
     }
 
@@ -794,7 +802,6 @@ export async function startPhoneVision({ video, stream, overlay, status, sheetSe
 
     const words = visionStatusText(result);
     say(words.state, words.text);
-    updateSheetSelect(sheetSelect, result.sheet);
     const warning = warnings.update(timeMs, result.guide?.conditions ?? {});
     state.warning = warning?.id ?? null;
     state.shown = showGuide(ui, map, result, warning, result.pose?.valid ? overlayFilter.current() : null);
@@ -806,6 +813,7 @@ export async function startPhoneVision({ video, stream, overlay, status, sheetSe
       intrinsics: result.intrinsics,
       outline: result.outline,
       sheet: result.sheet,
+      wrongBoard: Boolean(result.board?.wrong),
       guide: result.pose?.valid ? result.guide : null,
       warning: state.warning,
       speed: speedForMessage(latency.summary(done)),
@@ -819,7 +827,7 @@ export async function startPhoneVision({ video, stream, overlay, status, sheetSe
    * re-solves the pose (vision/tracker.js), guided by the overlay's prediction for this frame; a
    * valid pose feeds the overlay's filter like a detected one, and goes to the computer in a
    * message whose other parts (counts, lens, outline, guidance) are the last detection's. Nothing
-   * else (outline, guidance, sheet) comes from a tracked frame.
+   * else (outline, guidance, the board check) comes from a tracked frame.
    */
   async function trackFrame(timeMs) {
     const W = video.videoWidth;
@@ -849,7 +857,7 @@ export async function startPhoneVision({ video, stream, overlay, status, sheetSe
     timing.add('trackFrameMs', done - started);
     latency.addResult(done, { kind: 'track', posed: Boolean(result.pose?.valid), timings: { trackMs: done - started } });
 
-    if (result.pose?.valid && result.sheet.name === filterSheet) {
+    if (result.pose?.valid) {
       state.trackedPoses += 1;
       overlayFilter.update(result.pose);
       // state.foundIds keeps the last DETECTION's corners: a tracked pose follows only a sparse
@@ -908,7 +916,13 @@ export async function startPhoneVision({ video, stream, overlay, status, sheetSe
       : outline?.contour ?? null;
     // The corners the pose was solved from as red points with blue lines between neighbours, placed
     // through the drawn pose, instead of the faint full-board grid (T-0333: the user's choice; the
-    // board's edge stays). Raw detected corners are not drawn: they trail the picture.
+    // board's edge stays). Raw detected corners trail the picture, so they are drawn only when there
+    // is no pose to place the points through (T-0335 follow-up: a board found whose pose fails its
+    // checks must still show as found, as the phone's first version showed it): the latest
+    // detection's corners where they were found, faded once older than STALE_MS; never another
+    // board's (its corner ids are meaningless there).
+    const detectedCorners = !shown && !result.board?.wrong && result.detection?.corners?.length ? result.detection.corners : null;
+    const alpha = shown ? (timeMs - measuredAt > MAX_PREDICT_MS ? 0.4 : 1) : (age > STALE_MS ? 0.4 : 1);
     state.drawn = drawVisionOverlay(ctx, {
       pose: shown,
       intrinsics: shown?.intrinsics ?? null,
@@ -917,7 +931,8 @@ export async function startPhoneVision({ video, stream, overlay, status, sheetSe
       contour,
       corners: null,
       foundCornerIds: state.foundIds,
-    }, transform, { alpha: timeMs - measuredAt > MAX_PREDICT_MS ? 0.4 : 1, grid: false });
+      detectedCorners,
+    }, transform, { alpha, grid: false });
     // For the harness: the overlay's CSS size, to map its drawn points back to frame pixels.
     state.drawn.transform = transform;
     // How far the drawn pose's measurement trails the picture it is drawn on (latency.js), and how
@@ -1011,6 +1026,7 @@ function summarise(result) {
     recognised: result.detection.recognised,
     corners: result.detection.corners.length,
     markers: result.detection.markers.length,
+    board: result.board ?? null,
     pose: result.pose ? {
       valid: result.pose.valid,
       R: result.pose.R,
@@ -1029,60 +1045,4 @@ function summarise(result) {
     guide: result.guide ? { ...result.guide } : null,
     timings: result.timings,
   };
-}
-
-/** The sheet chooser: "Find the board" (the picker decides) or one of the four sheets. */
-function setUpSheetSelect(select, processor, storage, saved) {
-  if (!select) {
-    return;
-  }
-
-  select.replaceChildren();
-  const auto = document.createElement('option');
-  auto.value = '';
-  auto.textContent = 'Board: find it for me';
-  select.append(auto);
-
-  for (const [name, label] of Object.entries(SHEET_LABELS)) {
-    const option = document.createElement('option');
-    option.value = name;
-    option.textContent = `Board: ${label}`;
-    select.append(option);
-  }
-
-  select.value = saved && BOARD_SPECS[saved] ? saved : '';
-  select.hidden = false;
-  select.addEventListener('change', () => {
-    const name = select.value || null;
-    processor.chooseSheet(name);
-
-    try {
-      if (name) {
-        storage?.setItem(SHEET_SETTING, name);
-      } else {
-        storage?.removeItem(SHEET_SETTING);
-      }
-    } catch {
-      // A private window may refuse storage; the choice still holds for this visit.
-    }
-  });
-}
-
-/** Says, on the "find it for me" choice, which sheet was found. */
-function updateSheetSelect(select, sheet) {
-  if (!select || select.value !== '') {
-    return;
-  }
-
-  const option = select.options[0];
-  const text = sheet.from === 'auto'
-    ? `Board: ${SHEET_LABELS[sheet.name] ?? sheet.name} (found)`
-    : 'Board: find it for me';
-
-  if (option.textContent !== text) {
-    option.textContent = text;
-  }
-
-  select.dataset.sheet = sheet.name;
-  select.dataset.from = sheet.from;
 }

@@ -83,7 +83,7 @@ function frameParts() {
       confidence: 0.8765,
       flags: ['touches_crop_edge'],
     },
-    sheet: { name: 'charuco_23x17_10mm_centre3x3_dots', from: 'auto', targetMm: [85, 115], sizeMm: [170, 230] },
+    sheet: { name: 'charuco_23x17_10mm_strip', targetMm: [80, 110], sizeMm: [170, 230] },
   };
 }
 
@@ -125,8 +125,8 @@ Deno.test('makeVisionMessage: one frame becomes a small, rounded, versioned mess
   assertEqual(message.frame, { w: 1280, h: 720 }, 'frame size');
   assertEqual(message.timeMs, 12345.7, 'time rounded to 0.1 ms');
   assertEqual(message.board, {
-    recognised: true, corners: 57, markers: 30, sheet: 'charuco_23x17_10mm_centre3x3_dots', sheetFrom: 'auto',
-    targetMm: [85, 115], sizeMm: [170, 230],
+    recognised: true, corners: 57, markers: 30, sheet: 'charuco_23x17_10mm_strip', sheetFrom: 'default',
+    targetMm: [80, 110], sizeMm: [170, 230],
   }, 'board summary');
   assertEqual(message.pose.t, [12.35, -7.89, 301.23], 't rounded to 0.01 mm');
   assertEqual(message.pose.R[0], 0.707107, 'R rounded to 1e-6');
@@ -218,6 +218,34 @@ Deno.test('the optional guide (T-0331): sent rounded, read back, a bad one dropp
 
   const { guide: _, ...older } = sent;
   assert(validateVisionMessage(older) && !('guide' in validateVisionMessage(older)), 'an older phone: no guide');
+});
+
+Deno.test('the optional wrongBoard flag (T-0335), and older phones\' sheets, still validate', () => {
+  // Setup: the frame's message made with wrongBoard true (the phone sees another ChArUco board, so
+  // it has no pose), and without it; and a message as a phone from before T-0335 sent it: another
+  // sheet's name ('charuco_23x17_10mm_centre3x3_dots', recognised 'auto', its 85, 115 target).
+  // Test: make, pass through JSON and validate each; then spoil the flag (a string, a number,
+  // false).
+  // Verifies: the flag is sent only when true and read back as true; a message without it has none
+  // (the flag is optional, the message still version 1); a spoiled flag is dropped on its own, the
+  // rest of the message kept; and an older phone's message, with its sheet name and origin, is
+  // accepted unchanged, so a phone that has not reloaded keeps working with this studio.
+  const wrong = JSON.parse(JSON.stringify(makeVisionMessage({ ...frameParts(), pose: null, outline: null, wrongBoard: true })));
+  assertEqual(wrong.board.wrongBoard, true, 'sent');
+  assert(wrong.v === 1, 'still version 1');
+  assertEqual(validateVisionMessage(wrong).board.wrongBoard, true, 'read back');
+
+  const right = JSON.parse(JSON.stringify(makeVisionMessage(frameParts())));
+  assert(!('wrongBoard' in right.board) && !('wrongBoard' in validateVisionMessage(right).board), 'no flag on our board');
+
+  for (const bad of ['yes', 1, false]) {
+    const checked = validateVisionMessage({ ...wrong, board: { ...wrong.board, wrongBoard: bad } });
+    assert(checked && !('wrongBoard' in checked.board) && checked.board.recognised, `flag ${JSON.stringify(bad)} dropped, message kept`);
+  }
+
+  const older = { ...right, board: { ...right.board, sheet: 'charuco_23x17_10mm_centre3x3_dots', sheetFrom: 'auto', targetMm: [85, 115] } };
+  assertEqual(validateVisionMessage(older), older, 'an older phone\'s sheet');
+  assert(validateVisionMessage({ ...older, board: { ...older.board, sheetFrom: 'chosen' } }), 'a sheet chosen on an older phone');
 });
 
 Deno.test('the optional speed (T-0332): sent as given, read back, a bad one dropped on its own', () => {

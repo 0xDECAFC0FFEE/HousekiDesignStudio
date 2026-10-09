@@ -19,11 +19,13 @@
  * HOW TO RUN (from src/web/): deno test --allow-read --allow-env tests/   (also `deno task test`)
  */
 
-import { BOARD_SPECS, cornerPoint } from '../src/lib/vision/board_frame.js';
+import { cornerPoint } from '../src/lib/vision/board_frame.js';
+import { TEST_BOARD_SPECS } from './vision_test_boards.js';
 import { calibrate } from '../src/lib/vision/calibrate.js';
-import { homographyFocal } from '../src/lib/vision/camera_model.js';
+import { homographyFocal, oneViewFocal, viewHomography } from '../src/lib/vision/camera_model.js';
 import {
   createIntrinsicsEstimator, describeCamera, GUESS_F_OVER_LONG_SIDE, guessIntrinsics, lookupDeviceTable,
+  ONE_VIEW_MIN_TILT_DEG, ONE_VIEW_WINDOW,
 } from '../src/lib/vision/intrinsics.js';
 import {
   assert, assertClose, calibrateWithOpenCv, CV_TEST, fixtureDetection, loadFixture, loadStockOpenCv, lookAtPose,
@@ -32,7 +34,9 @@ import {
 
 const cv = await loadStockOpenCv();
 const ignore = cv === null;
-const spec = BOARD_SPECS.charuco_23x17_10mm_centre1;
+// The single-square-target sheet (test-only since T-0335; vision_test_boards.js): the strip's
+// chessboard less marker 97, its target in the middle of the sheet.
+const spec = TEST_BOARD_SPECS.charuco_23x17_10mm_centre1;
 const TARGET = spec.target.centre_mm;
 
 // The synthetic phone: portrait 1080 x 1920 at 1x zoom, f = 1500 px (0.78 x the long side, a 65
@@ -277,8 +281,9 @@ Deno.test({ name: 'a resolution change rescales K; another aspect ratio starts a
   // Setup: an estimator refined on the synthetic capture at 1080 x 1920.
   // Test: feed one frame at 540 x 960 (the same stream at half size), then one at 1080 x 1080.
   // Verifies: half size -> f and the centre halve, k1 and the source ('refined') stay; a square
-  // frame (another crop of the sensor: the field of view is unknown) -> back to 'guess' for
-  // 1080 x 1080.
+  // frame (another crop of the sensor: the field of view is unknown) -> started again for
+  // 1080 x 1080: the guess, or (T-0336) a 'one-view' estimate from that one square frame alone if
+  // it is slanted enough, with no calibration views held.
   const scheduler = manualScheduler();
   const estimator = createIntrinsicsEstimator(cv, spec, TRUE_K, { schedule: scheduler.schedule });
 
@@ -300,8 +305,11 @@ Deno.test({ name: 'a resolution change rescales K; another aspect ratio starts a
   const square = { ...TRUE_K, width: 1080, height: 1080, cx: 540, cy: 540 };
   estimator.addDetection(syntheticCapture(square, 3, 13)[1]);
   const reset = estimator.current();
-  assert(reset.source === 'guess' && reset.width === 1080 && reset.height === 1080, `reset ${JSON.stringify(reset)}`);
-  assertClose(reset.f, GUESS_F_OVER_LONG_SIDE * 1080, 1e-9, 'guess f for the square frame');
+  assert(reset.width === 1080 && reset.height === 1080, `reset ${JSON.stringify(reset)}`);
+  assert(reset.source === 'guess' ? Math.abs(reset.f - GUESS_F_OVER_LONG_SIDE * 1080) < 1e-9
+    : reset.source === 'one-view' && reset.oneViews === 1, `restarted: ${JSON.stringify(reset)}`);
+  // (with a 'one-view' estimate the square frame itself may already be held as a view: at most 1)
+  assert(estimator.status().views <= 1, `no views kept from the old crop: ${estimator.status().views}`);
   estimator.dispose();
 } });
 
@@ -346,6 +354,85 @@ Deno.test({ name: 'a zoom change is caught from the frames, or from setCamera', 
   assert(seen.length === 1 && seen[0] === 'guess', `zoom change: ${seen}`);
   estimator.dispose();
   other.dispose();
+} });
+
+// --- the lens from one slanted view ('one-view', T-0336) ------------------------------------------
+
+/** A laptop-webcam-like camera: 1280 x 720, f 700 px (an 85 degree field across), no distortion,
+ *  far from the phone guess (0.85 x 1280 = 1088): the case where every pose failed until the seed. */
+const WEBCAM = Object.freeze({ width: 1280, height: 720, f: 700, cx: 640, cy: 360, k1: 0 });
+
+/** One synthetic detection of the board from the webcam, `elevationDeg` above the board (90: looking
+ *  straight down, the board facing the camera), 0.5 px of corner noise, at `timeMs`. */
+function webcamView(elevationDeg, azimuthDeg, timeMs, seed = 1) {
+  const pose = lookAtPose(TARGET, azimuthDeg, elevationDeg, 260, 0);
+  const det = syntheticDetection(spec, pose, WEBCAM, { noisePx: 0.5, random: seededRandom(seed), timeMs });
+  return { ...det, frame: { width: WEBCAM.width, height: WEBCAM.height, timeMs } };
+}
+
+Deno.test({ name: 'oneViewFocal: f and the board\'s tilt from one view\'s homography', ignore, ...CV_TEST, fn() {
+  // Setup: noise-free webcam views of the board (true f 700) at elevations 30, 50 and 70 degrees,
+  // so the board is tilted 60, 40 and 20 degrees from facing the camera; and one from straight
+  // above (tilt ~0).
+  // Test: the view's least-squares homography (viewHomography), then oneViewFocal.
+  // Verifies: on the slanted views both constraints give f within 0.5% of 700, they agree (spread
+  // under 1%), and the tilt is 90 - elevation within 1 degree; straight above, the constraints are
+  // ill-posed: either no f at all (null) or a tilt under ONE_VIEW_MIN_TILT_DEG, so the estimator
+  // would not take it.
+  for (const elevation of [30, 50, 70]) {
+    const det = syntheticDetection(spec, lookAtPose(TARGET, 40, elevation, 260, 0), WEBCAM, { noisePx: 0 });
+    const H = viewHomography(cv, det.corners.map((c) => cornerPoint(spec, c.id)), det.corners.map((c) => [c.x, c.y]), WEBCAM);
+    const one = oneViewFocal(H);
+    assert(one && Math.abs(one.f / 700 - 1) < 0.005 && one.spread < 0.01, `elevation ${elevation}: ${JSON.stringify(one)}`);
+    assertClose(one.tiltDeg, 90 - elevation, 1, `tilt at elevation ${elevation}`);
+  }
+
+  const top = syntheticDetection(spec, lookAtPose(TARGET, 40, 89.9, 260, 0), WEBCAM, { noisePx: 0 });
+  const flat = oneViewFocal(viewHomography(cv, top.corners.map((c) => cornerPoint(spec, c.id)), top.corners.map((c) => [c.x, c.y]), WEBCAM));
+  assert(flat === null || flat.tiltDeg < ONE_VIEW_MIN_TILT_DEG, `straight above: ${JSON.stringify(flat)}`);
+} });
+
+Deno.test({ name: 'the estimator takes f from the first slanted view, keeps the guess on square-on ones, and the seed takes over', ignore, ...CV_TEST, fn() {
+  // Setup: a fresh estimator for 1280 x 720 (guess f 1088) fed webcam views (true f 700, 0.5 px
+  // noise), 300 ms apart (past the seed's 250 ms gap): first three from straight above (the board
+  // facing the camera), then views 50-65 degrees up from all round.
+  // Test: watch current() after each frame.
+  // Verifies: the square-on frames leave the guess in place (they fix no f); the FIRST slanted frame
+  // switches to 'one-view' with f within 3% of 700 (the user's ask: the lens from the board's own
+  // perspective, at once); while on 'one-view', f is the median of at most ONE_VIEW_WINDOW views
+  // (oneViews says how many) and stays within 3%; and once the seed has its 12 frames the source is
+  // 'closed-form' (within 3%), with no lens reset on the way.
+  const estimator = createIntrinsicsEstimator(cv, spec, WEBCAM, { schedule: () => {} });
+  let t = 0;
+
+  for (let k = 0; k < 3; k += 1) {
+    estimator.addDetection(webcamView(89.9, 30 * k, (t += 300), k + 1));
+    assert(estimator.current().source === 'guess', `square-on frame ${k}: ${JSON.stringify(estimator.current())}`);
+  }
+
+  estimator.addDetection(webcamView(55, 20, (t += 300), 10));
+  const first = estimator.current();
+  console.log(`  first slanted view: ${first.source} f ${first.f.toFixed(1)} (${pct(first.f, 700).toFixed(2)}%)`);
+  assert(first.source === 'one-view' && first.oneViews === 1 && Math.abs(pct(first.f, 700)) < 3, `first: ${JSON.stringify(first)}`);
+
+  let sawClosed = null;
+
+  for (let k = 0; k < 14; k += 1) {
+    estimator.addDetection(webcamView(50 + (k % 4) * 5, 30 + 25 * k, (t += 300), 20 + k));
+    const now = estimator.current();
+
+    if (now.source === 'one-view') {
+      assert(now.oneViews <= ONE_VIEW_WINDOW && Math.abs(pct(now.f, 700)) < 3, `one-view ${JSON.stringify(now)}`);
+    }
+
+    if (now.source === 'closed-form' && sawClosed === null) {
+      sawClosed = now;
+    }
+  }
+
+  assert(sawClosed && Math.abs(pct(sawClosed.f, 700)) < 3, `closed-form: ${JSON.stringify(sawClosed)}`);
+  assert(estimator.status().lensResets === 0, 'a lens reset');
+  estimator.dispose();
 } });
 
 Deno.test('the per-device table: lookup rules and describeCamera', () => {
@@ -424,8 +511,10 @@ for (const name of ['moissanite', 'spinel']) {
     // reference: for moissanite (2x zoom) its k1 model; for spinel the desktop chose a free
     // principal point, so the reference is its fixed-centre k1 candidate, the phone's model.
     // Test: read the estimator after the fixture's frames.
-    // Verifies: the closed-form seed lands within 2% of the reference (reported); the fixture's
-    // few dozen frames are not enough to refine (the full captures are, below).
+    // Verifies: the estimate lands within 2% of the reference (reported). Until T-0336 the
+    // fixture's few dozen frames reached only the closed-form seed; since the 'one-view' lens lets
+    // calibration views in from the first slanted frames, moissanite's 40 frames now reach a
+    // refinement (0.45% off), so either is accepted.
     const fixture = loadFixture(name);
     const size = { width: fixture.image_size[0], height: fixture.image_size[1] };
     const d = fixture.desktop_calibration;
@@ -441,7 +530,7 @@ for (const name of ['moissanite', 'spinel']) {
     const k = estimator.current();
     console.log(`  ${name}: after ${fixture.frames.length} frames: ${k.source} f ${k.f.toFixed(1)} (${pct(k.f, reference).toFixed(2)}% vs the `
       + `desktop's ${reference.toFixed(1)}; desktop final ${d.f.toFixed(1)}, ${d.model}); ${estimator.status().views} views held`);
-    assert(k.source === 'closed-form', `source ${k.source}`);
+    assert(k.source === 'closed-form' || k.source === 'refined', `source ${k.source}`);
     assert(Math.abs(pct(k.f, reference)) < 2, `seed ${k.f} vs ${reference}`);
     estimator.dispose();
   } });

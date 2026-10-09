@@ -13,8 +13,8 @@
 //
 // The whole frame is still searched regularly, and whenever the region was not enough (live.js:
 // at least every REGION_FULL_EVERY_MS, after a frame whose region found no pose, when no recent pose
-// is known): the edges of the board feed the lens's calibration and the sheet's recognition (its
-// margins), and a board that moved away is found again.
+// is known): the edges of the board feed the lens's calibration, and a board that moved away is
+// found again.
 //
 // Plain functions on numbers (camera_model.js's projection).
 

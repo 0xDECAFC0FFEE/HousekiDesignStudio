@@ -18,20 +18,21 @@ and the render settings stay on the right.</figcaption></figure>
 picture goes straight from the phone to the computer over that network. Both also need an
 internet connection while they connect.</p>
 
-<h3>The printed board</h3>
+<h3 id="the-printed-board">The printed board</h3>
 
-<p>To find the rock and where the camera is, the phone needs the Houseki scanning board: a sheet
-of black squares, 23 across and 17 down, with a small black-and-white square code in every white
-square, and a target in the middle where the rock goes. Each square must be 10 mm wide: print the
-sheet at its actual size, not "fit to page", and check one square with a ruler. Lay it flat, in
-even light, and put the rock in the middle of the target.</p>
+<p>To find the rock and where the camera is, the phone needs the Houseki Scanner board, the
+printable sheet <code>charuco_23x17_10mm_strip.pdf</code>: black squares, 23 across and 17 down,
+with a small black-and-white square code in every white square, a column of grey and coloured
+patches down each side, <span class="ui">Houseki Scanner board</span> printed at the top and a
+measuring bar along the bottom. Each square must be 10 mm wide: print the sheet at 100% (actual
+size), not "fit to page", and check that the bar measures exactly 100 mm. Lay it flat, in even
+light, and put the rock in the middle of the board.</p>
 
-<p>The board comes in four versions, which differ only in the middle: a sheet with no target and
-colour strips down both sides (the one the phone expects at first), a large blank target with two
-thin grey rings and small dots, the same large target without the dots, and a small target of one
-blank square. The large target, with or without dots, gives the cleanest outline: its blank paper
-surrounds the rock. The phone recognises which version it sees after a few seconds
-over the board, and you can also choose it on the phone (see below).</p>
+<p>The phone works with this board only. Another board made of the same kind of square codes, such
+as an older scanning board, looks much the same at a glance, but its codes are in other places, so
+the phone would get the camera's position wrong from it. When the phone sees one, it says so (see
+<a href="#on-the-phone">On the phone</a>) and measures nothing from it until this board is in
+view.</p>
 
 <div class="note wip"><p>The printable board is not offered for download on this site yet.</p></div>
 
@@ -74,12 +75,12 @@ far it has got: <span class="ui">Waiting for your phone</span> until a phone ope
 <span class="ui">Connecting…</span> while the phone's camera starts, and
 <span class="ui">Streaming</span> once its picture is showing.</p>
 
-<h2>On the phone</h2>
+<h2 id="on-the-phone">On the phone</h2>
 
 <p>The phone shows its camera full screen. Once it has connected to the studio, it gets its board
 finder ready, which takes a moment (the line above the connection says
 <span class="ui">Getting the board finder ready...</span> meanwhile). Then point it at the board
-with the rock on its target. Over the picture it draws what it finds:</p>
+with the rock in its middle. Over the picture it draws what it finds:</p>
 
 <ul>
   <li>a red point on each corner of the printed squares that it has found, and a blue line between
@@ -100,6 +101,11 @@ full searches for the board, the phone follows the squares from one picture to t
 draws each picture where the board is in that picture. If you stop suddenly, the drawing may
 overshoot for a moment and then settle back. If the points slide off the corners and stay off,
 the phone has lost track of where it is: hold it steady for a moment.</p>
+
+<p>The points and lines show as soon as the phone finds the board, even before it can work out
+where the camera is (for example while it is still measuring the camera): then they are drawn
+where the corners were found in the picture, without the arrows or the rock's outline, and lag a
+little behind a moving picture.</p>
 
 <figure><img src="images/rough-scan/phone.webp" alt="A phone held sideways over the board: red points on the corners of the printed squares it has found, joined by blue lines, red, green and blue arrows on the middle of the board, a yellow outline around the rock, a small round map with the camera's angle and a tip at the top right, and two lines of text at the bottom." loading="lazy">
 <figcaption>The phone over the board, part of the way round the rock. (Here, and in the pictures
@@ -125,7 +131,7 @@ at the top right of the phone's screen keeps track of this while you film.</p>
   sheet at 12 o'clock: for example <span class="ui">30° above the board, from 11 o'clock</span>.
   It is measured from the rock itself: after a few views from different sides the phone works out
   where on the board the rock stands, and until then it measures from the middle of the
-  target.</li>
+  board.</li>
   <li><strong>The tip</strong> under the angle says what to film next. It asks you to finish the
   circle you are on (<span class="ui">Circle at 45°: film the 10 to 11 o'clock side.</span>,
   or <span class="ui">keep going all the way round</span> while most of it is still to film),
@@ -178,6 +184,11 @@ second after it is fixed, so it does not flicker.</p>
   <li><span class="ui">Part of the board is in view. Move back a little so more of it
   shows.</span> Some of its codes are visible, but not enough to work out where the camera
   is.</li>
+  <li><span class="ui">This isn't the Houseki scanner board. Print charuco_23x17_10mm_strip.pdf at
+  100% (the bar must measure 100 mm).</span> The phone sees a board of square codes, but not the
+  Houseki Scanner board (see <a href="#the-printed-board">The printed board</a>). The line is
+  outlined in yellow, and nothing is drawn or measured until the right board is in view. Print
+  the board as it says; a view of the whole of it then clears the message at once.</li>
   <li><span class="ui">Board seen, but not clearly. Hold the phone steady.</span> Usually a
   blurred picture.</li>
   <li><span class="ui">Board found. The camera is 18 cm from the rock.</span> How far the camera
@@ -190,13 +201,9 @@ second after it is fixed, so it does not flicker.</p>
   target.</span></li>
 </ul>
 
-<p>At the top of that line is the board chooser. <span class="ui">Board: find it for me</span>
-lets the phone recognise the version of the board, and once it has, says which one it found, for
-example <span class="ui">Board: Large target with rings (found)</span>. If it gets it wrong (the
-rock's outline then takes in parts of the printed pattern), choose your version from the list:
-<span class="ui">Large target with dots</span>, <span class="ui">Large target with rings</span>,
-<span class="ui">Small target</span> or <span class="ui">Colour strips</span>. The phone remembers
-the choice for next time.</p>
+<figure><img src="images/rough-scan/phone-wrong-board.webp" alt="The phone's screen over an older scanning board with a rock on it, nothing drawn over the picture, and at the bottom a line outlined in yellow reading This isn't the Houseki scanner board. Print charuco_23x17_10mm_strip.pdf at 100% (the bar must measure 100 mm)." loading="lazy">
+<figcaption>The phone pointed at another board: it says so, and draws and measures
+nothing.</figcaption></figure>
 
 <h3>How fast your phone is</h3>
 
@@ -205,7 +212,7 @@ numbers about how fast the phone works appears between them. Press and hold agai
 phone remembers whether it is shown. The same numbers, in words, are in the studio's
 <span class="ui">Speed</span> row (see below), so you can read them on the computer instead.</p>
 
-<figure><img src="images/rough-scan/phone-speed.webp" alt="The bottom of the phone's screen: the board chooser, the line saying what the phone sees, a line of numbers reading 27.1 poses/s (23.1 tracked), position 34 ms old (90%: 67), detect 16, track 4.8, pose 0.5, outline 17, guide 5.4, frame 44 ms, 960×540 px, background, and the connection's line." loading="lazy">
+<figure><img src="images/rough-scan/phone-speed.webp" alt="The bottom of the phone's screen: the line saying what the phone sees, a line of numbers about how fast it works (poses a second, how old the position is, and each step's milliseconds), and the connection's line." loading="lazy">
 <figcaption>The numbers, shown by pressing and holding the lines at the bottom.</figcaption></figure>
 
 <ul>
@@ -240,14 +247,15 @@ times a second, so they can trail the picture for a moment when the phone moves 
 phone stops sending them (it lost the board, or the page on it was closed), they fade within half
 a second and go after three.</p>
 
-<figure class="side"><img src="images/rough-scan/readout.webp" alt="The What the phone sees card: Board Found (Colour strips), Camera 18 cm from the rock, 30° above the board, from 11 o'clock, Lens First estimate, still measuring, Rock Outlined, Filmed Low circle 0 of 12 sides, 45° circle 9 of 12, from above: not yet, Next Circle at 45°: film the 1 to 2 o'clock side, Speed 28.4 poses a second (24.7 tracked), position 33 ms old when drawn (90% within 66 ms), finding the board takes 14 ms, and a small round map below." loading="lazy">
+<figure class="side"><img src="images/rough-scan/readout.webp" alt="The What the phone sees card: Board Found, the camera's distance from the rock, its height and side, the lens's state, Rock Outlined, how much of each circle is filmed, the next tip, the Speed row, and a small round map below." loading="lazy">
 <figcaption>The <span class="ui">What the phone sees</span> card.</figcaption></figure>
 
 <p>The <span class="ui">What the phone sees</span> card on the left reads the same out in words:</p>
 
 <ul>
-  <li><span class="ui">Board</span>: <span class="ui">Found</span>, with the version of the board
-  once the phone has recognised it, or <span class="ui">Not in view</span>;</li>
+  <li><span class="ui">Board</span>: <span class="ui">Found</span>, <span class="ui">Not in
+  view</span>, or <span class="ui">Not the scanner board</span> when the phone is pointed at
+  another board (see <a href="#the-printed-board">The printed board</a>);</li>
   <li><span class="ui">Camera</span>: how far the camera is from the rock, how high above the
   board and from which side, as on the phone;</li>
   <li><span class="ui">Lens</span>: <span class="ui">Estimating</span>, then

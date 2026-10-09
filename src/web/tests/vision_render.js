@@ -1,6 +1,6 @@
 /*
  * vision_render.js -- a small pinhole renderer of the printed sheets, in plain JS, for the phone
- * vision's integration tests (T-0326: vision_board_pick_test.js, vision_live_test.js). Not a test
+ * vision's integration tests (T-0326: vision_live_test.js, vision_tracker_test.js). Not a test
  * file itself (no _test suffix).
  *
  * Each pixel's ray (2 x 2 rays per pixel, averaged, so edges are anti-aliased) is cut with the

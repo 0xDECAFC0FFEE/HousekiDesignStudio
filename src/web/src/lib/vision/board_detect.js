@@ -20,8 +20,9 @@
 // when frames find nothing -- and turns the module's numbers into a BoardDetection.
 //
 // THE BOARD. The module supports the current (non-legacy) ChArUco pattern with DICT_4X4_250
-// markers, which is every board the scanner prints (./boards/); its columns, rows and marker ratio
-// are parameters (the real-frame test fixtures use an older 22 x 22 board).
+// markers, which is the scanner's board (./boards/); its columns, rows and marker ratio are
+// parameters (the real-frame test fixtures use an older 22 x 22 board). Whether the markers found
+// are laid out as our board prints them is board_fit.js's question, asked by live.js.
 //
 // INPUT. `source` is an ImageData (canvas getImageData, RGBA), or anything shaped like one:
 // { data, width, height } with 4 bytes per pixel (RGBA) or 1 (grey).

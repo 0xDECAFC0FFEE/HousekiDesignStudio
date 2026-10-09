@@ -429,6 +429,80 @@ export function focalsFromHomography(H) {
 }
 
 /**
+ * One view's focal length, with what is needed to judge it (T-0336: the lens measured from the
+ * very first slanted view of the board, before the closed-form seed's dozen views). From the view's
+ * homography H (as focalsFromHomography's), each of the two constraints separately (null where its
+ * f^2 is not positive), their mean `f` when both exist, how far apart they are (`spread`: |a / b -
+ * 1|), and the board's tilt from the camera's image plane (`tiltDeg`, 0 = facing the camera
+ * squarely) worked out with that f: the plane's normal is r1 x r2 of K^-1 H's columns. A view facing
+ * the camera squarely fixes no f (both constraints divide by ~0); the tilt says how far from that
+ * the view is. Returns null when either constraint is missing.
+ *
+ * @param {number[]} H  row-major 3x3, board X/Y (mm) -> pixel minus the image centre
+ * @returns {{ f: number, fOrth: number, fNorm: number, spread: number, tiltDeg: number }|null}
+ */
+export function oneViewFocal(H) {
+  const h1 = [H[0], H[3], H[6]];
+  const h2 = [H[1], H[4], H[7]];
+  const orth = Math.abs(h1[2] * h2[2]) > 1e-12 ? -(h1[0] * h2[0] + h1[1] * h2[1]) / (h1[2] * h2[2]) : NaN;
+  const d = h2[2] ** 2 - h1[2] ** 2;
+  const norm = Math.abs(d) > 1e-12 ? ((h1[0] ** 2 + h1[1] ** 2) - (h2[0] ** 2 + h2[1] ** 2)) / d : NaN;
+
+  if (!(orth > 0) || !(norm > 0)) {
+    return null;
+  }
+
+  const fOrth = Math.sqrt(orth);
+  const fNorm = Math.sqrt(norm);
+  const f = (fOrth + fNorm) / 2;
+  const unit = (v) => {
+    const n = Math.hypot(v[0], v[1], v[2]);
+    return [v[0] / n, v[1] / n, v[2] / n];
+  };
+  const r1 = unit([h1[0] / f, h1[1] / f, h1[2]]);
+  const r2 = unit([h2[0] / f, h2[1] / f, h2[2]]);
+  const r3 = unit([r1[1] * r2[2] - r1[2] * r2[1], r1[2] * r2[0] - r1[0] * r2[2], r1[0] * r2[1] - r1[1] * r2[0]]);
+  const tiltDeg = (Math.acos(Math.min(1, Math.abs(r3[2]))) * 180) / Math.PI;
+  return { f, fOrth, fNorm, spread: Math.abs(fOrth / fNorm - 1), tiltDeg };
+}
+
+/**
+ * One view's homography (cv.findHomography, least squares, method 0, as the desktop) from board X/Y
+ * (mm) to pixels relative to the image centre: row-major 9 numbers, or null (fewer than 6 corners,
+ * or no fit).
+ */
+export function viewHomography(cv, points, pixels, size) {
+  if (points.length < 6) {
+    return null;
+  }
+
+  const cx = size.width / 2;
+  const cy = size.height / 2;
+  const src = new Float64Array(points.length * 2);
+  const dst = new Float64Array(points.length * 2);
+
+  for (let i = 0; i < points.length; i += 1) {
+    src[2 * i] = points[i][0];
+    src[2 * i + 1] = points[i][1];
+    dst[2 * i] = pixels[i][0] - cx;
+    dst[2 * i + 1] = pixels[i][1] - cy;
+  }
+
+  const srcMat = cv.matFromArray(points.length, 1, cv.CV_64FC2, src);
+  const dstMat = cv.matFromArray(points.length, 1, cv.CV_64FC2, dst);
+  let H = null;
+
+  try {
+    H = cv.findHomography(srcMat, dstMat, 0);
+    return H && H.rows === 3 && H.cols === 3 ? Array.from(H.data64F) : null;
+  } finally {
+    srcMat.delete();
+    dstMat.delete();
+    H?.delete();
+  }
+}
+
+/**
  * One view's closed-form focal lengths: its homography (cv.findHomography, least squares, method 0,
  * as the desktop) from board X/Y (mm) to pixels relative to the image centre, then
  * focalsFromHomography. Views with fewer than 6 corners give none (as the desktop).
