@@ -112,14 +112,15 @@
     document.documentElement.addEventListener('mouseleave', hide);
 
     // Scrolling the panel out from under the tip dismisses it. `scroll` does not bubble, so it
-    // is the panel's own element that is listened to.
+    // is the panel's own element that is listened to. The scanner's page (src/web/embed, T-0337)
+    // shows tips too and has no such panel.
     const panel = document.getElementById('panel');
 
-    panel.addEventListener('scroll', hide);
+    panel?.addEventListener('scroll', hide);
 
     return () => {
       document.documentElement.removeEventListener('mouseleave', hide);
-      panel.removeEventListener('scroll', hide);
+      panel?.removeEventListener('scroll', hide);
     };
   });
 </script>

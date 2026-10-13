@@ -176,18 +176,24 @@ class Chrome:
             )
         )
 
-    def send(self, method, params=None, timeout=60):
+    def send(self, method, params=None, timeout=60, session_id=None):
         """Sends one CDP command and waits for its matching response.
 
         Ignores any other message (events, or replies to commands sent concurrently by
         something else) that arrives first, since this client only ever has one command
         in flight.
+
+        `session_id` sends the command to a target attached with
+        `Target.attachToTarget(..., flatten=True)` over this same connection instead of to
+        the page itself: test_scanner_embed.py (T-0337) drives the scanner's iframe that
+        way, which Chrome runs in a process of its own because it is another site's.
         """
         message_id = self._next_id
         self._next_id += 1
-        self.ws.send(
-            json.dumps({"id": message_id, "method": method, "params": params or {}})
-        )
+        command = {"id": message_id, "method": method, "params": params or {}}
+        if session_id is not None:
+            command["sessionId"] = session_id
+        self.ws.send(json.dumps(command))
 
         deadline = time.time() + timeout
         while time.time() < deadline:

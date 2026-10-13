@@ -1,15 +1,15 @@
 <script>
-  // Tools > Rough scan's panel (T-0314), in the LEFT pane while the mode is open, in place of the
-  // cutting instructions (Workspace.svelte stacks the two, as it does record rendering's); the
-  // render settings stay on the right, and the QR code and then the phone's camera take the
-  // renderer's place (ScanView.svelte). What the steps say, the status, New code and Done at the
-  // pane's foot -- the buttons' work is scan_mode.js's.
+  // The scanner's panel (T-0314; on the scan page since T-0337, src/web/embed/EmbedApp.svelte): the
+  // phone steps, the status, what the phone sees, New code, and Done at the pane's foot. Beside it,
+  // the QR code and then the phone's camera (ScanView.svelte). The session's work is
+  // scan_session.js's; Done's is the page's (`ondone`: it hands the result to the website that
+  // opened the scanner, then closes it).
   import { Button } from '$lib/components/ui/button/index.js';
   import RefreshIcon from '@lucide/svelte/icons/refresh-cw';
   import PanelSection from './PanelSection.svelte';
   import {
-    scanning, scanStream, scanVision, exitScan, newScanCode, scanStatusText, scanVisionText,
-  } from '../lib/scan_mode.js';
+    scanning, scanStream, scanVision, newScanCode, scanStatusText, scanVisionText,
+  } from '../lib/scan_session.js';
   import { coverageMapCells, mapPoint } from '../lib/vision/guidance.js';
 
   // The coverage map (T-0331), as on the phone: the sheet seen from above, its top edge up; rings
@@ -18,6 +18,8 @@
 
   // The modes' ways out look and sit alike (RecordPanel's, verbatim).
   const ACTION = 'h-8 flex-1 border-[var(--panel-edge)] bg-[var(--raised)] px-3 text-[13px] text-[var(--text)] shadow-none hover:border-[var(--accent)] hover:bg-[var(--hover)] hover:text-[var(--text)] dark:border-[var(--panel-edge)] dark:bg-[var(--raised)] dark:hover:border-[var(--accent)] dark:hover:bg-[var(--hover)]';
+
+  let { ondone } = $props();
 
   const scan = $derived($scanning);
   const status = $derived(scanStatusText(scan, $scanStream !== null));
@@ -45,7 +47,7 @@
   <PanelSection title="Phone" id="scan-phone-section">
     <ol class="scan-steps">
       <li>Put your phone on the same network as this computer, for example the same Wi-Fi.</li>
-      <li>Scan the code in the middle with the phone's camera and open the link, or send the link to the phone.</li>
+      <li>Scan the code on the right with the phone's camera and open the link, or send the link to the phone.</li>
       <li>Allow the camera when the phone asks. Its picture appears here.</li>
       <li>Lay the printed board flat, put the rock on its target, and point the phone at it. The board's grid and axes and the rock's outline are drawn over the picture, and the phone shows where to film from next.</li>
     </ol>
@@ -86,8 +88,8 @@
 
   <div class="scan-actions">
     <Button variant="outline" size="sm" id="scan-done" class={ACTION + ' border-[var(--accent)] text-[var(--accent)] dark:border-[var(--accent)]'}
-      data-tip="Closes the rough scan: ends the session, so the phone's link stops working, and brings back the cutting instructions and the stone. Escape does the same."
-      onclick={exitScan}>Done</Button>
+      data-tip="Finishes the scan: hands what was scanned to the page that opened the scanner, and ends the session, so the phone's link stops working."
+      onclick={ondone}>Done</Button>
   </div>
 </div>
 

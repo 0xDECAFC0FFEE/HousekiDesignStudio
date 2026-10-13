@@ -20,6 +20,10 @@ build/www/index.html, robots.txt, the social preview og-image.png and, once src/
 has the site's URL, sitemap.xml. It also builds the phone scanner page (src/web/scanner, T-0313, its own Vite config) and copies
 it to build/www/scanner/index.html, served at /scanner (install_scanner_page below), with the
 phone's prebuilt OpenCV next to it as build/www/scanner/opencv.js (install_scanner_opencv, T-0323).
+Since T-0337 the computer's half of the scanner is a page of its own too: the scan page
+(src/web/embed, its own Vite config), copied to build/www/scanner/embed.html, and /scanner.js
+(src/web/sdk, its own Vite config), the script a website includes to open it, copied to
+build/www/scanner.js (install_scanner_embed and install_scanner_sdk below).
 All of build/www is generated: edit the app under src/web or the landing page under src/site,
 then run ./build.sh (or this script).
 
@@ -108,8 +112,15 @@ WEB_DIR = SRC / "web"
 TEMPLATE = BUILD / "web" / "index.html"
 # The phone scanner page (T-0313): src/web/scanner, built by its own Vite config
 # (src/web/vite.scanner.config.js) into one file, and served at /scanner as
-# build/www/scanner/index.html. The computer's scan mode links phones to it with a QR code.
+# build/www/scanner/index.html. The computer's scan page links phones to it with a QR code.
 SCANNER_BUILD = BUILD / "scanner" / "index.html"
+# The scan page (T-0337): src/web/embed, built by src/web/vite.embed.config.js into one file, and
+# served at /scanner/embed.html. A website, the studio among them, opens it in a modal through
+# /scanner.js.
+EMBED_BUILD = BUILD / "embed" / "index.html"
+# /scanner.js (T-0337): src/web/sdk/scanner.js, built by src/web/vite.sdk.config.js into one
+# classic script, and served at the site's root.
+SDK_BUILD = BUILD / "sdk" / "scanner.js"
 # The phone page's OpenCV (T-0323): a committed, prebuilt opencv.js (rebuilt only by
 # src/web/vendor/opencv/build_opencv_js.sh, never by this build), copied next to the phone page
 # as build/www/scanner/opencv.js. It is the one file the phone page loads besides itself: about
@@ -489,6 +500,14 @@ def build_web(minified):
 
     if not SCANNER_BUILD.is_file():
         fail(f"the scanner page's build did not write {SCANNER_BUILD}.")
+
+    # The scan page and /scanner.js (T-0337), the same way: separate files, always minified.
+    for task, built in (("build:embed", EMBED_BUILD), ("build:sdk", SDK_BUILD)):
+        print(f"==> (in src/web) deno task {task}")
+        subprocess.run(["deno", "task", task], check=True, cwd=WEB_DIR)
+
+        if not built.is_file():
+            fail(f"`deno task {task}` did not write {built}.")
 
 
 def minify(text, mode, description):
@@ -988,6 +1007,49 @@ def install_scanner_page(output_dir=None):
     return path
 
 
+def install_scanner_embed(output_dir=None):
+    """Copies the scan page's build (EMBED_BUILD, T-0337) to <output_dir>/scanner/embed.html, so
+    the site serves it at /scanner/embed.html beside the phone's page, and returns that path.
+    `output_dir` defaults to build/www.
+
+    Fails unless the page is one self-contained file, as install_scanner_page does for the phone's:
+    it bundles Svelte, the scanner's components and Trystero, and must not load anything else."""
+    output_dir = SITE_OUTPUT_DIR if output_dir is None else output_dir
+    page = EMBED_BUILD.read_text()
+
+    if re.search(r"<script[^>]*\bsrc\s*=", page, re.IGNORECASE):
+        fail(f"{EMBED_BUILD} loads a script by src=; the scan page must be one file.")
+
+    if re.search(r"<link[^>]*\brel\s*=\s*[\"']?(stylesheet|modulepreload)", page, re.IGNORECASE):
+        fail(f"{EMBED_BUILD} links a stylesheet or module; the scan page must be one file.")
+
+    path = output_dir / "scanner" / "embed.html"
+    path.parent.mkdir(parents=True, exist_ok=True)
+    path.write_text(page)
+    return path
+
+
+def install_scanner_sdk(output_dir=None):
+    """Copies /scanner.js's build (SDK_BUILD, T-0337) to <output_dir>/scanner.js, the site's root,
+    and returns that path. `output_dir` defaults to build/www.
+
+    Fails unless it is one classic script that publishes HousekiScan and imports nothing: websites
+    include it with a plain <script src>, where an `import` would be a syntax error."""
+    output_dir = SITE_OUTPUT_DIR if output_dir is None else output_dir
+    script = SDK_BUILD.read_text()
+
+    if "globalThis.HousekiScan" not in script:
+        fail(f"{SDK_BUILD} does not publish globalThis.HousekiScan.")
+
+    if re.search(r"^\s*(import|export)\b", script, re.MULTILINE):
+        fail(f"{SDK_BUILD} is a module; /scanner.js must be a classic script.")
+
+    path = output_dir / "scanner.js"
+    path.parent.mkdir(parents=True, exist_ok=True)
+    path.write_text(script)
+    return path
+
+
 def install_scanner_opencv(output_dir=None):
     """Copies the phone page's OpenCV (SCANNER_OPENCV) to <output_dir>/scanner/opencv.js, next to
     the page, and returns that path. `output_dir` defaults to build/www.
@@ -1157,7 +1219,7 @@ def main():
     arguments = parser.parse_args()
 
     if arguments.skip_web_build:
-        for built in (TEMPLATE, SCANNER_BUILD):
+        for built in (TEMPLATE, SCANNER_BUILD, EMBED_BUILD, SDK_BUILD):
             if not built.is_file():
                 fail(f"--skip-web-build but {built} does not exist")
     else:
@@ -1211,7 +1273,8 @@ def main():
     # The landing page links to the app by its file name, so it is only built alongside the
     # app at its default path; an app written elsewhere (--output) leaves build/www/ alone.
     if output == DEFAULT_OUTPUT.resolve():
-        for path in [*build_site(output), install_scanner_page(), install_scanner_opencv(), install_scanner_vision()]:
+        for path in [*build_site(output), install_scanner_page(), install_scanner_embed(), install_scanner_sdk(),
+                     install_scanner_opencv(), install_scanner_vision()]:
             print(f"wrote {path} ({path.stat().st_size / 1024:.1f} KiB)")
 
 

@@ -13,6 +13,13 @@ user found that it did not connect. These tests take that path, with nothing loc
     file://, the user's own setup (the studio's link points at the public site from file://, so the
     test, like the user, rewrites it to the local phone page).
 
+Since T-0337 the studio's half of the scanner is the scan page, which the studio opens in a modal
+iframe: over http://localhost it is the scan page beside the studio, same-origin, so the tests read
+it (its video, and the relay sockets it opened) through scanner_frame.py; the instrumentation below
+runs in every frame of the tab, the iframe's included. From file:// the studio opens the PUBLISHED
+scan page, https://houseki.app/scanner/embed.html (a file has no site of its own to serve it), so
+that test checks it does and skips the pairing until the published site has the page.
+
 Each test records, in both tabs, every relay websocket (instrumented before the page's scripts run):
 when it opened, what it refused, and how many events it delivered. It prints how long pairing took
 and which relays carried it -- a relay carried it if both tabs received events through it -- and
@@ -51,6 +58,7 @@ sys.path.insert(0, HERE)
 
 try:
     import cdp
+    from scanner_frame import ScannerFrame
     from test_scan_link import CHROME_ARGS, Server
 except ImportError as error:  # websocket-client is not installed
     cdp = None
@@ -127,6 +135,7 @@ class PublicRelayPairingTest(unittest.TestCase):
             raise unittest.SkipTest("could not start Chrome: %s" % error)
 
         self.studio = self.chrome
+        self.scanner = ScannerFrame(self.studio)
         self.phone = self.chrome.new_tab()
 
         for tab in (self.studio, self.phone):
@@ -166,8 +175,14 @@ class PublicRelayPairingTest(unittest.TestCase):
         self.click("#menu-button-tools")
         self.studio.wait_for_expression("!!document.getElementById('menu-item-rough-scan')", timeout=10)
         self.click("#menu-item-rough-scan")
-        self.studio.wait_for_expression("!!document.getElementById('scan-qr')", timeout=20)
-        return self.studio.evaluate("document.getElementById('scan-url').textContent.trim()")
+        self.studio.wait_for_expression("!!document.querySelector('#houseki-scanner iframe')", timeout=20)
+
+        # From a file, the scan page is the published one, in another site's frame (see the header).
+        if not self.studio.evaluate("location.protocol").startswith("http"):
+            return None
+
+        self.scanner.wait_for_expression("!!document.getElementById('scan-qr')", timeout=60)
+        return self.scanner.evaluate("document.getElementById('scan-url').textContent.trim()")
 
     def pair(self, phone_link):
         """Opens `phone_link` in the phone tab (in front, as the person looking at it has it) and
@@ -178,23 +193,23 @@ class PublicRelayPairingTest(unittest.TestCase):
         deadline = started + PAIR_TIMEOUT
 
         while time.time() < deadline:
-            if self.studio.evaluate("document.getElementById('scan-view')?.dataset.streaming === 'true'"):
+            if self.scanner.evaluate("document.getElementById('scan-view')?.dataset.streaming === 'true'"):
                 return time.time() - started
 
             time.sleep(0.2)
 
         self.fail("no pairing within %ds: studio %r, phone %r (%r)\n%s\nstudio console: %r\nphone console: %r" % (
             PAIR_TIMEOUT,
-            self.studio.evaluate("document.getElementById('scan-view')?.dataset.status"),
+            self.scanner.evaluate("document.getElementById('scan-view')?.dataset.status"),
             self.phone.evaluate("document.getElementById('scanner-status')?.dataset.status"),
             self.phone.evaluate("document.getElementById('scanner-status')?.dataset.detail"),
             self.relay_report(),
-            self.studio.evaluate("window.__console"),
+            self.scanner.evaluate("window.__console"),
             self.phone.evaluate("window.__console")))
 
     def relay_report(self):
         """One line per relay: what each tab saw on it."""
-        studio = {r["url"]: r for r in self.studio.evaluate("window.__relays") or []}
+        studio = {r["url"]: r for r in self.scanner.evaluate("window.__relays") or []}
         phone = {r["url"]: r for r in self.phone.evaluate("window.__relays") or []}
         lines = []
 
@@ -213,7 +228,7 @@ class PublicRelayPairingTest(unittest.TestCase):
         return "\n".join(lines)
 
     def carriers(self):
-        studio = {r["url"]: r["events"] for r in self.studio.evaluate("window.__relays") or []}
+        studio = {r["url"]: r["events"] for r in self.scanner.evaluate("window.__relays") or []}
         phone = {r["url"]: r["events"] for r in self.phone.evaluate("window.__relays") or []}
         return sorted(url for url in studio if studio[url] > 0 and phone.get(url, 0) > 0)
 
@@ -221,15 +236,15 @@ class PublicRelayPairingTest(unittest.TestCase):
         """After pairing: the studio's video really plays, both tabs used exactly the pinned
         relays, and at least one relay carried events both ways. Prints the report."""
         self.studio.send("Page.bringToFront")
-        self.studio.wait_for_expression("document.getElementById('scan-video')?.videoWidth > 0", timeout=20)
-        first = self.studio.evaluate("document.getElementById('scan-video').currentTime")
+        self.scanner.wait_for_expression("document.getElementById('scan-video')?.videoWidth > 0", timeout=20)
+        first = self.scanner.evaluate("document.getElementById('scan-video').currentTime")
         time.sleep(1.5)
-        later = self.studio.evaluate("document.getElementById('scan-video').currentTime")
+        later = self.scanner.evaluate("document.getElementById('scan-video').currentTime")
         self.assertGreater(later, first, "the phone's video is not advancing in the studio")
         self.assertEqual(self.phone.evaluate("document.getElementById('scanner-status').dataset.status"), "connected")
 
         pinned = pinned_relays()
-        for name, tab in (("studio", self.studio), ("phone", self.phone)):
+        for name, tab in (("studio", self.scanner), ("phone", self.phone)):
             used = sorted({r["url"] for r in tab.evaluate("window.__relays")})
             self.assertEqual(used, sorted(pinned), "the %s did not use exactly the pinned relays" % name)
 
@@ -258,17 +273,17 @@ class PublicRelayPairingTest(unittest.TestCase):
     def test_pairs_over_public_relays_from_file_pages(self):
         """The user's own setup: studio and phone page both opened from file://.
 
-        Setup: the studio opened from build/www/studio.html as a file. Its link points at the
-        public site (a file has no address a phone could reach), so, as the user did, the test
-        swaps that for the local phone page, file:///.../scanner/index.html, keeping the hash.
-        Test and verifies: as above, from file://, where Chrome counts both pages as secure
-        contexts (camera, WebRTC and WebCrypto all work).
+        Setup: the studio opened from build/www/studio.html as a file. Since T-0337 its scanner is
+        the published scan page, https://houseki.app/scanner/embed.html, in the modal (a file has
+        no site to serve one). Test: Tools > Rough scan. Verifies the modal opens that page.
+        Until the published site has it, the test stops there (skipped, saying so); pairing
+        through it needs the scanner's iframe driven as another site's (test_scanner_embed.py
+        does that for a partner page) and is left to T-0338.
         """
-        link = self.open_rough_scan(pathlib.Path(STUDIO_PAGE).as_uri())
-        self.assertTrue(link.startswith("https://houseki.app/scanner#v=1&"), link)
-        self.assertNotIn("&s=", link)
-        local = pathlib.Path(SCANNER_PAGE).as_uri() + "#" + link.split("#", 1)[1]
-        self.check_streaming_and_relays("file://", self.pair(local))
+        self.assertIsNone(self.open_rough_scan(pathlib.Path(STUDIO_PAGE).as_uri()))
+        self.assertEqual(self.studio.evaluate("document.querySelector('#houseki-scanner iframe').src"),
+                         "https://houseki.app/scanner/embed.html")
+        self.skipTest("pairing from file:// goes through the published scan page: T-0338")
 
 
 @unittest.skipUnless(ENABLED, "opt-in: set GEM_TEST_PUBLIC_RELAYS=1 to test against the real public relays")

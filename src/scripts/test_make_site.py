@@ -370,6 +370,75 @@ class InstallScannerPageTest(unittest.TestCase):
                 self.install(page)
 
 
+class InstallScannerEmbedTest(unittest.TestCase):
+    """make_page.install_scanner_embed and install_scanner_sdk (T-0337): the scan page a website
+    opens in a modal, built by its own Vite config into one file, is copied to scanner/embed.html;
+    /scanner.js, the classic script a website includes to open it, to the site's root."""
+
+    def work(self):
+        """A fresh temporary directory with an empty www/ to install into."""
+        work = pathlib.Path(tempfile.mkdtemp(prefix="gem-embed-"))
+        (work / "www").mkdir()
+        return work
+
+    def install_page(self, built_page):
+        """Runs install_scanner_embed on `built_page` (standing in for Vite's output). Returns the
+        output directory and the path the function reported."""
+        work = self.work()
+        built = work / "built.html"
+        built.write_text(built_page)
+
+        with mock.patch.object(make_page, "EMBED_BUILD", built):
+            return work / "www", make_page.install_scanner_embed(work / "www")
+
+    def install_script(self, built_script):
+        """Runs install_scanner_sdk on `built_script` (standing in for Vite's IIFE output)."""
+        work = self.work()
+        built = work / "scanner.js"
+        built.write_text(built_script)
+
+        with mock.patch.object(make_page, "SDK_BUILD", built):
+            return work / "www", make_page.install_scanner_sdk(work / "www")
+
+    def test_the_scan_page_is_served_beside_the_phone_page(self):
+        # Setup: a self-contained page, as vite-plugin-singlefile writes it. Test: install it.
+        # Verifies: it lands, unchanged, at scanner/embed.html -- under /scanner/ with the phone's
+        # page, where scanner_protocol.js's EMBED_PATH and /scanner.js look for it.
+        page = "<!DOCTYPE html><html><head><style>p{}</style><script type=\"module\">go()</script></head></html>"
+        out, path = self.install_page(page)
+
+        self.assertEqual(path, out / "scanner" / "embed.html")
+        self.assertEqual(path.read_text(), page)
+
+    def test_a_scan_page_that_loads_another_file_is_refused(self):
+        # Setup: two pages that each load a second file, by src= and by <link>. Test: install each.
+        # Verifies: the build stops rather than publishing a scan page whose script or style is
+        # missing from the site.
+        for page in ('<script type="module" src="./assets/index.js"></script>',
+                     '<link rel="stylesheet" href="./assets/style.css">'):
+            with self.subTest(page=page), self.assertRaises(SystemExit):
+                self.install_page(page)
+
+    def test_scanner_js_is_served_at_the_site_root(self):
+        # Setup: a classic script that publishes HousekiScan, as the IIFE build writes it. Test:
+        # install it. Verifies: it lands, unchanged, at scanner.js in the site's root -- the
+        # address websites include, https://houseki.app/scanner.js.
+        script = '(function(){"use strict";globalThis.HousekiScan=Object.freeze({version:1})})();\n'
+        out, path = self.install_script(script)
+
+        self.assertEqual(path, out / "scanner.js")
+        self.assertEqual(path.read_text(), script)
+
+    def test_a_script_that_is_a_module_or_publishes_nothing_is_refused(self):
+        # Setup: an ES module (what the build would write without the IIFE format: a website's
+        # plain <script src> would fail on its first `import`), and a script that does not publish
+        # HousekiScan. Test: install each. Verifies: the build stops with an error for both.
+        for script in ('import { a } from "./a.js";\nglobalThis.HousekiScan = a;\n',
+                       '(function(){ window.Other = 1; })();\n'):
+            with self.subTest(script=script), self.assertRaises(SystemExit):
+                self.install_script(script)
+
+
 class InstallScannerOpenCvTest(unittest.TestCase):
     """make_page.install_scanner_opencv (T-0323): the phone page's prebuilt OpenCV, committed at
     src/web/vendor/opencv/opencv.js, is copied next to the page as scanner/opencv.js, where the

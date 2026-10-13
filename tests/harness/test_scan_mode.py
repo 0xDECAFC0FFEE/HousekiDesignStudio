@@ -1,21 +1,27 @@
-"""Tools > Rough scan, end to end in the studio (T-0314).
+"""Tools > Rough scan, end to end in the studio (T-0314; the scanner a modal since T-0337).
 
 The user asked for "a rough scanning mode [that] first shows a qr code on the screen", and once
 the phone has scanned it, the phone's camera streamed "to the phone screen and the website";
 later, "a copyable url under the qr code so users can send it instead of using the qr code".
+Since T-0337 ("lets split our site, can you put the scanner at www.houseki.app/scanner.js and
+embed it into the main site") the scanner is a page of its own, build/www/scanner/embed.html,
+which the studio opens in a modal iframe exactly as another website does through /scanner.js.
 These tests drive the BUILT studio, build/www/studio.html, the way a person does -- real mouse
-clicks on the Tools menu, a real Escape -- with the real phone page, build/www/scanner/, in a
-second tab of the same browser standing in for the phone. Nothing in the studio is stubbed: the
-session is scan_link.js's own.
+clicks on the Tools menu and in the scanner, a real Escape -- with the real phone page,
+build/www/scanner/, in a second tab of the same browser standing in for the phone. Nothing is
+stubbed: the modal is scanner_sdk.js's, the session scan_link.js's own. The scan page is
+same-origin with the studio here, so the tests read it through scanner_frame.py's ScannerFrame.
+How another website opens the scanner is tests/harness/test_scanner_embed.py's.
 
 HOW THEY RUN. As tests/harness/test_scan_link.py (T-0313) does, and with its `Server` and `Relay`:
 
   * build/www served over HTTP on localhost, so the studio's default phone page is that server's
     /scanner and the camera and WebRTC work (localhost is a secure context);
   * a Nostr relay on localhost (nostr_relay.js, under Deno) instead of the public relays. The
-    studio is pointed at it through its one test-only setting, `gems.scanRelayUrls` in the page's
-    own storage (scan_mode.js's SCAN_RELAYS_SETTING), written by the test before the mode is
-    opened; the session link then carries it to the phone page;
+    scanner is pointed at it through its one test-only setting, `gems.scanRelayUrls` in its
+    origin's storage (scan_session.js's SCAN_RELAYS_SETTING), written by the test through the
+    studio, which shares that origin, before the scanner is opened; the session link then
+    carries it to the phone page;
   * headless Chrome with a fake camera (a moving test pattern), granted without a prompt.
 
 The QR code is checked as a phone would check it: a screenshot of the code as drawn on screen is
@@ -43,12 +49,14 @@ HERE = os.path.dirname(os.path.abspath(__file__))
 PROJECT_ROOT = os.path.dirname(os.path.dirname(HERE))
 STUDIO_PAGE = os.path.join(PROJECT_ROOT, "build", "www", "studio.html")
 SCANNER_PAGE = os.path.join(PROJECT_ROOT, "build", "www", "scanner", "index.html")
+EMBED_PAGE = os.path.join(PROJECT_ROOT, "build", "www", "scanner", "embed.html")
 JSQR = os.path.join(PROJECT_ROOT, "src", "web", "node_modules", "jsqr", "dist", "jsQR.js")
 
 sys.path.insert(0, HERE)
 
 try:
     import cdp
+    from scanner_frame import ScannerFrame
     from test_scan_link import CHROME_ARGS, CONNECT_TIMEOUT, Relay, Server
 except ImportError as error:  # websocket-client is not installed
     cdp = None
@@ -56,7 +64,7 @@ except ImportError as error:  # websocket-client is not installed
 
 GL_BACKEND = os.environ.get("GEM_TEST_GL") or None
 
-# scan_mode.js's SCAN_RELAYS_SETTING: the relays the studio's sessions use, for the tests only.
+# scan_session.js's SCAN_RELAYS_SETTING: the relays the scanner's sessions use, for the tests only.
 RELAYS_SETTING = "gems.scanRelayUrls"
 
 
@@ -68,6 +76,7 @@ def js(value):
 @unittest.skipIf(cdp is None, "needs websocket-client: %s" % (IMPORT_ERROR if cdp is None else ""))
 @unittest.skipUnless(os.path.isfile(STUDIO_PAGE), "the studio is not built (%s); run ./build.sh" % STUDIO_PAGE)
 @unittest.skipUnless(os.path.isfile(SCANNER_PAGE), "the phone page is not built (%s); run ./build.sh" % SCANNER_PAGE)
+@unittest.skipUnless(os.path.isfile(EMBED_PAGE), "the scan page is not built (%s); run ./build.sh" % EMBED_PAGE)
 @unittest.skipUnless(os.path.isfile(JSQR), "jsQR is not installed (%s); run ./setup.sh" % JSQR)
 @unittest.skipUnless(shutil.which("deno"), "needs Deno, to run the local Nostr relay")
 class RoughScanModeTest(unittest.TestCase):
@@ -86,6 +95,7 @@ class RoughScanModeTest(unittest.TestCase):
         # The studio is the browser's first tab; the phone is a second tab of the same browser,
         # which is also how the user tries it on one laptop.
         cls.studio = cls.chrome
+        cls.scanner = ScannerFrame(cls.studio)
         cls.phone = cls.chrome.new_tab()
         cls.studio.send("Emulation.setDeviceMetricsOverride", {
             "width": 1440, "height": 900, "deviceScaleFactor": 1, "mobile": False,
@@ -106,30 +116,38 @@ class RoughScanModeTest(unittest.TestCase):
 
     def tearDown(self):
         # Every test starts from the studio with no mode open.
-        if self.studio.evaluate("!!document.getElementById('scan-view')"):
+        if self.scanner.is_open():
             self.studio.send("Page.bringToFront")
             self.press_escape()
         self.phone.navigate("about:blank")
 
     # --- acting like a person ---------------------------------------------------------------
 
+    FINISH_ANIMATIONS = "document.getAnimations().filter(a => a.effect?.getComputedTiming().endTime !== Infinity).forEach(a => a.finish()), true"
+
     def finish_animations(self):
         # kb/browser-harness.md: a CSS transition can stall at 0 under this harness and leave a
-        # button `visibility: hidden` to hit testing; a real browser finishes it in 150 ms.
-        self.studio.evaluate("document.getAnimations().filter(a => a.effect?.getComputedTiming().endTime !== Infinity).forEach(a => a.finish()), true")
+        # button `visibility: hidden` to hit testing; a real browser finishes it in 150 ms. In the
+        # studio and, while it is open, in the scanner.
+        self.studio.evaluate(self.FINISH_ANIMATIONS)
+        self.scanner.evaluate(self.FINISH_ANIMATIONS)
 
-    def box(self, selector):
-        box = self.studio.evaluate(
-            "(() => { const e = document.querySelector(%s); if (!e) return null;"
-            " const r = e.getBoundingClientRect(); return {x: r.x, y: r.y, width: r.width, height: r.height}; })()"
-            % js(selector))
+    def box(self, selector, in_scanner=True):
+        """The element's rectangle in the tab: in the scanner's page by default, else the studio's."""
+        if in_scanner:
+            box = self.scanner.box(selector)
+        else:
+            box = self.studio.evaluate(
+                "(() => { const e = document.querySelector(%s); if (!e) return null;"
+                " const r = e.getBoundingClientRect(); return {x: r.x, y: r.y, width: r.width, height: r.height}; })()"
+                % js(selector))
         self.assertIsNotNone(box, "no element matches %s" % selector)
         return box
 
-    def click(self, selector):
+    def click(self, selector, in_scanner=True):
         """A real mouse click at the middle of the element, as a person makes it."""
         self.finish_animations()
-        box = self.box(selector)
+        box = self.box(selector, in_scanner)
         x, y = box["x"] + box["width"] / 2, box["y"] + box["height"] / 2
 
         self.studio.send("Input.dispatchMouseEvent", {"type": "mouseMoved", "x": x, "y": y, "button": "none"})
@@ -140,16 +158,17 @@ class RoughScanModeTest(unittest.TestCase):
         for kind in ("keyDown", "keyUp"):
             self.studio.send("Input.dispatchKeyEvent", {"type": kind, "key": "Escape", "code": "Escape",
                                                         "windowsVirtualKeyCode": 27})
-        self.studio.wait_for_expression("!document.getElementById('scan-view')", timeout=10)
+        self.studio.wait_for_expression("!document.getElementById('houseki-scanner')", timeout=10)
 
     def open_mode(self):
-        """Tools > Rough scan, with the mouse; waits for the code. Returns the link shown under it."""
+        """Tools > Rough scan, with the mouse; waits for the scanner's code. Returns the link
+        shown under it."""
         self.studio.send("Page.bringToFront")
-        self.click("#menu-button-tools")
+        self.click("#menu-button-tools", in_scanner=False)
         self.studio.wait_for_expression("!!document.getElementById('menu-item-rough-scan')", timeout=10)
-        self.click("#menu-item-rough-scan")
-        self.studio.wait_for_expression("!!document.getElementById('scan-qr')", timeout=20)
-        return self.studio.evaluate("document.getElementById('scan-url').textContent.trim()")
+        self.click("#menu-item-rough-scan", in_scanner=False)
+        self.scanner.wait_for_expression("!!document.getElementById('scan-qr')", timeout=20)
+        return self.scanner.evaluate("document.getElementById('scan-url').textContent.trim()")
 
     # --- reading the screen -------------------------------------------------------------------
 
@@ -161,10 +180,22 @@ class RoughScanModeTest(unittest.TestCase):
             raise RuntimeError("JS exception: %r" % result["exceptionDetails"])
         return result.get("result", {}).get("value")
 
-    def decode_qr_on_screen(self):
+    def decode_qr_on_screen(self, attempts=5):
         """Takes a screenshot of the QR code as drawn on screen, white tile and all, and decodes it
         with jsQR in the page: what a phone's camera would read off the screen. Returns the text,
-        or None if the code cannot be read."""
+        or None if the code cannot be read.
+
+        A few tries, a moment apart: since T-0337 the code is in the scanner's iframe, and a
+        screenshot taken in the frame or two after the modal appeared once caught the tile before
+        it had its final size (decoded to None), as a phone held up at that instant would."""
+        for _ in range(attempts):
+            text = self.decode_qr_once()
+            if text is not None:
+                return text
+            time.sleep(0.3)
+        return None
+
+    def decode_qr_once(self):
         self.finish_animations()
         box = self.box(".scan-qr-tile")
         png = self.studio.send("Page.captureScreenshot", {
@@ -210,18 +241,24 @@ class RoughScanModeTest(unittest.TestCase):
 
         Setup: the studio served over HTTP, no mode open. Test: open the Tools menu and click
         Rough scan with the mouse; screenshot the code as drawn and decode it. Verifies the top
-        bar reads "Rough scan" and the cutting instructions give way to the mode's panel; the
-        code a phone would read off the screen is exactly the link printed under it; and that
-        link is a session link to this server's phone page (/scanner, version 1, with a room and
-        a password) carrying the test relay -- the session scan_link.js made, with the studio's
-        default phone page and nothing else passed in.
+        bar reads "Rough scan"; the scanner is a modal over the studio whose iframe is this
+        server's scan page (/scanner/embed.html, the one beside the studio), naming the studio's
+        own host as the site it scans for, with its panel live; the code a phone would read off
+        the screen is exactly the link printed under it; and that link is a session link to this
+        server's phone page (/scanner, version 1, with a room and a password) carrying the test
+        relay -- the session scan_link.js made, with the default phone page and nothing else
+        passed in.
         """
         shown = self.open_mode()
         decoded = self.decode_qr_on_screen()
         print("\n[scan_mode] code decodes to %s" % decoded, file=sys.stderr)
 
         self.assertEqual(self.mode_readout(), "Rough scan")
-        self.assertTrue(self.studio.evaluate("!!document.getElementById('scan-panel') && !document.getElementById('scan-panel').closest('[inert]')"))
+        self.assertEqual(self.studio.evaluate("document.querySelector('#houseki-scanner iframe').src"),
+                         self.server.origin + "/scanner/embed.html")
+        self.assertEqual(self.scanner.evaluate("document.getElementById('embed-site').textContent.trim()"),
+                         "· Scanning for " + self.server.origin.split("//", 1)[1])
+        self.assertTrue(self.scanner.evaluate("!!document.getElementById('scan-panel') && !document.getElementById('scan-panel').closest('[inert]')"))
         self.assertEqual(decoded, shown)
         self.assertTrue(shown.startswith(self.server.origin + "/scanner#v=1&r="), shown)
         self.assertIn("&p=", shown)
@@ -241,12 +278,12 @@ class RoughScanModeTest(unittest.TestCase):
             "origin": self.server.origin, "permissions": ["clipboardReadWrite", "clipboardSanitizedWrite"],
         })
         self.click("#scan-copy")
-        self.studio.wait_for_expression("document.getElementById('scan-copy').textContent.includes('Copied')", timeout=5)
+        self.scanner.wait_for_expression("document.getElementById('scan-copy').textContent.includes('Copied')", timeout=5)
 
         copied = self.evaluate_async("navigator.clipboard.readText()")
         self.assertEqual(copied, shown)
         self.assertEqual(copied, self.decode_qr_on_screen())
-        self.assertEqual(self.studio.evaluate("getComputedStyle(document.getElementById('scan-url')).userSelect"), "all")
+        self.assertEqual(self.scanner.evaluate("getComputedStyle(document.getElementById('scan-url')).userSelect"), "all")
 
     def test_the_phone_streams_its_camera_into_the_studio(self):
         """The link the code holds, opened on the phone, puts its live camera in the studio.
@@ -265,32 +302,32 @@ class RoughScanModeTest(unittest.TestCase):
             "document.getElementById('scanner-status')?.dataset.status === 'connected'", timeout=CONNECT_TIMEOUT)
 
         self.studio.send("Page.bringToFront")
-        self.studio.wait_for_expression(
+        self.scanner.wait_for_expression(
             "document.getElementById('scan-view').dataset.streaming === 'true'", timeout=CONNECT_TIMEOUT)
-        self.studio.wait_for_expression("document.getElementById('scan-video').videoWidth > 0", timeout=20)
+        self.scanner.wait_for_expression("document.getElementById('scan-video').videoWidth > 0", timeout=20)
 
         video = ("(() => { const v = document.getElementById('scan-video'); const t = v.srcObject.getVideoTracks()[0];"
                  " return { paused: v.paused, width: v.videoWidth, height: v.videoHeight, time: v.currentTime,"
                  " track: t.readyState, shown: v.getBoundingClientRect().width }; })()")
-        first = self.studio.evaluate(video)
+        first = self.scanner.evaluate(video)
         time.sleep(1.5)
-        later = self.studio.evaluate(video)
+        later = self.scanner.evaluate(video)
         print("\n[scan_mode] studio video %r -> %r" % (first, later), file=sys.stderr)
 
         self.assertFalse(later["paused"])
         self.assertEqual(later["track"], "live")
         self.assertGreater(later["time"], first["time"], "the phone's video is not advancing")
         self.assertGreater(later["shown"], 300, "the video does not fill the middle")
-        self.assertFalse(self.studio.evaluate("!!document.getElementById('scan-qr')"), "the code is still shown")
-        self.assertTrue(self.studio.evaluate("!!document.getElementById('scan-live')"))
-        self.assertIn("Streaming", self.studio.evaluate("document.getElementById('scan-panel-status').textContent"))
+        self.assertFalse(self.scanner.evaluate("!!document.getElementById('scan-qr')"), "the code is still shown")
+        self.assertTrue(self.scanner.evaluate("!!document.getElementById('scan-live')"))
+        self.assertIn("Streaming", self.scanner.evaluate("document.getElementById('scan-panel-status').textContent"))
 
     def wait_for_streaming(self):
         """Brings the studio to the front and waits for the phone's video to play in it."""
         self.studio.send("Page.bringToFront")
-        self.studio.wait_for_expression(
+        self.scanner.wait_for_expression(
             "document.getElementById('scan-view').dataset.streaming === 'true'", timeout=CONNECT_TIMEOUT)
-        self.studio.wait_for_expression("document.getElementById('scan-video').videoWidth > 0", timeout=20)
+        self.scanner.wait_for_expression("document.getElementById('scan-video').videoWidth > 0", timeout=20)
 
     def test_a_phone_that_leaves_can_come_back_with_the_same_code(self):
         """A phone that closes the page is shown as gone, and the same code brings it back.
@@ -308,26 +345,28 @@ class RoughScanModeTest(unittest.TestCase):
 
         self.phone.navigate("about:blank")
         self.studio.send("Page.bringToFront")
-        self.studio.wait_for_expression(
+        self.scanner.wait_for_expression(
             "document.getElementById('scan-view').dataset.status === 'disconnected'", timeout=CONNECT_TIMEOUT)
 
-        self.assertEqual(self.studio.evaluate("document.getElementById('scan-view').dataset.streaming"), "false")
-        self.assertIn("Phone disconnected", self.studio.evaluate("document.getElementById('scan-status').textContent"))
+        self.assertEqual(self.scanner.evaluate("document.getElementById('scan-view').dataset.streaming"), "false")
+        self.assertIn("Phone disconnected", self.scanner.evaluate("document.getElementById('scan-status').textContent"))
         self.assertEqual(self.decode_qr_on_screen(), link, "the same code is shown again")
 
         self.open_on_phone(link)
         self.wait_for_streaming()
-        self.assertIn("Streaming", self.studio.evaluate("document.getElementById('scan-panel-status').textContent"))
+        self.assertIn("Streaming", self.scanner.evaluate("document.getElementById('scan-panel-status').textContent"))
 
     def test_leaving_the_mode_ends_the_session_and_reopening_makes_a_new_one(self):
-        """Escape and Done leave the mode, end the session, and put the studio back.
+        """Escape, Done and Close leave the mode, end the session, and put the studio back.
 
-        Setup: the mode open with the phone streaming, as above. Test: press Escape; then open
-        the mode again and leave it with the Done button. Verifies that on Escape the mode's view
-        and panel go, the top bar reads "Overview" and the cutting instructions are back; that
-        the phone sees the computer leave (its page says 'disconnected'), so the session really
-        ended rather than only being hidden; that the mode opened again shows a different link
-        (a new room and password); and that Done closes it the same way.
+        Setup: the mode open with the phone streaming, as above. Test: press Escape (the scanner
+        has the keyboard focus, as it takes it on opening); then open the mode again and leave it
+        with the Done button; then again, with the scanner's Close (X). Verifies that on Escape
+        the modal goes, the top bar reads "Overview" and the design is free again (the tier
+        toolbar not held); that the phone sees the computer leave (its page says 'disconnected'),
+        so the session really ended rather than only being hidden; that the mode opened again
+        shows a different link (a new room and password); and that Done and Close close it the
+        same way.
         """
         self.open_mode()
         first = self.decode_qr_on_screen()
@@ -336,19 +375,24 @@ class RoughScanModeTest(unittest.TestCase):
             "document.getElementById('scanner-status')?.dataset.status === 'connected'", timeout=CONNECT_TIMEOUT)
 
         self.studio.send("Page.bringToFront")
+        self.assertTrue(self.studio.evaluate("document.activeElement === document.querySelector('#houseki-scanner iframe')"),
+                        "the scanner does not have the focus")
         self.press_escape()
 
         self.assertEqual(self.mode_readout(), "Overview")
-        self.assertFalse(self.studio.evaluate("!!document.getElementById('scan-video')"))
-        self.assertTrue(self.studio.evaluate("!!document.getElementById('scan-panel').closest('[inert]')"),
-                        "the mode's panel is still live")
+        self.assertFalse(self.scanner.is_open())
         self.phone.wait_for_expression(
             "document.getElementById('scanner-status').dataset.status === 'disconnected'", timeout=CONNECT_TIMEOUT)
 
         second = self.open_mode()
         self.assertNotEqual(second.split("#", 1)[1], first.split("#", 1)[1])
         self.click("#scan-done")
-        self.studio.wait_for_expression("!document.getElementById('scan-view')", timeout=10)
+        self.studio.wait_for_expression("!document.getElementById('houseki-scanner')", timeout=10)
+        self.assertEqual(self.mode_readout(), "Overview")
+
+        self.open_mode()
+        self.click("#embed-close")
+        self.studio.wait_for_expression("!document.getElementById('houseki-scanner')", timeout=10)
         self.assertEqual(self.mode_readout(), "Overview")
 
 

@@ -1,0 +1,6 @@
+/* The scan page's styles (T-0337): the studio's, whole. Tailwind finds the classes it generates
+   by scanning the files near the build's root, which for this page is src/web/embed: without the
+   @source below it never saw the studio's components (ScanPanel, ScanView, the shadcn Button) and
+   left their buttons unstyled. */
+@import "../src/styles/tailwind.css";
+@source "../src";

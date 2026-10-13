@@ -7,6 +7,8 @@
   "scripts": {
     "build": "vite build",
     "build:scanner": "vite build --config vite.scanner.config.js",
+    "build:embed": "vite build --config vite.embed.config.js",
+    "build:sdk": "vite build --config vite.sdk.config.js",
     "test": "deno test --allow-read --allow-env tests/",
     "shadcn": "shadcn-svelte"
   },

@@ -78,10 +78,11 @@ REJECT_WINDOW = 15
 
 
 class Server:
-    """build/www over HTTP on a free localhost port, in a thread."""
+    """build/www over HTTP on a free localhost port, in a thread. `directory` serves another
+    directory instead: test_scanner_embed.py's stand-in for another website (T-0337)."""
 
-    def __init__(self):
-        handler = functools.partial(_QuietHandler, directory=SITE)
+    def __init__(self, directory=SITE):
+        handler = functools.partial(_QuietHandler, directory=directory)
         self.httpd = http.server.ThreadingHTTPServer(("127.0.0.1", 0), handler)
         self.origin = "http://localhost:%d" % self.httpd.server_address[1]
         self.thread = threading.Thread(target=self.httpd.serve_forever, daemon=True)

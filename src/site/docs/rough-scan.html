@@ -1,18 +1,20 @@
 <h1>Rough scan</h1>
 
-<p>Rough scan connects your phone's camera to the studio. The studio shows a code. You scan it
-with your phone, and the phone's camera then appears live in the middle of the studio, where the
-stone usually is. Point the phone at a printed scanning board with the rock on it, and the phone
-finds the board, works out where the camera is above it, and outlines the rock. It draws these
-over its own picture and sends them to the studio, which draws them over the phone's picture
-too. This is the first step towards scanning a piece of rough with your phone: for now it shows
-what the phone sees, and does not yet build a model of the rock.</p>
+<p>Rough scan connects your phone's camera to the studio. It opens the scanner in a window over
+the studio. The scanner shows a code. You scan it with your phone, and the phone's camera then
+appears live in the scanner. Point the phone at a printed scanning board with the rock on it, and
+the phone finds the board, works out where the camera is above it, and outlines the rock. It draws
+these over its own picture and sends them to the computer, which draws them over the phone's
+picture too. This is the first step towards scanning a piece of rough with your phone: for now it
+shows what the phone sees, and does not yet build a model of the rock.</p>
 
-<figure><img src="images/rough-scan/overview.webp" alt="The studio with Rough scan open: the Phone and Connection cards in the left-hand pane, a large QR code in the middle with the link under it and a Copy button, and the render settings on the right." loading="lazy">
-<figcaption>Rough scan open, waiting for a phone. The code takes the stone's place in the middle,
-and the render settings stay on the right.</figcaption></figure>
+<figure><img src="images/rough-scan/overview.webp" alt="The studio with the scanner open over it: a window titled Houseki scanner, with the Phone and Connection cards on its left and a large QR code on its right with the link under it and a Copy button." loading="lazy">
+<figcaption>The scanner open over the studio, waiting for a phone.</figcaption></figure>
 
-<h2>Before you start</h2>
+<p>The same scanner can be added to other websites, which can then ask you to scan a rough for
+them: see <a href="scanner-for-websites.html">The scanner on your website</a>.</p>
+
+<h2 id="before-you-start">Before you start</h2>
 
 <p>The phone and this computer need to be on the same network, for example the same Wi-Fi. The
 picture goes straight from the phone to the computer over that network. Both also need an
@@ -43,21 +45,30 @@ is loaded. It is greyed out while another mode, such as editing a tier, is open,
 then says which one to finish first. While it is open, the top bar's mode readout says
 <span class="ui">Rough scan</span>.</p>
 
+<p>The scanner opens in a window over the studio. Its title bar says which site it is scanning
+for: <span class="ui">Houseki scanner · Scanning for houseki.app</span> when you use the studio on
+this site. In a copy of the studio saved to your computer it says
+<span class="ui">Scanning for a page on this computer</span>, and the scanner itself comes from
+this site, so the computer needs an internet connection to open it. If it cannot be reached, the
+window says <span class="ui">The scanner could not be loaded. Check your internet connection, then
+try again.</span>, with a <span class="ui">Close</span> button.</p>
+
 <figure class="side"><img src="images/rough-scan/tools-menu.webp" alt="The Tools menu open, with Rough scan at the bottom." loading="lazy">
 <figcaption>The <span class="ui">Tools</span> menu.</figcaption></figure>
 
 <h2>Connecting your phone</h2>
 
 <ol>
-  <li>Point your phone's camera at the code in the middle and open the link it shows.</li>
+  <li>Point your phone's camera at the code and open the link it shows.</li>
   <li>The phone opens the scanner page. Allow it to use the camera when it asks.</li>
-  <li>The phone's camera appears in the middle of the studio, and on the phone's own screen.</li>
+  <li>The phone's camera appears in the scanner, in the code's place, and on the phone's own
+  screen.</li>
 </ol>
 
 <p>Under the code is the same link as text. Click <span class="ui">Copy</span> to copy it (the
 button says <span class="ui">Copied</span> for a moment), then send it to your phone, for example
 in a message to yourself, and open it there. You can also select the text and copy it yourself:
-one click selects all of it. If your browser will not copy it for you, the studio selects the link
+one click selects all of it. If your browser will not copy it for you, the scanner selects the link
 and tells you which keys copy it.</p>
 
 <figure class="side"><img src="images/rough-scan/link.webp" alt="The link under the QR code, in a box, with a Copy button beside it that reads Copied." loading="lazy">
@@ -66,8 +77,8 @@ and tells you which keys copy it.</p>
 <div class="note"><p>The link works like a key to this session: anyone who opens it can connect
 their camera, so send it only to your own phone.</p></div>
 
-<figure class="side"><img src="images/rough-scan/panel.webp" alt="The left-hand pane in Rough scan: the Phone card with four numbered steps, the Connection card reading Waiting for your phone with a New code button, and Done at the bottom." loading="lazy">
-<figcaption>The left-hand pane: the steps, the connection's state, <span class="ui">New
+<figure class="side"><img src="images/rough-scan/panel.webp" alt="The left-hand side of the scanner: the Phone card with four numbered steps, the Connection card reading Waiting for your phone with a New code button, and Done at the bottom." loading="lazy">
+<figcaption>The scanner's left-hand side: the steps, the connection's state, <span class="ui">New
 code</span> and <span class="ui">Done</span>.</figcaption></figure>
 
 <p>The <span class="ui">Connection</span> card on the left, and the line under the code, say how
@@ -77,7 +88,7 @@ far it has got: <span class="ui">Waiting for your phone</span> until a phone ope
 
 <h2 id="on-the-phone">On the phone</h2>
 
-<p>The phone shows its camera full screen. Once it has connected to the studio, it gets its board
+<p>The phone shows its camera full screen. Once it has connected to the computer, it gets its board
 finder ready, which takes a moment (the line above the connection says
 <span class="ui">Getting the board finder ready...</span> meanwhile). Then point it at the board
 with the rock in its middle. Over the picture it draws what it finds:</p>
@@ -209,7 +220,7 @@ nothing.</figcaption></figure>
 
 <p>Press and hold the lines at the bottom of the screen for about half a second, and a line of
 numbers about how fast the phone works appears between them. Press and hold again to hide it. The
-phone remembers whether it is shown. The same numbers, in words, are in the studio's
+phone remembers whether it is shown. The same numbers, in words, are in the scanner's
 <span class="ui">Speed</span> row (see below), so you can read them on the computer instead.</p>
 
 <figure><img src="images/rough-scan/phone-speed.webp" alt="The bottom of the phone's screen: the line saying what the phone sees, a line of numbers about how fast it works (poses a second, how old the position is, and each step's milliseconds), and the connection's line." loading="lazy">
@@ -234,13 +245,13 @@ phone remembers whether it is shown. The same numbers, in words, are in the stud
   browsers, where it is kept to a share of the phone's time, so it is slower).</li>
 </ul>
 
-<h2>In the studio</h2>
+<h2>In the scanner</h2>
 
-<figure><img src="images/rough-scan/live.webp" alt="The studio with the phone's picture of the board and rock filling the middle, the board's grid, red, green and blue arrows and a yellow rock outline drawn over it, a Live from your phone label at its top left, and on the left a What the phone sees card." loading="lazy">
-<figcaption>The phone's camera, live, in the middle of the studio, with what the phone
-found drawn over it.</figcaption></figure>
+<figure><img src="images/rough-scan/live.webp" alt="The scanner over the studio with the phone's picture of the board and rock on its right, the board's grid, red, green and blue arrows and a yellow rock outline drawn over it, a Live from your phone label at its top left, and on the left a What the phone sees card." loading="lazy">
+<figcaption>The phone's camera, live, in the scanner, with what the phone found drawn over
+it.</figcaption></figure>
 
-<p>The picture fills the middle of the studio, with <span class="ui">Live from your phone</span>
+<p>The picture fills the right of the scanner, with <span class="ui">Live from your phone</span>
 at its top left, and follows the phone as you move it. The board's grid, the arrows on the middle
 of the board and the rock's outline are drawn over it, as on the phone. They come from the phone up to ten
 times a second, so they can trail the picture for a moment when the phone moves quickly. If the
@@ -250,7 +261,7 @@ a second and go after three.</p>
 <figure class="side"><img src="images/rough-scan/readout.webp" alt="The What the phone sees card: Board Found, the camera's distance from the rock, its height and side, the lens's state, Rock Outlined, how much of each circle is filmed, the next tip, the Speed row, and a small round map below." loading="lazy">
 <figcaption>The <span class="ui">What the phone sees</span> card.</figcaption></figure>
 
-<p>The <span class="ui">What the phone sees</span> card on the left reads the same out in words:</p>
+<p>The <span class="ui">What the phone sees</span> card on the left of the scanner reads the same out in words:</p>
 
 <ul>
   <li><span class="ui">Board</span>: <span class="ui">Found</span>, <span class="ui">Not in
@@ -277,12 +288,12 @@ a second and go after three.</p>
 <p>Under them is the same map as on the phone's screen.</p>
 
 <p>If the phone has sent nothing for a few seconds, the card says so. A phone whose page is from
-before these measurements existed still streams its picture; the studio then simply shows the
+before these measurements existed still streams its picture; the scanner then simply shows the
 picture, with no drawing and no card.</p>
 
 <h2>If the phone disconnects</h2>
 
-<p>If the phone closes the page or loses the network, the picture goes away, the studio says
+<p>If the phone closes the page or loses the network, the picture goes away, the scanner says
 <span class="ui">Phone disconnected</span>, and the code comes back. Scan it, or open the link on
 the phone again, to reconnect.</p>
 
@@ -290,16 +301,15 @@ the phone again, to reconnect.</p>
 session and starts a new one with a new code and link. A phone that is connected is cut off, and
 the old link stops working. Use it if you sent the link somewhere you should not have.</p>
 
-<p>If the studio cannot reach the internet to connect the phone, the code is replaced by a message
+<p>If the scanner cannot reach the internet to connect the phone, the code is replaced by a message
 saying so. Check this computer's internet connection; the code comes back as soon as the
 connection works.</p>
 
 <h2>Closing it</h2>
 
-<p>Click <span class="ui">Done</span> at the bottom of the left-hand pane, or press
-<kbd>Esc</kbd>. The session ends, so the link the phone opened stops working, and the cutting
-instructions and the stone come back. The next time you open Rough scan it makes a new code and
-link. Nothing in the design changes, so <span class="ui">Undo</span> and
-<span class="ui">Redo</span> do nothing while the mode is open, and the design cannot be edited
-until it is closed. If you switch to fullscreen while it is open, the left-hand pane is hidden,
-and the first <kbd>Esc</kbd> then leaves fullscreen.</p>
+<p>Click <span class="ui">Done</span> at the bottom of the scanner's left-hand side, click the
+<span class="ui">×</span> at the right of its title bar, or press <kbd>Esc</kbd>. The scanner
+closes, the session ends, so the link the phone opened stops working, and the studio and the stone
+are back as they were. The next time you open Rough scan it makes a new code and link. Nothing in
+the design changes, so <span class="ui">Undo</span> and <span class="ui">Redo</span> do nothing
+while the scanner is open, and the design cannot be edited until it is closed.</p>

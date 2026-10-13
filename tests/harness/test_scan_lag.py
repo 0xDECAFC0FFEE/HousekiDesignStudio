@@ -54,6 +54,7 @@ sys.path.insert(0, os.path.join(HERE, "vision"))
 
 try:
     import cdp
+    from scanner_frame import ScannerFrame
     from test_scan_link import CHROME_ARGS, CONNECT_TIMEOUT, Relay, Server
     # The module, not the class: a TestCase imported by name would run its tests here too.
     import test_scan_vision
@@ -330,6 +331,7 @@ class ScanLagTest(unittest.TestCase):
             cls.server.close()
             raise unittest.SkipTest("could not start Chrome: %s" % error)
 
+        cls.scanner = ScannerFrame(cls.studio)
         cls.studio.send("Emulation.setDeviceMetricsOverride", {"width": 1440, "height": 900, "deviceScaleFactor": 1, "mobile": False})
         cls.studio.navigate(cls.server.origin + "/studio.html", timeout=120)
         cls.studio.evaluate("localStorage.setItem(%s, %s), true" % (js(RELAYS_SETTING), js(json.dumps([cls.relay.url]))))
@@ -360,7 +362,7 @@ class ScanLagTest(unittest.TestCase):
             link = self.open_mode()
             phone.navigate(link)
             phone.wait_for_expression("document.getElementById('scanner-status')?.dataset.status === 'connected'", timeout=CONNECT_TIMEOUT)
-            self.studio.wait_for_expression("document.getElementById('scan-view').dataset.streaming === 'true'", timeout=CONNECT_TIMEOUT)
+            self.scanner.wait_for_expression("document.getElementById('scan-view').dataset.streaming === 'true'", timeout=CONNECT_TIMEOUT)
             phone.wait_for_expression("window.housekiScanVision?.state?.phase === 'pose'", timeout=90)
             phone.send("Page.bringToFront")
 
@@ -395,7 +397,7 @@ class ScanLagTest(unittest.TestCase):
             state = json.loads(phone.evaluate("JSON.stringify(housekiScanVision.state, (k, v) => ['last', 'drawn', 'lastTracked'].includes(k) ? undefined : v)"))
             self.studio.send("Page.bringToFront")
             time.sleep(1)
-            readout = self.studio.evaluate("document.getElementById('scan-vision-readout')?.textContent ?? ''")
+            readout = self.scanner.evaluate("document.getElementById('scan-vision-readout')?.textContent ?? ''")
         finally:
             phone.close()
 

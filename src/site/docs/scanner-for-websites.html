@@ -1,0 +1,115 @@
+<h1>The scanner on your website</h1>
+
+<p>You can add the Houseki scanner to your own website. A visitor clicks a button on your page, the
+scanner opens in a window over it, they scan their rough with their phone, and when they click
+<span class="ui">Done</span> your page receives what was scanned. It is the same scanner as
+<a href="rough-scan.html">Rough scan</a> in the studio, which opens it the same way.</p>
+
+<figure><img src="images/scanner-for-websites/open.webp" alt="A website with the Houseki scanner open over it: a window titled Houseki scanner, Scanning for the website's address, with the Phone and Connection cards on its left and a QR code on its right." loading="lazy">
+<figcaption>The scanner opened from another website. Its title bar names that website.</figcaption></figure>
+
+<div class="note wip"><p>The scanner does not build a 3D model of the rock yet. For now your page
+receives whether a phone connected and what it measured: the board, where the rock stands on it,
+and which sides it was filmed from. The model will be added to the same result when it is ready.</p></div>
+
+<h2>Adding it to a page</h2>
+
+<p>Include the script, then open the scanner from a button:</p>
+
+<pre><code>&lt;button id="scan-rough" type="button"&gt;Scan your rough&lt;/button&gt;
+&lt;script src="https://houseki.app/scanner.js"&gt;&lt;/script&gt;
+&lt;script&gt;
+  document.getElementById('scan-rough').addEventListener('click', () =&gt; {
+    HousekiScan.open({
+      onResult(result) {
+        // The visitor clicked Done. See "What your page receives" below.
+        console.log(result);
+      },
+      onCancel() {
+        // The visitor closed the scanner without finishing.
+      },
+    });
+  });
+&lt;/script&gt;</code></pre>
+
+<p>That is all. The scanner window covers your page until the visitor finishes or closes it, then
+goes, and your page scrolls again as before. Your page needs nothing else: no account, no key and
+no server of its own.</p>
+
+<p>If your site sets a Content Security Policy, allow <code>https://houseki.app</code> in its
+<code>script-src</code> (for the script) and its <code>frame-src</code> (for the scanner
+window).</p>
+
+<h2>What the visitor sees</h2>
+
+<p>The scanner's title bar names your website, as the visitor's browser reports it, for example
+<span class="ui">Houseki scanner · Scanning for shop.example</span>, so they know who is asking for
+the scan. The rest is the scanner as described in <a href="rough-scan.html">Rough scan</a>: a code
+to scan with the phone, then the phone's camera live, with the board and the rock's outline drawn
+over it. The visitor can close it with the <span class="ui">×</span> in the title bar or with
+<kbd>Esc</kbd>, and finish with <span class="ui">Done</span>.</p>
+
+<h2>HousekiScan.open</h2>
+
+<p><code>HousekiScan.open(options)</code> opens the scanner and returns an object with one method,
+<code>close()</code>. The options are:</p>
+
+<table>
+  <thead><tr><th>Option</th><th>What it is</th></tr></thead>
+  <tbody>
+    <tr><td><code>onResult(result)</code></td><td>Required. Called once, when the visitor clicks
+    <span class="ui">Done</span>, with what was scanned. The scanner has closed by then.</td></tr>
+    <tr><td><code>onCancel()</code></td><td>Called once if the visitor closes the scanner without
+    finishing (the <span class="ui">×</span>, <kbd>Esc</kbd>, or <span class="ui">Close</span>
+    on the message shown when the scanner cannot be loaded).</td></tr>
+    <tr><td><code>onStatus(status)</code></td><td>Optional. Called as the scan goes, with one of
+    <code>waiting</code> (the code is up), <code>connecting</code> (a phone opened the link),
+    <code>streaming</code> (its camera is showing), <code>disconnected</code> (the phone left; the
+    same code reconnects it) and <code>error</code> (the connection failed; the scanner says
+    why).</td></tr>
+  </tbody>
+</table>
+
+<p>Exactly one of <code>onResult</code> and <code>onCancel</code> is called. Calling
+<code>close()</code> closes the scanner from your page, and then neither is called. Only one
+scanner can be open at a time: <code>HousekiScan.open</code> throws an error while one is.</p>
+
+<h2>What your page receives</h2>
+
+<p><code>result</code> is a plain object:</p>
+
+<table>
+  <thead><tr><th>Field</th><th>What it holds</th></tr></thead>
+  <tbody>
+    <tr><td><code>version</code></td><td><code>1</code>. It changes only if a field below changes
+    meaning; new fields can be added without changing it.</td></tr>
+    <tr><td><code>phoneConnected</code></td><td><code>true</code> if a phone streamed its camera
+    while the scanner was open.</td></tr>
+    <tr><td><code>board</code></td><td><code>null</code> if the phone measured nothing, else
+    <code>{ found, sizeMm, targetMm }</code>: whether the printed scanning board was found, the
+    size of its grid in millimetres, and the point in its middle where the rock goes.</td></tr>
+    <tr><td><code>rock</code></td><td><code>null</code> if the phone measured nothing, else
+    <code>{ outlined, positionMm }</code>: whether the rock was outlined, and where it stands on the
+    board in millimetres (<code>[x, y, z]</code>), or <code>null</code> until the phone has seen
+    it from enough sides to tell.</td></tr>
+    <tr><td><code>coverage</code></td><td><code>null</code> if the phone gave no guidance, else
+    <code>{ low, middle, top, masks }</code>: how many of the twelve sides of the low circle and of
+    the 45° circle were filmed, whether there is a view from above, and the full record, one number
+    per height, a bit for each side.</td></tr>
+  </tbody>
+</table>
+
+<p>Each part is what the phone last measured before <span class="ui">Done</span>, even if the
+phone had disconnected by then.</p>
+
+<div class="note"><p>The result comes to your page from the visitor's own browser, so treat it as
+information the visitor gave you, not as proof: a visitor who wants to can change it before your
+page sees it.</p></div>
+
+<h2>Trying it</h2>
+
+<p>The phone and the computer need to be on the same network, and both need an internet connection
+while they connect, as for <a href="rough-scan.html#before-you-start">Rough scan</a>. The phone
+also needs the printed scanning board to measure anything (see
+<a href="rough-scan.html#the-printed-board">The printed board</a>); without it, the scanner still
+shows the phone's camera, and the result says a phone connected but measured nothing.</p>

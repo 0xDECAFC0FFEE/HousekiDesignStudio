@@ -1,7 +1,8 @@
 <script>
-  // Tools > Rough scan's picture (T-0314), laid over the renderer while the mode is open
-  // (Workspace.svelte): the QR code for the phone to scan, with the link under it to copy instead,
-  // then -- once the phone streams -- its live camera in the same place. The user, 2026-10-02:
+  // The scanner's picture (T-0314; on the scan page since T-0337, src/web/embed/EmbedApp.svelte;
+  // before, it was laid over the studio's renderer): the QR code for the phone to scan, with the
+  // link under it to copy instead, then -- once the phone streams -- its live camera in the same
+  // place. The user, 2026-10-02:
   // "the rough scanning mode first shows a qr code on the screen ... once the qr code is scanned by
   // the phone, we start streaming the phone's camera output to the phone screen and the website",
   // and "in addition to the qr code can you also have a copyable url under the qr code so users can
@@ -13,7 +14,7 @@
   // copied by hand where the clipboard refuses, as it can from a page opened as a file.
   //
   // Over the phone's video, what the phone sees (T-0326): the rock's outline, the board's edge and
-  // its axes at the target, drawn from the phone's latest vision message (scan_mode.js
+  // its axes at the target, drawn from the phone's latest vision message (scan_session.js
   // `scanVision`) on a canvas the size of the video element, mapped as the video's object-fit:
   // contain maps the phone's frame. The messages are about 10 a second and can lead or lag the
   // picture by a few frames; the latest is always drawn, faded once it is older than
@@ -26,7 +27,7 @@
   import {
     scanning, scanStream, scanVision, copyScanLink, newScanCode, scanStatusText, visionAge,
     VISION_STALE_MS, VISION_GONE_MS,
-  } from '../lib/scan_mode.js';
+  } from '../lib/scan_session.js';
   import { isMacPlatform } from '../lib/keys.js';
   import { drawVisionOverlay, fitTransform, prepareCanvas } from '../lib/vision/overlay.js';
 

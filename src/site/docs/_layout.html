@@ -181,6 +181,19 @@
 
   .ui { color: var(--text); font-weight: 600; }
 
+  /* Code, for the page about adding the scanner to a website: inline names, and whole examples
+     that scroll sideways rather than wrap. */
+  article code { color: var(--text); font: 0.88em/1.5 ui-monospace, SFMono-Regular, Menlo, monospace; }
+  article pre {
+    margin: 1rem 0;
+    padding: 0.75rem 1rem;
+    overflow-x: auto;
+    border: 1px solid var(--panel-edge);
+    border-radius: 6px;
+    background: var(--raised);
+  }
+  article pre code { font-size: 0.85rem; }
+
   .cards { display: grid; grid-template-columns: repeat(auto-fill, minmax(15rem, 1fr)); gap: 0.75rem; margin: 0 0 2rem; padding: 0; list-style: none; }
   .cards a {
     display: block;

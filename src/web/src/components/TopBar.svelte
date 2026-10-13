@@ -348,7 +348,7 @@
   // Tools > Rough scan (T-0314): live whatever is loaded (the stone plays no part), and inert,
   // saying why, while another mode is open or it already is -- record rendering's rule.
   const CLOSE_SCAN_TIP = 'Close the rough scan first: Done, or Escape.';
-  const SCAN_TIP = 'Connects your phone\'s camera to the studio: shows a code to scan with the phone, then the phone\'s live camera. The phone and this computer need to be on the same network.';
+  const SCAN_TIP = 'Opens the scanner over the studio: it shows a code to scan with your phone, then the phone\'s live camera. The phone and this computer need to be on the same network.';
   const scanInert = $derived($editing !== null || $scaleHeightOpen || $cutting.open || $resizeGirdleOpen || $tiltPerformance.open || $manualOptimizer.open || $rotateIndexOpen || $recording.open || $scanning.open);
   const scanTip = $derived(
     $editing !== null ? `${SCAN_TIP} Finish editing the tier first: Done, or Cancel.`
@@ -564,7 +564,8 @@
           >Record rendering</Menubar.Item>
         <!-- Rough scan (T-0314, 2026-10-02, the user: "the rough scanning mode first shows a qr
              code on the screen ... once the qr code is scanned by the phone, we start streaming
-             the phone's camera output"): opens scan_mode.js. -->
+             the phone's camera output"): opens scan_mode.js, which since T-0337 opens the scanner
+             page in a modal, as /scanner.js does on any website. -->
         <Menubar.Item id="menu-item-rough-scan" {@attach ariaDisabled(() => scanInert)}
           class="{ITEM} {INERT}" data-tip={scanTip}
           onSelect={() => { if (!scanInert) enterScan(); }}

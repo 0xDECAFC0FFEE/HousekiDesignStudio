@@ -25,7 +25,9 @@ three views, each held 4 s, looped). They check:
   * a peer sending malformed vision messages is ignored, and a valid one after them is taken.
 
 HOW THEY RUN. As test_scan_link.py / test_scan_mode.py: build/www over HTTP on localhost, a local
-Nostr relay, the studio pointed at it through `gems.scanRelayUrls`. The phone is a SEPARATE browser
+Nostr relay, the studio pointed at it through `gems.scanRelayUrls`. Since T-0337 the scanner is a
+page of its own the studio opens in a modal iframe; what the tests read of it (its video, overlay,
+readout and `gemScanVision`) they read inside that iframe, through scanner_frame.py. The phone is a SEPARATE browser
 (a background tab neither plays video nor runs its frame callbacks) started natively on Apple
 silicon (test_vision_detect.native_chrome: under Rosetta wasm runs ~100x slower) with the fake
 camera playing the video file. Both use the real GPU (the outline is WebGL2).
@@ -55,6 +57,7 @@ sys.path.insert(0, os.path.join(HERE, "vision"))
 
 try:
     import cdp
+    from scanner_frame import ScannerFrame, in_frame
     from test_scan_link import CHROME_ARGS, CONNECT_TIMEOUT, Relay, Server
     from test_vision_detect import native_chrome
     from make_scan_video import ensure_video, ensure_wrong_board_video
@@ -146,6 +149,7 @@ class ScanVisionTest(unittest.TestCase):
             cls.server.close()
             raise unittest.SkipTest("could not start Chrome: %s" % error)
 
+        cls.scanner = ScannerFrame(cls.studio)
         cls.studio.send("Emulation.setDeviceMetricsOverride", {
             "width": 1440, "height": 900, "deviceScaleFactor": 1, "mobile": False,
         })
@@ -165,7 +169,7 @@ class ScanVisionTest(unittest.TestCase):
         self.phone = None
 
     def tearDown(self):
-        if self.studio.evaluate("!!document.getElementById('scan-view')"):
+        if self.scanner.is_open():
             self.press_escape()
 
         if self.phone:
@@ -185,7 +189,9 @@ class ScanVisionTest(unittest.TestCase):
         return self.phone
 
     def finish_animations(self):
-        self.studio.evaluate("document.getAnimations().filter(a => a.effect?.getComputedTiming().endTime !== Infinity).forEach(a => a.finish()), true")
+        finish = "document.getAnimations().filter(a => a.effect?.getComputedTiming().endTime !== Infinity).forEach(a => a.finish()), true"
+        self.studio.evaluate(finish)
+        self.scanner.evaluate(finish)
 
     def click(self, selector):
         """A real mouse click at the middle of a studio element."""
@@ -202,20 +208,20 @@ class ScanVisionTest(unittest.TestCase):
         for kind in ("keyDown", "keyUp"):
             self.studio.send("Input.dispatchKeyEvent", {"type": kind, "key": "Escape", "code": "Escape", "windowsVirtualKeyCode": 27})
 
-        self.studio.wait_for_expression("!document.getElementById('scan-view')", timeout=10)
+        self.studio.wait_for_expression("!document.getElementById('houseki-scanner')", timeout=10)
 
     def open_mode(self):
         """Tools > Rough scan in the studio, by mouse; returns the session's link."""
         self.click("#menu-button-tools")
         self.studio.wait_for_expression("!!document.getElementById('menu-item-rough-scan')", timeout=10)
         self.click("#menu-item-rough-scan")
-        self.studio.wait_for_expression("!!document.getElementById('scan-url')", timeout=20)
-        return self.studio.evaluate("document.getElementById('scan-url').textContent.trim()")
+        self.scanner.wait_for_expression("!!document.getElementById('scan-url')", timeout=20)
+        return self.scanner.evaluate("document.getElementById('scan-url').textContent.trim()")
 
     def start_log(self):
         """Records every vision value the studio takes (gemScanVision, polled every 20 ms: the studio
         takes at most one per 40 ms), with the overlay's state, in window.__visionLog."""
-        self.studio.evaluate("""(() => {
+        self.scanner.evaluate("""(() => {
           const log = window.__visionLog = [];
           let last = null;
           clearInterval(window.__visionTimer);
@@ -229,7 +235,7 @@ class ScanVisionTest(unittest.TestCase):
         })(), true""")
 
     def stop_log(self):
-        return self.studio.evaluate("(() => { clearInterval(window.__visionTimer); return window.__visionLog; })()")
+        return self.scanner.evaluate("(() => { clearInterval(window.__visionTimer); return window.__visionLog; })()")
 
     def connect(self, phone_url=None):
         """Opens the mode, the link on the phone, waits until the studio shows its video."""
@@ -237,18 +243,18 @@ class ScanVisionTest(unittest.TestCase):
         self.phone.navigate(phone_url or link)
         self.phone.wait_for_expression(
             "document.getElementById('scanner-status')?.dataset.status === 'connected'", timeout=CONNECT_TIMEOUT)
-        self.studio.wait_for_expression("document.getElementById('scan-view').dataset.streaming === 'true'", timeout=CONNECT_TIMEOUT)
-        self.studio.wait_for_expression("document.getElementById('scan-video').videoWidth > 0", timeout=20)
+        self.scanner.wait_for_expression("document.getElementById('scan-view').dataset.streaming === 'true'", timeout=CONNECT_TIMEOUT)
+        self.scanner.wait_for_expression("document.getElementById('scan-video').videoWidth > 0", timeout=20)
         return link
 
     def received_fps(self, seconds=3.0):
         """Frames the studio's <video> of the phone presented per second, over `seconds`."""
-        return self.studio.send("Runtime.evaluate", {"expression": """new Promise(done => {
+        return self.studio.send("Runtime.evaluate", {"expression": in_frame("""new Promise(done => {
           const video = document.getElementById('scan-video');
           let n = 0; const start = performance.now();
           const tick = () => { n += 1; if (performance.now() - start < %d) video.requestVideoFrameCallback(tick); else done(n / ((performance.now() - start) / 1000)); };
           video.requestVideoFrameCallback(tick);
-        })""" % int(seconds * 1000), "awaitPromise": True, "returnByValue": True}, timeout=60)["result"]["value"]
+        })""" % int(seconds * 1000)), "awaitPromise": True, "returnByValue": True}, timeout=60)["result"]["value"]
 
     # --- judging what arrived ----------------------------------------------------------------
 
@@ -320,8 +326,8 @@ class ScanVisionTest(unittest.TestCase):
         self.studio.send("Page.bringToFront")
         time.sleep(COLLECT_S)
         log = self.stop_log()
-        overlay = self.studio.evaluate("document.getElementById('scan-overlay').dataset.drawn")
-        readout = self.studio.evaluate("document.getElementById('scan-vision-readout')?.textContent ?? ''")
+        overlay = self.scanner.evaluate("document.getElementById('scan-overlay').dataset.drawn")
+        readout = self.scanner.evaluate("document.getElementById('scan-vision-readout')?.textContent ?? ''")
         fps = self.received_fps()
         phone_state = phone.evaluate("JSON.stringify({ state: housekiScanVision.state, timings: housekiScanVision.timings() }, (k, v) => k === 'last' ? undefined : v)")
 
@@ -471,7 +477,7 @@ class ScanVisionTest(unittest.TestCase):
         self.studio.send("Page.bringToFront")
         time.sleep(8)
         log = self.stop_log()
-        readout = self.studio.evaluate("document.getElementById('scan-vision-readout')?.textContent ?? ''")
+        readout = self.scanner.evaluate("document.getElementById('scan-vision-readout')?.textContent ?? ''")
         state = json.loads(phone.evaluate(
             "JSON.stringify({ state: housekiScanVision.state, latest: housekiScanVision.latest() }, (k, v) => k === 'last' ? undefined : v)"))
         states = phone.evaluate("document.getElementById('scanner-vision').dataset.state")
@@ -513,7 +519,7 @@ class ScanVisionTest(unittest.TestCase):
             phone.navigate(no_opencv.origin + "/scanner/#" + link.split("#", 1)[1])
             phone.wait_for_expression(
                 "document.getElementById('scanner-status')?.dataset.status === 'connected'", timeout=CONNECT_TIMEOUT)
-            self.studio.wait_for_expression("document.getElementById('scan-view').dataset.streaming === 'true'", timeout=CONNECT_TIMEOUT)
+            self.scanner.wait_for_expression("document.getElementById('scan-view').dataset.streaming === 'true'", timeout=CONNECT_TIMEOUT)
         finally:
             no_opencv.close()
 
@@ -521,9 +527,9 @@ class ScanVisionTest(unittest.TestCase):
         self.studio.send("Page.bringToFront")
         time.sleep(6)
 
-        self.assertEqual(self.studio.evaluate("window.gemScanVision()"), None)
-        self.assertEqual(self.studio.evaluate("document.getElementById('scan-overlay').dataset.drawn ?? 'none'"), "none")
-        self.assertFalse(self.studio.evaluate("!!document.getElementById('scan-vision-section')"))
+        self.assertEqual(self.scanner.evaluate("window.gemScanVision()"), None)
+        self.assertEqual(self.scanner.evaluate("document.getElementById('scan-overlay').dataset.drawn ?? 'none'"), "none")
+        self.assertFalse(self.scanner.evaluate("!!document.getElementById('scan-vision-section')"))
         self.assertGreater(self.received_fps(), 10, "the phone's video does not play")
         self.assertIn("could not load", phone.evaluate("document.getElementById('scanner-vision').textContent"))
 
@@ -581,15 +587,15 @@ class ScanVisionTest(unittest.TestCase):
         })(), true""" % js(link.split("#", 1)[1]))
 
         self.studio.send("Page.bringToFront")
-        self.studio.wait_for_expression("document.getElementById('scan-view').dataset.streaming === 'true'", timeout=CONNECT_TIMEOUT)
+        self.scanner.wait_for_expression("document.getElementById('scan-view').dataset.streaming === 'true'", timeout=CONNECT_TIMEOUT)
         phone.wait_for_expression("window.__peer.badSent === true", timeout=30)
         time.sleep(0.5)
-        self.assertEqual(self.studio.evaluate("window.gemScanVision()"), None, "a malformed message was taken")
-        self.assertEqual(self.studio.evaluate("document.getElementById('scan-overlay').dataset.drawn ?? 'none'"), "none")
+        self.assertEqual(self.scanner.evaluate("window.gemScanVision()"), None, "a malformed message was taken")
+        self.assertEqual(self.scanner.evaluate("document.getElementById('scan-overlay').dataset.drawn ?? 'none'"), "none")
 
         phone.wait_for_expression("window.__peer.goodSent === true", timeout=10)
-        self.studio.wait_for_expression("window.gemScanVision() !== null", timeout=5)
-        taken = self.studio.evaluate("window.gemScanVision().message")
+        self.scanner.wait_for_expression("window.gemScanVision() !== null", timeout=5)
+        taken = self.scanner.evaluate("window.gemScanVision().message")
         self.assertEqual(taken["timeMs"], 4242)
         self.assertEqual(taken["frame"], {"w": 640, "h": 480})
         self.assertEqual(phone.evaluate("window.__peer.asked"), 1, "the studio asks once")
