@@ -350,7 +350,14 @@ class ScanLinkTest(unittest.TestCase):
 
         for name, lines in (("host", host_lines), ("phone", phone_lines)):
             steps = [l.split("step: ")[1].split(" ")[0] for l in lines if "] step: " in l]
-            self.assertEqual(steps, expected, "%s steps" % name)
+            # The phone joins a computer already announcing, and can hear it before its own
+            # subscription is confirmed (seen under load, 2026-10-14: "heard the computer" at
+            # +2.34 s, "subscription live" at +2.46 s): it then goes from servers straight to
+            # introducing, which is right -- it is no longer looking for anything.
+            if name == "phone" and "waiting" not in steps:
+                self.assertEqual(steps, [step for step in expected if step != "waiting"], "%s steps" % name)
+            else:
+                self.assertEqual(steps, expected, "%s steps" % name)
             text = "\n".join(lines)
 
             for needle in ["subscription live on", "heard the", "trying a direct connection", "direct connection up:",
@@ -362,6 +369,83 @@ class ScanLinkTest(unittest.TestCase):
 
         self.assertEqual(picture, {"step": "connected", "otherGreyed": False})
         self.assertEqual(phase, "connected")
+
+    def test_a_phone_whose_clock_runs_ahead_still_gets_the_offer(self):
+        """(T-0349) The computer's offer, lost on its way to a phone whose clock runs ahead, is
+        resent when the phone shows it is still waiting.
+
+        The user's logs (2026-10-14): the computer offered, the phone never received the offer and
+        kept announcing and nudging, and Trystero ignored it, so the pairing waited for the next
+        announcement a minute later. Trystero subscribes with `since` = now by the subscriber's
+        clock, and a relay drops a live event stamped earlier than that; this test relay does so
+        too (nostr_relay.js matches `since`).
+
+        Setup: both tabs record their console from before the page loads, as in the test above,
+        and the phone tab's Date.now runs CLOCK_AHEAD_MS ahead (a script added before the page
+        loads, so Trystero stamps and subscribes by it). A host session; then a pause of 3 s, so
+        the host is past its own warm-up announcements, as a computer showing a QR code would be.
+        The phone opens the link; only the device with the lower peer id makes the offer, so the
+        phone is reloaded (a fresh peer id) until the host's id is the lower one.
+        Test: wait for both ends to connect, within PHONE_PATIENCE seconds of the phone loading.
+        Verifies: the host logged "resending the offer to peer", and the pairing finished within
+        PHONE_PATIENCE, before the phone's own 30 s timeout. Measured 2026-10-14: with the resend,
+        6 of 6 runs connected 6.5-9.2 s after the phone loaded; with it switched off, 4 of 6 did
+        not connect within the 20 s (Trystero's own offer was dropped and nothing sent it again)
+        and 2 connected in about 10 s.
+        """
+        CLOCK_AHEAD_MS = 1500
+        PHONE_PATIENCE = 20
+        capture = """(() => {
+          const lines = window.__console = [];
+          for (const level of ['log', 'info', 'warn', 'debug']) {
+            const original = console[level].bind(console);
+            console[level] = (...args) => { lines.push(args.map(String).join(' ')); original(...args); };
+          }
+        })();"""
+        skew = "(() => { const real = Date.now.bind(Date); Date.now = () => real() + %d; })();" % CLOCK_AHEAD_MS
+        scripts = []
+
+        for tab, sources in ((self.host, [capture]), (self.phone, [capture, skew])):
+            tab.send("Page.enable")
+
+            for source in sources:
+                scripts.append((tab, tab.send("Page.addScriptToEvaluateOnNewDocument", {"source": source})["identifier"]))
+
+        peer_of = lambda tab: tab.evaluate(
+            "(() => { const l = window.__console.find(l => / is peer /.test(l));"
+            " return l ? l.split(' is peer ')[1].split(',')[0] : null; })()")
+
+        try:
+            link = self.start_host(scanner_base_url=self.scanner_url)
+            self.host.wait_for_expression("window.__console.some(l => / is peer /.test(l))")
+            host_peer = peer_of(self.host)
+            time.sleep(3)
+
+            for attempt in range(12):
+                self.load(self.phone, link)
+                self.phone.wait_for_expression("window.__console.some(l => / is peer /.test(l))")
+                phone_peer = peer_of(self.phone)
+
+                if host_peer < phone_peer:
+                    break
+            else:
+                self.fail("the phone never drew a peer id above the host's %r" % host_peer)
+
+            started = time.time()
+            self.phone.wait_for_expression(
+                "document.getElementById('scanner-status').dataset.status === 'connected'", timeout=PHONE_PATIENCE)
+            took = time.time() - started
+            host_lines = self.host.evaluate("window.__console.filter(l => l.startsWith('[houseki scan'))")
+        finally:
+            self.close_host()
+
+            for tab, identifier in scripts:
+                tab.send("Page.removeScriptToEvaluateOnNewDocument", {"identifier": identifier})
+
+        print("\n[scan_link] clock %d ms ahead: connected %.1f s after the phone loaded (host %s, phone %s)"
+              % (CLOCK_AHEAD_MS, took, host_peer, phone_peer), file=sys.stderr)
+        print("[scan_link] host log:\n  " + "\n  ".join(host_lines), file=sys.stderr)
+        self.assertTrue(any("resending the offer to peer" in l for l in host_lines), "the host never resent its offer")
 
     def test_a_wrong_password_never_connects(self):
         """(b) A link to the right room with the wrong password never connects.

@@ -637,7 +637,7 @@ Deno.test("after the phone left, another phone on its way in is shown by its ste
   // disconnected"; once the new phone is heard, they say the step it is at ("Setting up a direct
   // connection to your phone…") and what it means, so nothing on the screen says it failed.
   const state = { status: "disconnected", error: "" };
-  const waiting = { step: "waiting", text: "Waiting for your phone… (8 of 8)", failure: null };
+  const waiting = { step: "waiting", text: "Waiting for your phone…", failure: null };
   const direct = { step: "direct", text: "Setting up a direct connection to your phone…", failure: null };
   assert(!mode.scanReconnecting(state, waiting), "nobody new yet");
   assertEqual(mode.scanStatusText(state, false, waiting).title, "Phone disconnected", "still disconnected");

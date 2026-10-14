@@ -34,6 +34,12 @@
 //
 // A direct connection that fails drops back to 'introducing' (Trystero tries again at the next
 // announcement); the other device leaving drops back to 'waiting'.
+//
+// Each attempt that fails -- ICE 'failed', or closed by Trystero before it connected -- logs one
+// warning (failureReport, T-0345): both devices' addresses, every candidate pair with its checks
+// sent and answered, the STUN errors, and a reading of what they suggest. The pairs are read every
+// ICE_STATS_POLL_MS while the attempt runs, because a closed connection has no stats left. It was
+// added after a transient failure on a home Wi-Fi could not be explained from the log.
 
 import { trysteroTopic } from './scan_trace_hash.js';
 
@@ -43,34 +49,23 @@ export const STEPS = Object.freeze(['servers', 'waiting', 'introducing', 'direct
 /** How often the relay sockets are looked at for new ones (Trystero replaces them on reconnect). */
 export const SOCKET_POLL_MS = 100;
 
-/**
- * A relay still connecting this long after the session started counts as settled for
- * serversReady: a socket that cannot connect can take minutes to fail.
- */
-export const RELAY_SETTLE_MS = 10000;
-
 /** Trystero's topic names (its strategy.mjs topicPath and libName). */
 export const roomTopicPlaintext = (appId, roomId) => `Trystero@${appId}@${roomId}`;
 
 /**
- * Whether enough relays are ready to wait on (the user's rule): every relay subscribed; or at least
- * half of them plus one subscribed, and every one either subscribed, refused, retried at least
- * once, or still trying after RELAY_SETTLE_MS.
+ * Whether enough relays are ready to wait on: more than half of them subscribed, at once. The
+ * user, 2026-10-14: "instead of waiting for at least 1 retry on each of the servers can you just
+ * immediately go to 'Waiting for your phone...' ... once we're connected to at least half", "as if
+ * both sides are over half there is at least one relay server they're both connected to". Both
+ * devices use the same list, so two sets of more than half of it always share a relay; exactly half
+ * (4 of 8) need not, so half is not enough. (Until then: every relay had also to have been
+ * subscribed, refused, retried, or given 10 s.)
  */
-export function serversReady(relays, elapsedMs) {
+export function serversReady(relays) {
   const list = [...relays];
   const up = list.filter(r => r.subscribed).length;
 
-  if (list.length === 0) {
-    return false;
-  }
-
-  if (up === list.length) {
-    return true;
-  }
-
-  const settled = list.every(r => r.subscribed || r.refused || r.attempts >= 2 || elapsedMs >= RELAY_SETTLE_MS);
-  return up >= Math.floor(list.length / 2) + 1 && settled;
+  return list.length > 0 && up > list.length / 2;
 }
 
 /**
@@ -96,7 +91,7 @@ export function stepOf(s) {
     return 'introducing';
   }
 
-  return serversReady(s.relays, s.elapsedMs) ? 'waiting' : 'servers';
+  return serversReady(s.relays) ? 'waiting' : 'servers';
 }
 
 /**
@@ -113,7 +108,7 @@ export function stepText(step, role, { up = 0, total = 0, failure = null } = {})
     case 'waiting':
       return failure
         ? `The direct connection to your ${other} failed. Trying again…`
-        : role === 'computer' ? `Waiting for your phone…${servers}` : `Looking for your computer…${servers}`;
+        : role === 'computer' ? 'Waiting for your phone…' : 'Looking for your computer…';
     case 'introducing':
       return failure
         ? `The direct connection to your ${other} failed. Trying again…`
@@ -153,6 +148,197 @@ export function candidateInfo(line) {
   const type = /\btyp (\w+)/.exec(text)?.[1] ?? '?';
   const protocol = /candidate:\S+ \d+ (\w+)/i.exec(text)?.[1]?.toLowerCase() ?? '?';
   return { type, protocol };
+}
+
+/** How often a direct connection being tried has its candidate pairs read, for the failure report. */
+export const ICE_STATS_POLL_MS = 1000;
+
+/**
+ * What kind of address an ICE candidate carries: 'mDNS name' (a browser's .local stand-in for its
+ * local IP, which the other device must look up by multicast), 'private', 'link-local', 'CGNAT'
+ * (100.64.0.0/10: mobile data, or a VPN such as Tailscale), 'public', or 'none' when the stats
+ * leave it out.
+ */
+export function addressKind(address) {
+  const a = String(address ?? '').toLowerCase().replace(/^\[|\]$/g, '');
+
+  if (!a) {
+    return 'none';
+  }
+
+  if (a.endsWith('.local')) {
+    return 'mDNS name';
+  }
+
+  const v4 = /^(\d+)\.(\d+)\.\d+\.\d+$/.exec(a);
+
+  if (v4) {
+    const [first, second] = [Number(v4[1]), Number(v4[2])];
+
+    if (first === 10 || first === 127 || (first === 172 && second >= 16 && second <= 31) || (first === 192 && second === 168)) {
+      return 'private';
+    }
+
+    if (first === 169 && second === 254) {
+      return 'link-local';
+    }
+
+    return first === 100 && second >= 64 && second <= 127 ? 'CGNAT' : 'public';
+  }
+
+  if (a.startsWith('fe80:')) {
+    return 'link-local';
+  }
+
+  return a.startsWith('fc') || a.startsWith('fd') || a === '::1' ? 'private' : 'public';
+}
+
+/**
+ * The ICE side of an RTCStatsReport (getStats), reduced to what explains a failure:
+ * `{ local, remote, pairs, selectedPairId }`, where a candidate is `{ id, type, protocol, address,
+ * kind, port }` and a pair `{ local, remote, state, nominated, requestsSent, responsesReceived,
+ * requestsReceived, responsesSent }` with its two candidates resolved.
+ */
+export function summariseIceStats(stats) {
+  const local = [];
+  const remote = [];
+  const rawPairs = [];
+  const byId = new Map();
+  let selectedPairId = null;
+
+  stats?.forEach?.(report => {
+    if (report.type === 'local-candidate' || report.type === 'remote-candidate') {
+      const address = report.address ?? report.ip ?? '';
+      const candidate = {
+        id: report.id, type: report.candidateType ?? '?', protocol: report.protocol ?? '?', address,
+        kind: addressKind(address), port: report.port ?? null,
+      };
+      byId.set(report.id, candidate);
+      (report.type === 'local-candidate' ? local : remote).push(candidate);
+    } else if (report.type === 'candidate-pair') {
+      rawPairs.push(report);
+    } else if (report.type === 'transport' && report.selectedCandidatePairId) {
+      selectedPairId = report.selectedCandidatePairId;
+    }
+  });
+
+  const pairs = rawPairs.map(p => ({
+    id: p.id,
+    local: byId.get(p.localCandidateId) ?? null,
+    remote: byId.get(p.remoteCandidateId) ?? null,
+    state: p.state ?? '?',
+    nominated: Boolean(p.nominated),
+    requestsSent: p.requestsSent ?? 0,
+    responsesReceived: p.responsesReceived ?? 0,
+    requestsReceived: p.requestsReceived ?? 0,
+    responsesSent: p.responsesSent ?? 0,
+  }));
+
+  return { local, remote, pairs, selectedPairId };
+}
+
+/**
+ * An ICE candidate line ("candidate:<foundation> <component> <protocol> <priority> <address>
+ * <port> typ <type> ...", with or without "a=") as a summary candidate, or null.
+ */
+export function candidateFromLine(line) {
+  const m = /candidate:\S+ \d+ (\w+) \d+ (\S+) (\d+) typ (\w+)/i.exec(String(line ?? ''));
+  return m ? { type: m[4], protocol: m[1].toLowerCase(), address: m[2], kind: addressKind(m[2]), port: Number(m[3]) } : null;
+}
+
+/**
+ * The summary with the candidates the trace saw itself (`local`, `remote`: from the descriptions
+ * and the trickled candidates) in place of getStats' own. Chrome's stats leave out a local
+ * candidate's .local name and list a remote candidate only once it is in a pair, so on their own
+ * they cannot tell "nothing arrived" from "nothing could be paired". A pair's candidate the stats
+ * left without an address is matched to a seen one by type, protocol and port.
+ */
+export function withSeenCandidates(summary, local, remote) {
+  const fill = (candidate, seen) => {
+    if (!candidate || candidate.address) {
+      return candidate;
+    }
+
+    const match = seen.find(c => c.type === candidate.type && c.protocol === candidate.protocol && c.port === candidate.port);
+    return match ? { ...candidate, address: match.address, kind: match.kind } : candidate;
+  };
+
+  return {
+    ...summary,
+    local: local.length ? local : summary.local,
+    remote: remote.length ? remote : summary.remote,
+    pairs: summary.pairs.map(p => ({ ...p, local: fill(p.local, local), remote: fill(p.remote, remote) })),
+  };
+}
+
+const describeCandidate = c => (c ? `${c.type} ${c.address || '(no address)'}${c.port ? `:${c.port}` : ''} (${c.kind}, ${c.protocol})` : '?');
+
+/**
+ * What a failure's summary suggests, in sentences, most telling first. `role` is this page's
+ * ('computer' or 'phone'); `candidateErrors` the STUN failures seen while gathering.
+ */
+export function failureReading(summary, role, { candidateErrors = [] } = {}) {
+  const other = role === 'computer' ? 'phone' : 'computer';
+  const { local, remote, pairs } = summary;
+  const reading = [];
+
+  if (local.length === 0) {
+    reading.push(`This ${role} gathered no addresses of its own.`);
+  }
+
+  if (remote.length === 0) {
+    reading.push(`No address of the ${other} arrived: its candidates were lost on the way through the servers, or it gathered none.`);
+  }
+
+  const remoteHosts = remote.filter(c => c.type === 'host');
+  const hostPairs = pairs.filter(p => p.remote?.type === 'host');
+
+  if (remoteHosts.length > 0 && hostPairs.length === 0) {
+    reading.push(`The ${other} offered a local address but no check was ever made on it: ${remoteHosts.some(c => c.kind === 'mDNS name') ? 'its .local name could not be looked up (mDNS) this time' : 'it could not be paired with any address here'}.`);
+  } else if (hostPairs.length > 0 && hostPairs.every(p => p.responsesReceived === 0)) {
+    reading.push(`No check on the ${other}'s local address was answered: on one Wi-Fi network this means the two could not reach each other directly at that moment.`);
+  }
+
+  if (pairs.length > 0 && pairs.every(p => p.responsesReceived === 0)) {
+    reading.push(`No check on any pair was answered (${pairs.reduce((n, p) => n + p.requestsSent, 0)} sent, ${pairs.reduce((n, p) => n + p.requestsReceived, 0)} received from the ${other}).`);
+  } else if (pairs.some(p => p.responsesReceived > 0) && !pairs.some(p => p.state === 'succeeded')) {
+    reading.push('Some checks were answered, but no pair completed: the route came and went.');
+  }
+
+  if (local.length > 0 && !local.some(c => c.type === 'srflx')) {
+    reading.push(`This ${role} learned no public address from the STUN servers${candidateErrors.length ? ` (${candidateErrors.length} STUN error${candidateErrors.length === 1 ? '' : 's'})` : ''}.`);
+  }
+
+  if ([...local, ...remote].some(c => c.kind === 'CGNAT')) {
+    reading.push('A carrier-grade NAT address (100.64.x.x) is involved: mobile data, or a VPN such as Tailscale.');
+  }
+
+  return reading;
+}
+
+/**
+ * The failure report, as lines: what happened, both devices' addresses, every candidate pair and
+ * its checks, the STUN errors, and the reading. `why` names what ended it ('ICE failed', ...);
+ * `seconds` how long since the other device's description was set; `stale` that the pairs are
+ * from the last reading while it was trying, `statsAgo` seconds earlier.
+ */
+export function failureReport(summary, { role, why, seconds, ice, connection, gathering, wasUp = false, stale = false, statsAgo = null, candidateErrors = [] }) {
+  const other = role === 'computer' ? 'phone' : 'computer';
+  const lines = [
+    `the direct connection ${wasUp ? 'dropped' : 'failed'}: ${why}, ${seconds.toFixed(1)} s after the ${other}'s description (ICE ${ice}, connection ${connection}, gathering ${gathering})${stale ? `; pairs as last read while it was trying${statsAgo === null ? '' : `, ${statsAgo.toFixed(1)} s earlier`}` : ''}`,
+    `this ${role}'s addresses (${summary.local.length}): ${summary.local.map(describeCandidate).join('; ') || 'none'}`,
+    `the ${other}'s addresses (${summary.remote.length}): ${summary.remote.map(describeCandidate).join('; ') || 'none'}`,
+    `pairs tried (${summary.pairs.length}):`,
+    ...summary.pairs.map(p => `  ${describeCandidate(p.local)} ↔ ${describeCandidate(p.remote)}: ${p.state}${p.nominated ? ', nominated' : ''}${p.id === summary.selectedPairId ? ', selected' : ''}; checks sent ${p.requestsSent}, answered ${p.responsesReceived}; received ${p.requestsReceived}, answered ${p.responsesSent}`),
+  ];
+
+  if (candidateErrors.length) {
+    lines.push(`STUN errors while gathering: ${candidateErrors.map(e => `${e.url} ${e.errorCode} ${e.errorText}`.trim()).join('; ')}`);
+  }
+
+  const reading = failureReading(summary, role, { candidateErrors });
+  lines.push(...(reading.length ? reading.map(r => `reading: ${r}`) : ['reading: nothing stands out in the pairs']));
+  return lines;
 }
 
 const parse = data => {
@@ -203,6 +389,10 @@ export function createScanLog(role, { sink = globalThis.console, now = () => Dat
  *                      attempts, reason }], peer, direct, joined, failure }
  *   close()            stops watching (sockets are left to Trystero)
  *
+ * The trace only watches, with one exception: `resender` (scan_resend.js createOfferResender),
+ * when given, is told what is sent and heard on the relay sockets, and resends an offer the other
+ * device shows it never got.
+ *
  * @param {object} options
  * @param {'computer'|'phone'} options.role
  * @param {string} options.appId
@@ -215,6 +405,7 @@ export function createScanLog(role, { sink = globalThis.console, now = () => Dat
  * @param {Function} [options.setInterval] / [options.clearInterval]
  * @param {Function} [options.RTCPeerConnection]  the class to extend
  * @param {(text: string) => Promise<string>} [options.sha1]
+ * @param {object} [options.resender]   scan_resend.js createOfferResender's
  */
 export function createScanTrace({
   role, appId, roomId, relayUrls, getSockets, selfId,
@@ -223,6 +414,7 @@ export function createScanTrace({
   clearInterval: stop = id => globalThis.clearInterval(id),
   RTCPeerConnection: Base = globalThis.RTCPeerConnection,
   sha1 = trysteroTopic,
+  resender = null,
 }) {
   const started = now();
   const relays = new Map(relayUrls.map(url => [url, {
@@ -335,11 +527,12 @@ export function createScanTrace({
         }
 
         log(type === 'candidate' ? 'debug' : 'info', `sent ${type} through ${relay.url}`);
+        resender?.sent(relay.url, message[1]);
       }
     }
   }
 
-  function onReceived(relay, data) {
+  function onReceived(relay, data, socket) {
     if (closed) {
       return;
     }
@@ -370,6 +563,7 @@ export function createScanTrace({
           heardPeer(id, 'its announcement', relay);
           peer.received.announce += 1;
           log('debug', `announcement from peer ${shortId(id)} through ${relay.url}`);
+          resender?.heard(relay.url, socket, id, 'announcement');
           changed();
         }
       } else if (topic && topic === selfTopic && id && id !== selfId) {
@@ -377,6 +571,13 @@ export function createScanTrace({
         heardPeer(id, `a ${type}`, relay);
         peer.received[type] = (peer.received[type] ?? 0) + 1;
         log(type === 'candidate' ? 'debug' : 'info', `received ${type} from peer ${shortId(id)} through ${relay.url}`);
+
+        if (type === 'nudge') {
+          resender?.heard(relay.url, socket, id, 'nudge');
+        } else if (type === 'answer') {
+          resender?.answered(id);
+        }
+
         changed();
       }
     } else if (kind === 'OK' && message[2] === false) {
@@ -439,7 +640,7 @@ export function createScanTrace({
       socket.addEventListener?.('open', onOpen, { once: true });
     }
 
-    socket.addEventListener?.('message', event => onReceived(relay, event.data));
+    socket.addEventListener?.('message', event => onReceived(relay, event.data, socket));
     socket.addEventListener?.('close', event => {
       if (closed) {
         return;
@@ -488,7 +689,6 @@ export function createScanTrace({
       watch(url, socket);
     }
 
-    // A relay waiting past RELAY_SETTLE_MS can change whether the servers count as ready.
     changed();
   }
 
@@ -503,11 +703,36 @@ export function createScanTrace({
     rtcPolyfill = class TracedPeerConnection extends Base {
       constructor(...args) {
         super(...args);
-        this.housekiTraced = { remote: false };
+        // remoteAt: when the other device's description was set; wasUp: the connection has been
+        // up; stats, statsAt: the last reading of its pairs and when (getStats fails once it is
+        // closed, and Chrome empties the pairs once it has failed);
+        // candidateErrors: STUN failures while gathering; reported: the failure has been logged;
+        // seenLocal, seenRemote: the candidates seen (candidateFromLine), for the report.
+        this.housekiTraced = {
+          remote: false, remoteAt: null, wasUp: false, stats: null, statsAt: null, statsTimer: null, candidateErrors: [], reported: false,
+          seenLocal: [], seenRemote: [],
+        };
         this.addEventListener('icecandidate', event => {
+          // Recorded from the start: an offer from Trystero's pool gathered before it was used.
+          see(this.housekiTraced.seenLocal, event.candidate?.candidate);
+
           if (this.housekiTraced.remote && event.candidate) {
             const { type, protocol } = candidateInfo(event.candidate.candidate);
             log('info', `this ${role}'s address candidate: ${type} over ${protocol}`, event.candidate.candidate);
+          }
+        });
+        // A STUN server that did not answer (Chrome reports one per server and address family).
+        this.addEventListener('icecandidateerror', event => {
+          const error = { url: event.url ?? '', errorCode: event.errorCode ?? '', errorText: event.errorText ?? '' };
+          this.housekiTraced.candidateErrors.push(error);
+
+          if (this.housekiTraced.remote) {
+            log('debug', `address gathering error: ${error.url} ${error.errorCode} ${error.errorText}`.trim());
+          }
+        });
+        this.addEventListener('icegatheringstatechange', () => {
+          if (this.housekiTraced.remote && !closed) {
+            log('debug', `address gathering: ${this.iceGatheringState}`);
           }
         });
         this.addEventListener('iceconnectionstatechange', () => onIceState(this));
@@ -516,19 +741,39 @@ export function createScanTrace({
 
       async setRemoteDescription(description) {
         const result = await super.setRemoteDescription(description);
+        // Candidates inside the description itself (a pooled offer carries those it gathered).
+        const carried = String(description?.sdp ?? '').split(/\r?\n/).filter(line => line.startsWith('a=candidate:'));
+        carried.forEach(line => see(this.housekiTraced.seenRemote, line));
 
         if (!this.housekiTraced.remote && !closed) {
           this.housekiTraced.remote = true;
+          this.housekiTraced.remoteAt = now();
           direct = { pc: this, state: 'trying' };
           failure = null;
-          log('info', `trying a direct connection (received the ${description?.type ?? 'description'}; ICE ${this.iceConnectionState})`);
+          log('info', `trying a direct connection (received the ${description?.type ?? 'description'}; ICE ${this.iceConnectionState}; ${carried.length} address candidate${carried.length === 1 ? '' : 's'} inside it${carried.length ? `: ${carried.map(line => { const c = candidateFromLine(line); return c ? `${c.type} (${c.kind})` : '?'; }).join(', ')}` : ''})`);
+          watchPairs(this);
           changed();
         }
 
         return result;
       }
 
+      // Trystero closes an attempt that has not connected in time (about 23 s) without any state
+      // event, so a close is where that kind of failure is seen.
+      close() {
+        const traced = this.housekiTraced;
+
+        if (traced?.remote && !traced.wasUp && !traced.reported && !closed && this.connectionState !== 'closed') {
+          reportFailure(this, 'closed by Trystero before it connected', traced.stats, true);
+        }
+
+        unwatchPairs(this);
+        return super.close();
+      }
+
       async addIceCandidate(candidate) {
+        see(this.housekiTraced.seenRemote, candidate?.candidate);
+
         if (this.housekiTraced.remote && candidate?.candidate) {
           const { type, protocol } = candidateInfo(candidate.candidate);
           log('info', `the other device's address candidate: ${type} over ${protocol}`, candidate.candidate);
@@ -546,7 +791,17 @@ export function createScanTrace({
 
     const ice = pc.iceConnectionState;
     const connection = pc.connectionState;
-    log('info', `direct connection: ICE ${ice}, connection ${connection}`);
+    const seconds = pc.housekiTraced.remoteAt === null ? '' : ` (${((now() - pc.housekiTraced.remoteAt) / 1000).toFixed(1)} s after the description)`;
+    log('info', `direct connection: ICE ${ice}, connection ${connection}${seconds}`);
+
+    if (ice === 'connected' || ice === 'completed' || connection === 'connected') {
+      pc.housekiTraced.wasUp = true;
+    }
+
+    // Every attempt that fails is reported, the current one or an older one.
+    if ((ice === 'failed' || connection === 'failed') && !pc.housekiTraced.reported) {
+      reportFailure(pc, ice === 'failed' ? 'ICE failed' : 'the connection failed', null, false);
+    }
 
     if (direct?.pc !== pc) {
       return;
@@ -567,6 +822,93 @@ export function createScanTrace({
     }
 
     changed();
+  }
+
+  /** Adds the candidate on `line` to `list` unless it is already there. */
+  function see(list, line) {
+    const c = candidateFromLine(line);
+
+    if (c && !list.some(o => o.address === c.address && o.port === c.port && o.protocol === c.protocol)) {
+      list.push(c);
+    }
+  }
+
+  // The attempts whose pairs are being read, so close() can stop them all.
+  const watched = new Set();
+
+  /** Reads an attempt's pairs every ICE_STATS_POLL_MS until it is up, has failed or is closed. */
+  function watchPairs(pc) {
+    const read = async () => {
+      const traced = pc.housekiTraced;
+
+      if (closed || traced.wasUp || traced.reported || pc.connectionState === 'closed') {
+        unwatchPairs(pc);
+        return;
+      }
+
+      try {
+        traced.stats = summariseIceStats(await pc.getStats());
+        traced.statsAt = now();
+      } catch {
+        // Closed in between: the last reading stands.
+      }
+    };
+
+    pc.housekiTraced.statsTimer = every(read, ICE_STATS_POLL_MS);
+    watched.add(pc);
+    read();
+  }
+
+  function unwatchPairs(pc) {
+    if (pc.housekiTraced?.statsTimer != null) {
+      stop(pc.housekiTraced.statsTimer);
+      pc.housekiTraced.statsTimer = null;
+    }
+
+    watched.delete(pc);
+  }
+
+  /**
+   * Logs why an attempt failed, as one warning: its pairs read now if it is still open, else
+   * `lastStats` (the last reading, marked stale).
+   */
+  async function reportFailure(pc, why, lastStats, isClosing) {
+    const traced = pc.housekiTraced;
+    traced.reported = true;
+    unwatchPairs(pc);
+    // The states and timing as they are now, before anything below waits.
+    const context = {
+      role, why, statsAgo: traced.statsAt === null ? null : (now() - traced.statsAt) / 1000, wasUp: traced.wasUp, candidateErrors: traced.candidateErrors,
+      seconds: (now() - (traced.remoteAt ?? now())) / 1000,
+      ice: pc.iceConnectionState, connection: pc.connectionState, gathering: pc.iceGatheringState,
+    };
+    let summary = null;
+    let stale = false;
+
+    if (!isClosing) {
+      try {
+        summary = summariseIceStats(await pc.getStats());
+      } catch {
+        summary = null;
+      }
+    }
+
+    // Chrome drops the pairs from its stats once the connection has failed (measured): the last
+    // reading while it was trying says more.
+    if (summary && summary.pairs.length === 0 && (lastStats ?? traced.stats)?.pairs.length) {
+      summary = null;
+    }
+
+    if (!summary) {
+      summary = lastStats ?? traced.stats ?? summariseIceStats(null);
+      stale = true;
+    }
+
+    summary = withSeenCandidates(summary, traced.seenLocal, traced.seenRemote);
+
+    if (!closed) {
+      log('warn', failureReport(summary, { ...context, stale }).join('\n    '));
+    }
   }
 
   /** Which kinds of addresses the direct connection uses (getStats' selected candidate pair). */
@@ -630,6 +972,7 @@ export function createScanTrace({
     noteJoined(id) {
       joined = true;
       failure = null;
+      resender?.answered(id);
       log('info', `the password check passed: peer ${shortId(id)} joined`);
       changed();
     },
@@ -659,7 +1002,9 @@ export function createScanTrace({
 
       log('info', 'session closed');
       closed = true;
+      resender?.close();
       stop(timer);
+      [...watched].forEach(unwatchPairs);
       listeners.clear();
     },
   };

@@ -9,6 +9,15 @@
 // does. Measured in the harness (kb/phone-vision-on-live-frames-*): the studio's received video
 // stayed at the camera's 30 frames a second with the vision running.
 //
+// LOADED WHILE CONNECTING, RUN ONCE CONNECTED. The page calls this as soon as the camera streams,
+// with `connected`, a promise of the session's first 'connected'. The Worker loads OpenCV and warms
+// up meanwhile, off the main thread, so the board finder is usually ready by the time the phone has
+// connected; no frame is read and nothing is shown before then (T-0329: board detection running
+// while the connection was set up slowed pairing about four times over). The in-page fallback,
+// which would load and compile OpenCV on the main thread, still waits for `connected` before it
+// loads. Once connected, the status line shows "Getting the board finder ready..." while it is
+// still loading, or why it could not load.
+//
 // WHERE IT RUNS. In a Worker (vision_worker.js, inlined into the page) when the browser can: the
 // page then only copies each frame to an ImageBitmap (createImageBitmap(video), done by the
 // browser) and draws the overlay, and board detection -- 50-90 ms a frame on an M1 Pro for a view
@@ -576,10 +585,14 @@ async function startInPage(setup) {
  * @param {HTMLCanvasElement} parts.overlay  laid over the video
  * @param {HTMLElement} parts.status         the vision status line
  * @param {(message: object) => void} parts.send   where messages go
+ * @param {Promise} [parts.connected]        resolves on the session's first 'connected': the
+ *   Worker loads before it, but no frame is read and the status line stays hidden until then
  * @param {Storage} [parts.storage]          where the diagnostics line's toggle is kept
  * @param {boolean} [parts.useWorker=true]
  */
-export async function startPhoneVision({ video, stream, overlay, status, send, storage = globalThis.localStorage, useWorker = true }) {
+export async function startPhoneVision({
+  video, stream, overlay, status, send, connected = Promise.resolve(), storage = globalThis.localStorage, useWorker = true,
+}) {
   const timing = stats();
   const state = {
     phase: 'loading',
@@ -616,6 +629,13 @@ export async function startPhoneVision({ video, stream, overlay, status, send, s
     lastAt: -Infinity,
     loadMs: null,
     warmMs: null,
+    // For the harness (performance.now() ms; null until then): when the board finder started
+    // loading, when the session first connected, when the board finder was ready (before
+    // connected is the usual case) and when its first frame was read (never before connected).
+    loadStartedAt: null,
+    connectedAt: null,
+    readyAt: null,
+    firstFrameAt: null,
     warning: null,
     shown: null,
     drawn: null,
@@ -642,6 +662,10 @@ export async function startPhoneVision({ video, stream, overlay, status, send, s
   const map = buildMap(ui.map);
   const warnings = createWarningFilter();
 
+  // The status line shows only once the phone has connected: while it connects, the connection's
+  // own line is the one that matters. (A failure to load is known only after that: the in-page
+  // fallback waits for it.)
+  let isConnected = false;
   const say = (phase, text) => {
     state.phase = phase;
 
@@ -653,8 +677,13 @@ export async function startPhoneVision({ video, stream, overlay, status, send, s
       status.textContent = text;
     }
 
-    status.hidden = false;
+    status.hidden = !isConnected;
   };
+  const whenConnected = connected.then(() => {
+    isConnected = true;
+    state.connectedAt = now();
+    status.hidden = false;
+  });
 
   say('loading', 'Getting the board finder ready...');
 
@@ -685,6 +714,7 @@ export async function startPhoneVision({ video, stream, overlay, status, send, s
     // No storage: the usual limit.
   }
   let processor = null;
+  state.loadStartedAt = now();
 
   if (useWorker) {
     try {
@@ -697,15 +727,26 @@ export async function startPhoneVision({ video, stream, overlay, status, send, s
       }, { slowdown: () => state.slowdown });
     } catch (error) {
       state.workerError = String(error?.message ?? error);
+      console.warn('[houseki scan phone] the board finder could not start in a worker, trying the page:', error);
     }
   }
 
   if (!processor) {
+    // In the page, OpenCV loads and compiles on the main thread: only once connected (T-0329).
+    await whenConnected;
+
     try {
       processor = await startInPage(setup);
     } catch (error) {
       state.error = String(error?.message ?? error);
+      console.error('[houseki scan phone] the board finder could not load:', error, state.workerError ? `(in a worker: ${state.workerError})` : '');
       say('error', 'The board finder could not load. Your camera still streams to your computer.');
+      // Why, under it, in the diagnostics line's small print: what a person can read off their own
+      // phone and send us (the user, 2026-10-14, on a Pixel, could not see the console).
+      if (diagLine) {
+        diagLine.textContent = [state.workerError && `worker: ${state.workerError}`, `page: ${state.error}`].filter(Boolean).join(' · ');
+        diagLine.hidden = false;
+      }
       return debug;
     }
   }
@@ -713,6 +754,9 @@ export async function startPhoneVision({ video, stream, overlay, status, send, s
   state.thread = processor.kind;
   state.loadMs = processor.loadMs;
   state.warmMs = processor.warmMs;
+  state.readyAt = now();
+  // Ready before the phone has connected (the Worker loads meanwhile): no frame until then.
+  await whenConnected;
   say('searching', 'Point the camera at the printed board.');
 
   const costAverage = average(0.2);
@@ -768,6 +812,7 @@ export async function startPhoneVision({ video, stream, overlay, status, send, s
     }
 
     const started = now();
+    state.firstFrameAt ??= started;
     const work = { width: Math.max(1, Math.round(W * state.scale)), height: Math.max(1, Math.round(H * state.scale)) };
     const expected = overlayFilter.predict(timeMs);
     // The pose as soon as it is solved (T-0340): the overlay's filter takes it then, not after the

@@ -88,7 +88,7 @@ and tells you which keys copy it.</p>
 <div class="note"><p>The link works like a key to this session: anyone who opens it can connect
 their camera, so send it only to your own phone.</p></div>
 
-<figure class="side"><img src="images/rough-scan/panel.webp" alt="The left-hand side of the scanner: the Phone card with four numbered steps, the Connection card reading Waiting for your phone (8 of 8) with a New code button, and Done at the bottom." loading="lazy">
+<figure class="side"><img src="images/rough-scan/panel.webp" alt="The left-hand side of the scanner: the Phone card with four numbered steps, the Connection card reading Waiting for your phone with a New code button, and Done at the bottom." loading="lazy">
 <figcaption>The scanner's left-hand side: the steps, the connection's state, <span class="ui">New
 code</span> and <span class="ui">Done</span>.</figcaption></figure>
 
@@ -100,7 +100,7 @@ step. Once the phone's picture is showing, they say <span class="ui">Streaming</
 
 <p>Connecting takes a few seconds, sometimes longer. On the computer, under the code, and at the
 bottom of the phone's screen, a small picture shows what is happening: this computer on the left,
-the internet servers that introduce the two devices in the middle (a globe), and the phone on the
+the internet servers that introduce the two devices in the middle (a cloud), and the phone on the
 right, with arrows moving between them. The arrows leaving the device you are looking at run
 along the top. Under the picture, a line names the step (on the computer, the
 <span class="ui">Connection</span> card says the same):</p>
@@ -108,14 +108,14 @@ along the top. Under the picture, a line names the step (on the computer, the
 <table>
   <tr><th>Step</th><th>In the picture</th><th>What is happening</th></tr>
   <tr><td><span class="ui">Connecting to the servers… (5 of 8)</span></td><td>grey arrows from this device to the servers; the servers and the other device greyed out</td><td>The device connects to the servers that pass messages between the two. The numbers say how many are ready.</td></tr>
-  <tr><td><span class="ui">Waiting for your phone…</span> on the computer, <span class="ui">Looking for your computer…</span> on the phone</td><td>the servers turn white, and the arrows white and bold</td><td>More than half of the servers are ready, and the device is waiting to hear from the other one.</td></tr>
+  <tr><td><span class="ui">Waiting for your phone…</span> on the computer, <span class="ui">Looking for your computer…</span> on the phone</td><td>the servers turn white, and the arrows white and bold</td><td>More than half of the servers are ready, and the device is waiting to hear from the other one. Both devices use the same servers, so once each has more than half of them, they always share at least one.</td></tr>
   <tr><td><span class="ui">Exchanging connection details with your phone…</span></td><td>the other device lights up; arrows run through the servers both ways</td><td>The two have found each other and swap what each needs to reach the other, through the servers, encrypted with the session's password.</td></tr>
   <tr><td><span class="ui">Setting up a direct connection to your phone…</span></td><td>the servers disappear; arrows run straight between the two</td><td>The devices try to reach each other directly over your network.</td></tr>
   <tr><td><span class="ui">Checking the password…</span></td><td>as above</td><td>Over the direct connection, each checks that the other has this session's password.</td></tr>
   <tr><td><span class="ui">Connected</span></td><td>as above</td><td>The camera starts streaming: on the computer its picture takes the code's place, and on the phone the picture folds away after a few seconds to leave the screen to the camera.</td></tr>
 </table>
 
-<figure><img src="images/rough-scan/phone-connecting.webp" alt="The bottom of the phone's screen over the camera picture: a small picture of a greyed-out laptop on the left, a globe with a small server in the middle and the phone on the right with white arrows moving from the phone to the globe, and under it the line Looking for your computer… (1 of 1)." loading="lazy">
+<figure><img src="images/rough-scan/phone-connecting.webp" alt="The bottom of the phone's screen over the camera picture: a small picture of a greyed-out laptop on the left, a cloud with a small server in the middle and the phone on the right with white arrows moving from the phone to the cloud, and under it the line Looking for your computer…" loading="lazy">
 <figcaption>The phone, connected to the servers and looking for the computer.</figcaption></figure>
 
 <p>If the direct connection fails, the line says <span class="ui">The direct connection to your
@@ -140,10 +140,13 @@ report a connection problem.</p>
 
 <h2 id="on-the-phone">On the phone</h2>
 
-<p>The phone shows its camera full screen. Once it has connected to the computer, it gets its board
-finder ready, which takes a moment (the line above the connection says
-<span class="ui">Getting the board finder ready...</span> meanwhile). Then point it at the board
-with the rock in its middle. Over the picture it draws what it finds:</p>
+<p>The phone shows its camera full screen. It gets its board finder ready while it connects to the
+computer, so it is usually ready by the time it has connected; if it is not yet, the line above the
+connection says <span class="ui">Getting the board finder ready...</span> until it is. If it says
+<span class="ui">The board finder could not load</span> instead, the camera still streams to the
+computer, but nothing is drawn; the small line under it says why, which is worth including if you
+report it. Then point it at the board with the rock in its middle. Over the picture it draws what
+it finds:</p>
 
 <ul>
   <li>a red point on each corner of the printed squares that it has found, and a blue line between

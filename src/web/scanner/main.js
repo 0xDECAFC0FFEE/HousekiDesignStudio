@@ -8,8 +8,8 @@
 // ('starting', 'invalid-link', 'camera-refused', 'connecting', 'connected', 'disconnected',
 // 'wrong-password', 'timeout', 'error') is for tests/harness/test_scan_link.py.
 //
-// Once the phone has connected to the computer, the phone's vision starts (vision.js, T-0326;
-// not before, T-0329): it finds the printed
+// The phone's vision (vision.js, T-0326) loads while the phone connects and runs once it has
+// connected (not before, T-0329): it finds the printed
 // board, the camera's pose over it and the rock's outline, draws them over the picture, says what
 // it sees in a second line (#scanner-vision, its state in `data-state`), and sends a summary to
 // the computer through the session. It never holds up the camera or the connection.
@@ -52,8 +52,8 @@ function show(state) {
 }
 
 // The connection picture (T-0342) and the step it shows. While the session is 'connecting', the
-// status line says the step (scan_trace.js stepText: "Connecting to the servers… (5 of 8)",
-// "Looking for your computer…", ...); a failure, a timeout and 'connected' keep their messages
+// status line says the step (scan_trace.js stepText: "Connecting to the servers… (3 of 8)",
+// then "Looking for your computer…" once more than half are up, ...); a failure, a timeout and 'connected' keep their messages
 // above. The step is in the line's `data-phase` for the harness.
 let diagram = null;
 let foldTimer = null;
@@ -144,7 +144,27 @@ async function start() {
   show('connecting');
 
   const session = joinScanSession(link, stream);
-  let visionStarted = false;
+
+  // The vision starts loading now, while the session connects, but reads no frame until the phone
+  // has first connected (T-0329: loading OpenCV and finding the board while the connection was
+  // still being set up slowed pairing about four times over -- public relays, studio and phone in
+  // one browser from file://: 11.9-14.3 s without it, 47.8-56.6 s with it). The load runs in a
+  // Worker, off this thread; where it cannot, vision.js waits for `connected` before loading in
+  // the page. Once connected, its status line says whether the board finder is still loading.
+  // Its results are for the computer anyway, and the camera streams either way. It keeps running
+  // if the computer leaves and comes back.
+  let markConnected;
+  const connected = new Promise(resolve => {
+    markConnected = resolve;
+  });
+  startPhoneVision({
+    video,
+    stream,
+    overlay: document.getElementById('scanner-overlay'),
+    status: document.getElementById('scanner-vision'),
+    send: message => session.sendVision(message),
+    connected,
+  }).catch(error => console.error('vision', error));
 
   session.onTrace(snapshot => {
     latestTrace = snapshot;
@@ -158,21 +178,8 @@ async function start() {
     // Why an 'error' happened, for diagnosis (the harness reads it; T-0316). Not shown.
     statusLine.dataset.detail = state === 'error' ? String(detail ?? '') : '';
 
-    // The vision starts once the phone has first connected, never before (T-0329). Loading
-    // OpenCV and finding the board while the connection is still being set up slowed pairing about
-    // four times over (public relays, studio and phone in one browser from file://: 11.9-14.3 s
-    // without it, 47.8-56.6 s with it), long enough for the page to tell the person it could not
-    // reach the computer. Its results are for the computer anyway, and the camera streams either
-    // way. It keeps running if the computer leaves and comes back.
-    if (state === 'connected' && !visionStarted) {
-      visionStarted = true;
-      startPhoneVision({
-        video,
-        stream,
-        overlay: document.getElementById('scanner-overlay'),
-        status: document.getElementById('scanner-vision'),
-        send: message => session.sendVision(message),
-      }).catch(error => console.error('vision', error));
+    if (state === 'connected') {
+      markConnected();
     }
   });
 

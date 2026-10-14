@@ -27,9 +27,11 @@
 // What the connection is doing (T-0342): each session is watched by scan_trace.js, which logs
 // every step to the console ("[houseki scan computer +1.23s] ...") and reports the current step
 // (`onTrace`) for the connection picture on both ends. It sees the relay sockets and, through
-// Trystero's `rtcPolyfill` option, the WebRTC connections; it changes nothing they do.
+// Trystero's `rtcPolyfill` option, the WebRTC connections; it changes nothing they do, except
+// that it resends an offer the other device shows it never got (scan_resend.js, T-0349).
 
 import {
+  createEvent,
   getRelaySockets,
   joinRoom,
   pauseRelayReconnection,
@@ -39,7 +41,9 @@ import {
 import { decodeScanHash, defaultScannerBaseUrl, newScanSecrets, scanLinkUrl } from './scan_link_hash.js';
 import { SCAN_RELAY_URLS } from './scan_relays.js';
 import { phoneVisionChannel, studioVisionChannel } from './scan_vision.js';
-import { createScanTrace } from './scan_trace.js';
+import { createOfferResender } from './scan_resend.js';
+import { createScanLog, createScanTrace, roomTopicPlaintext } from './scan_trace.js';
+import { trysteroTopic } from './scan_trace_hash.js';
 
 export { decodeScanHash, ScanLinkError } from './scan_link_hash.js';
 export { SCAN_RELAY_URLS } from './scan_relays.js';
@@ -53,6 +57,9 @@ export const SCAN_APP_ID = 'houseki-scanner';
 
 /** How long the computer waits for any relay to accept a connection before reporting 'error'. */
 const RELAY_GRACE_MS = 15000;
+
+/** How often the computer checks for an open relay socket (see RELAY_GRACE_MS). */
+const RELAY_CHECK_MS = 1000;
 
 /** How long the phone waits for the computer before saying the link may have expired. */
 const PHONE_CONNECT_TIMEOUT_MS = 30000;
@@ -79,8 +86,14 @@ export function roomConfig(password, relayUrls, rtcPolyfill = null) {
   return config;
 }
 
-/** The trace (scan_trace.js) of one session, on Trystero's relays and peer id. */
+/**
+ * The trace (scan_trace.js) of one session, on Trystero's relays and peer id, with the resender
+ * (scan_resend.js) that sends an offer again when the other device shows it never got it.
+ */
 function traceSession(role, roomId, relayUrls) {
+  const log = createScanLog(role);
+  const plaintext = roomTopicPlaintext(SCAN_APP_ID, roomId);
+
   return createScanTrace({
     role,
     appId: SCAN_APP_ID,
@@ -88,6 +101,8 @@ function traceSession(role, roomId, relayUrls) {
     relayUrls: relayUrls && relayUrls.length ? [...relayUrls] : [...SCAN_RELAY_URLS],
     getSockets: getRelaySockets,
     selfId,
+    log,
+    resender: createOfferResender({ selfId, peerTopic: id => trysteroTopic(`${plaintext}@${id}`), createEvent, log }),
   });
 }
 
@@ -336,17 +351,23 @@ export function createScanSession({ scannerBaseUrl, relayUrls = [], location = g
   });
 
   // Trystero reports nothing when no relay can be reached (offline, or every relay blocked), so
-  // the session would sit at 'waiting' for ever. Watch the relay sockets instead.
-  const started = Date.now();
+  // the session would sit at 'waiting' for ever. Watch the relay sockets instead. The grace is
+  // counted in checks that ran, not in time since the start: Trystero's start (its key setup) can
+  // hold the page for many seconds on a busy computer, and the first check after that ran before
+  // the sockets' `open` was handled, so "cannot reach the internet service" flashed over a session
+  // about to connect, hiding the code (T-0347, seen in the harness 2026-10-14).
+  const graceChecks = Math.ceil(RELAY_GRACE_MS / RELAY_CHECK_MS);
+  let closedChecks = 0;
   const relayWatch = setInterval(() => {
     const open = relaySockets().some(socket => socket.readyState === 1);
+    closedChecks = open ? 0 : closedChecks + 1;
 
-    if (!open && current === 'waiting' && Date.now() - started > RELAY_GRACE_MS) {
+    if (!open && current === 'waiting' && closedChecks > graceChecks) {
       setStatus('error', 'signaling-unreachable');
     } else if (open && current === 'error') {
       setStatus('waiting');
     }
-  }, 1000);
+  }, RELAY_CHECK_MS);
 
   return {
     url,

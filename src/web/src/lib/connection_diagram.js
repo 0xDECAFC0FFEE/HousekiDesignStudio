@@ -1,5 +1,5 @@
 // The connection picture (T-0342), on the computer's scanner and on the phone: a laptop on the
-// left, the servers in the middle (a globe and a small server), a phone on the right,
+// left, the servers in the middle (a cloud and a small server), a phone on the right,
 // and arrows moving between them as scan_trace.js reports each step. The user, 2026-10-13:
 //
 //   "on the computer, initially the phone is greyed out and while its setting up subscriptions, it
@@ -127,18 +127,24 @@ function phone(parent, cx) {
   return g;
 }
 
-/** The servers: a globe (circle, meridian, equator), with a small server overlapping its lower
- *  right (filled, so the globe's lines pass behind it). */
+/** The servers: a cloud (three bumps on a flat base), with a small three-row server overlapping
+ *  its lower right (filled, so the cloud's outline passes behind it). The user, 2026-10-14:
+ *  "instead of the globe behind the server, can you have a cloud and can you add a third server
+ *  row in the server icon". */
 function servers(parent, cx) {
   const g = el('g', { class: 'cd-server' }, parent);
-  el('circle', { cx, cy: 38, r: 17 }, g);
-  el('ellipse', { cx, cy: 38, rx: 7.5, ry: 17 }, g);
-  el('line', { x1: cx - 17, y1: 38, x2: cx + 17, y2: 38 }, g);
+  const at = (x, y) => `${cx + x} ${y}`;
+  el('path', {
+    class: 'cd-cloud',
+    d: `M${at(-14, 47)} A7 7 0 0 1 ${at(-16.5, 34)} A11 11 0 0 1 ${at(3, 26.5)} A7 7 0 0 1 ${at(13, 33)} A7.5 7.5 0 0 1 ${at(15, 47)} Z`,
+  }, g);
   const box = el('g', { class: 'cd-rack' }, g);
-  el('rect', { x: cx + 2, y: 45, width: 16, height: 6.5, rx: 1.3 }, box);
-  el('rect', { x: cx + 2, y: 52.5, width: 16, height: 6.5, rx: 1.3 }, box);
-  el('circle', { cx: cx + 14.5, cy: 48.25, r: 0.95, class: 'cd-led' }, box);
-  el('circle', { cx: cx + 14.5, cy: 55.75, r: 0.95, class: 'cd-led' }, box);
+
+  for (const y of [43.5, 48.7, 53.9]) {
+    el('rect', { x: cx + 2, y, width: 16, height: 4.6, rx: 1.1 }, box);
+    el('circle', { cx: cx + 14.8, cy: y + 2.3, r: 0.8, class: 'cd-led' }, box);
+  }
+
   return g;
 }
 
@@ -235,7 +241,7 @@ export function createConnectionDiagram(container, { role, label = 'How the conn
 export const CONNECTION_DIAGRAM_CSS = `
 .cd { display: block; width: 100%; max-width: 360px; height: auto; margin: 0 auto; overflow: visible; }
 .cd .cd-device rect, .cd .cd-device path, .cd .cd-device line,
-.cd .cd-server circle, .cd .cd-server ellipse, .cd .cd-server line, .cd .cd-rack rect {
+.cd .cd-server .cd-cloud, .cd .cd-rack rect {
   fill: none; stroke: var(--cd-ink, var(--text, #eceff4)); stroke-width: 1.6;
   stroke-linejoin: round; stroke-linecap: round; transition: stroke 0.5s, opacity 0.5s;
 }

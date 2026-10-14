@@ -88,19 +88,31 @@ def js(value):
 
 
 class NoOpenCvServer:
-    """build/www over HTTP like test_scan_link.Server, except that opencv.js is not found."""
+    """build/www over HTTP like test_scan_link.Server, except that opencv.js is not found; or, with
+    hold=True, that its answer waits until release() (a slow download of the board finder)."""
 
-    def __init__(self):
+    def __init__(self, hold=False):
         import functools
         import http.server
         import threading
 
+        # Set when the phone asks for opencv.js; the held answer waits for `released`.
+        self.requested = threading.Event()
+        self.released = threading.Event()
+        server = self
+
         class Handler(http.server.SimpleHTTPRequestHandler):
             def do_GET(self):
                 if self.path.split("?")[0].endswith("/opencv.js"):
-                    self.send_error(404)
-                else:
-                    super().do_GET()
+                    server.requested.set()
+
+                    if not hold:
+                        self.send_error(404)
+                        return
+
+                    server.released.wait(120)
+
+                super().do_GET()
 
             def log_message(self, *args):
                 pass
@@ -110,7 +122,11 @@ class NoOpenCvServer:
         self.origin = "http://localhost:%d" % self.httpd.server_address[1]
         threading.Thread(target=self.httpd.serve_forever, daemon=True).start()
 
+    def release(self):
+        self.released.set()
+
     def close(self):
+        self.released.set()
         self.httpd.shutdown()
         self.httpd.server_close()
 
@@ -516,6 +532,75 @@ class ScanVisionTest(unittest.TestCase):
         self.assertTrue(log, "the studio took no message")
         self.assertTrue(all(e["message"]["board"]["markers"] == 0 and e["message"]["pose"] is None for e in log))
         self.assertTrue(all(e["message"]["intrinsics"]["source"] == "guess" for e in log))
+
+    def test_the_board_finder_loads_while_connecting_and_runs_once_connected(self):
+        """The board finder loads while the phone connects; once connected the phone says so if it
+        is still loading, and reads no frame before then.
+
+        Setup: the phone page served by a second server that holds its answer for opencv.js until
+        the test releases it, as a slow download of the board finder would; a line on the phone
+        page (added before it loads) watches its vision line every 10 ms until the session
+        connects. Test: open the session link on the phone; wait for its request for opencv.js and
+        for the session to connect; read the vision line; release opencv.js; wait for the board
+        finder to start. Verifies:
+          - the board finder started loading (opencv.js was asked for) before the phone had
+            connected: loadStartedAt < connectedAt;
+          - its vision line stayed hidden while connecting;
+          - once connected, with opencv.js still held, the line shows and says
+            "Getting the board finder ready..." ('loading'), and no frame has been read;
+          - after the release, the board finder runs in the Worker, became ready after connecting
+            here, and read its first frame only after connecting.
+        """
+        phone = self.start_phone()
+        held = NoOpenCvServer(hold=True)
+
+        try:
+            phone.send("Page.enable")
+            phone.send("Page.addScriptToEvaluateOnNewDocument", {"source": """
+              window.__visionShownWhileConnecting = false;
+              const watch = setInterval(() => {
+                const status = document.getElementById('scanner-status');
+                const line = document.getElementById('scanner-vision');
+                if (status?.dataset.status === 'connected') { clearInterval(watch); return; }
+                if (line && !line.hidden) window.__visionShownWhileConnecting = true;
+              }, 10);
+            """})
+            link = self.open_mode()
+            phone.navigate(held.origin + "/scanner/#" + link.split("#", 1)[1])
+            self.assertTrue(held.requested.wait(60), "the phone never asked for opencv.js")
+            phone.wait_for_expression(
+                "document.getElementById('scanner-status')?.dataset.status === 'connected'", timeout=CONNECT_TIMEOUT)
+            # The line is shown on the microtask after 'connected'; give it a moment.
+            phone.wait_for_expression("!document.getElementById('scanner-vision').hidden", timeout=5)
+
+            line = phone.evaluate("""(() => {
+              const line = document.getElementById('scanner-vision');
+              const state = window.housekiScanVision.state;
+              return { state: line.dataset.state, text: line.textContent, processed: state.processed,
+                       loadStartedAt: state.loadStartedAt, connectedAt: state.connectedAt,
+                       shownEarly: window.__visionShownWhileConnecting };
+            })()""")
+            print("\nwhile held:", line)
+            self.assertLess(line["loadStartedAt"], line["connectedAt"], "the board finder did not start loading while connecting")
+            self.assertFalse(line["shownEarly"], "the vision line showed while connecting")
+            self.assertEqual(line["state"], "loading")
+            self.assertEqual(line["text"], "Getting the board finder ready...")
+            self.assertEqual(line["processed"], 0)
+
+            held.release()
+            phone.wait_for_expression(
+                "['searching', 'partial', 'unsteady', 'pose'].includes(document.getElementById('scanner-vision').dataset.state)",
+                timeout=60)
+        finally:
+            held.close()
+
+        state = phone.evaluate("""(() => { const s = window.housekiScanVision.state;
+          return { thread: s.thread, connectedAt: s.connectedAt, readyAt: s.readyAt, firstFrameAt: s.firstFrameAt }; })()""")
+        print("after release:", state)
+        self.assertEqual(state["thread"], "worker")
+        self.assertGreater(state["readyAt"], state["connectedAt"])
+        phone.wait_for_expression("window.housekiScanVision.state.firstFrameAt !== null", timeout=10)
+        self.assertGreaterEqual(phone.evaluate("window.housekiScanVision.state.firstFrameAt"), state["connectedAt"])
 
     def test_a_phone_without_vision_leaves_the_studio_as_it_was(self):
         """A phone that sends no vision: the studio streams it exactly as before.

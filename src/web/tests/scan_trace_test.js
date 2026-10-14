@@ -11,8 +11,8 @@
  */
 
 import {
-  candidateInfo, createScanLog, createScanTrace, roomTopicPlaintext, serversReady, signalType, STEPS, stepOf,
-  stepText, RELAY_SETTLE_MS,
+  addressKind, candidateFromLine, candidateInfo, createScanLog, createScanTrace, failureReading, failureReport, roomTopicPlaintext,
+  serversReady, signalType, STEPS, stepOf, stepText, summariseIceStats, withSeenCandidates,
 } from '../src/lib/scan_trace.js';
 import { trysteroTopic } from '../src/lib/scan_trace_hash.js';
 import { diagramView, lanesFor } from '../src/lib/connection_diagram.js';
@@ -31,22 +31,20 @@ function assertEquals(actual, expected, message) {
 
 const relay = (subscribed, extra = {}) => ({ subscribed, refused: false, attempts: 1, ...extra });
 
-Deno.test('the servers are ready when all are subscribed, or half plus one once the rest have had their chance', () => {
-  // Setup: lists of 8 relays in different states, at 2 s and at RELAY_SETTLE_MS into the session.
+Deno.test('the servers are ready as soon as more than half are subscribed', () => {
+  // Setup: lists of 8 relays in different states (the rest still on their first try), one of 7
+  // (an odd count), and an empty one.
   // Test: serversReady on each.
-  // Verifies the user's rule: all 8 subscribed is ready at once; 5 of 8 (half plus one) is ready
-  // only when every other relay has been retried, refused, or given RELAY_SETTLE_MS; 4 of 8 is
-  // never enough; an empty list is not ready.
-  const all = Array.from({ length: 8 }, () => relay(true));
-  assert(serversReady(all, 2000), 'all subscribed');
-  const five = [...Array.from({ length: 5 }, () => relay(true)), ...Array.from({ length: 3 }, () => relay(false))];
-  assert(!serversReady(five, 2000), '5 of 8 while the rest still have their first try');
-  assert(serversReady(five, RELAY_SETTLE_MS), '5 of 8 after the settling time');
-  const retried = [...five.slice(0, 5), relay(false, { attempts: 2 }), relay(false, { refused: true }), relay(false, { attempts: 3 })];
-  assert(serversReady(retried, 2000), '5 of 8, the rest retried or refused');
-  const four = [...Array.from({ length: 4 }, () => relay(true)), ...Array.from({ length: 4 }, () => relay(false, { attempts: 2 }))];
-  assert(!serversReady(four, RELAY_SETTLE_MS), '4 of 8 is not enough');
-  assert(!serversReady([], 0), 'no relays');
+  // Verifies the user's rule (2026-10-14): more than half subscribed is ready at once, without
+  // waiting for the others to be retried or refused -- 5 of 8 is, all 8 is; exactly half (4 of 8),
+  // which two devices could hold with no relay in common, is not; 4 of 7 is; nothing is not.
+  const list = (up, total) => [...Array.from({ length: up }, () => relay(true)), ...Array.from({ length: total - up }, () => relay(false))];
+  assert(serversReady(list(8, 8)), 'all subscribed');
+  assert(serversReady(list(5, 8)), '5 of 8, the rest still on their first try');
+  assert(!serversReady(list(4, 8)), '4 of 8 is only half');
+  assert(serversReady(list(4, 7)), '4 of 7 is more than half');
+  assert(!serversReady(list(3, 7)), '3 of 7 is not');
+  assert(!serversReady([]), 'no relays');
 });
 
 Deno.test('the step follows the furthest condition reached', () => {
@@ -69,11 +67,12 @@ Deno.test('the step follows the furthest condition reached', () => {
 Deno.test('each step has its words, for the computer and the phone', () => {
   // Setup: every step for both roles, the server counts, and a failed direct connection.
   // Verifies: the step line reads as the user asked ("Connecting to the servers… (3 of 8)",
-  // "Waiting for your phone…" on the computer, "Looking for your computer…" on the phone, ...,
-  // "Connected"); a failed direct connection says so and that it is trying again.
+  // "Waiting for your phone…" on the computer, "Looking for your computer…" on the phone -- with no
+  // count once enough servers are up (the user, 2026-10-14) -- ..., "Connected"); a failed direct
+  // connection says so and that it is trying again.
   assertEquals(stepText('servers', 'computer', { up: 3, total: 8 }), 'Connecting to the servers… (3 of 8)', 'servers');
-  assertEquals(stepText('waiting', 'computer', { up: 8, total: 8 }), 'Waiting for your phone… (8 of 8)', 'waiting, computer');
-  assertEquals(stepText('waiting', 'phone', { up: 7, total: 8 }), 'Looking for your computer… (7 of 8)', 'waiting, phone');
+  assertEquals(stepText('waiting', 'computer', { up: 8, total: 8 }), 'Waiting for your phone…', 'waiting, computer');
+  assertEquals(stepText('waiting', 'phone', { up: 5, total: 8 }), 'Looking for your computer…', 'waiting, phone');
   assertEquals(stepText('introducing', 'phone'), 'Exchanging connection details with your computer…', 'introducing');
   assertEquals(stepText('direct', 'computer'), 'Setting up a direct connection to your phone…', 'direct');
   assertEquals(stepText('verifying', 'phone'), 'Checking the password…', 'verifying');
@@ -212,4 +211,238 @@ Deno.test('the top row carries what leaves this device: rightwards on the comput
   assert(computer.leftToRight[1] < computer.rightToLeft[1], 'computer: rightward lane on top');
   assert(phone.rightToLeft[1] < phone.leftToRight[1], 'phone: leftward lane on top');
   assertEquals(computer.leftToRight[1], phone.rightToLeft[1], 'the same top row');
+});
+
+// --- the failure report (T-0345) ---------------------------------------------------------------
+
+/**
+ * A stand-in RTCStatsReport for a failed attempt on one Wi-Fi network, the shape Chrome gives:
+ * this computer has an mDNS host candidate and a srflx one; the phone offered an mDNS host and a
+ * srflx; `hostPair` says whether the phone's .local name was looked up (a host<->host pair exists);
+ * every check went unanswered.
+ */
+function failedStats({ hostPair = true } = {}) {
+  const reports = [
+    { id: 'L1', type: 'local-candidate', candidateType: 'host', protocol: 'udp', address: 'a1b2.local', port: 50000 },
+    { id: 'L2', type: 'local-candidate', candidateType: 'srflx', protocol: 'udp', address: '81.2.3.4', port: 50001 },
+    { id: 'R1', type: 'remote-candidate', candidateType: 'host', protocol: 'udp', address: hostPair ? '192.168.1.20' : 'c3d4.local', port: 60000 },
+    { id: 'R2', type: 'remote-candidate', candidateType: 'srflx', protocol: 'udp', address: '81.2.3.4', port: 60001 },
+    { id: 'P2', type: 'candidate-pair', localCandidateId: 'L2', remoteCandidateId: 'R2', state: 'failed', requestsSent: 9, responsesReceived: 0, requestsReceived: 0, responsesSent: 0 },
+  ];
+
+  if (hostPair) {
+    reports.push({ id: 'P1', type: 'candidate-pair', localCandidateId: 'L1', remoteCandidateId: 'R1', state: 'failed', requestsSent: 12, responsesReceived: 0, requestsReceived: 3, responsesSent: 3 });
+  }
+
+  return new Map(reports.map(r => [r.id, r]));
+}
+
+Deno.test('an address is told by its kind: mDNS name, private, link-local, CGNAT or public', () => {
+  // Setup: one address of each kind, IPv4 and IPv6.
+  // Test: addressKind on each.
+  // Verifies: the reading can say whether the other device hid its local address behind a .local
+  // name, sat on the same private network, or came over mobile data or a VPN (100.64.0.0/10).
+  assertEquals(
+    ['a1b2-c3.local', '192.168.1.20', '10.0.0.5', '172.20.1.1', '172.32.1.1', '169.254.3.4', '100.88.1.2', '81.2.3.4', 'fe80::1', 'fd00::5', '2a00:1450::1', ''].map(addressKind),
+    ['mDNS name', 'private', 'private', 'private', 'public', 'link-local', 'CGNAT', 'public', 'link-local', 'private', 'public', 'none'],
+    'the kinds');
+});
+
+Deno.test('the stats are reduced to the candidates and the pairs with their checks', () => {
+  // Setup: the failed attempt's stats, with the host pair.
+  // Test: summariseIceStats.
+  // Verifies: two candidates each side with their type and address kind; both pairs, each with
+  // its candidates resolved and its check counts (12 sent, none answered, 3 received from the
+  // phone and answered). A missing report (null) gives an empty summary rather than throwing.
+  const summary = summariseIceStats(failedStats());
+  assertEquals(summary.local.map(c => [c.type, c.kind]), [['host', 'mDNS name'], ['srflx', 'public']], 'local');
+  assertEquals(summary.remote.map(c => [c.type, c.kind]), [['host', 'private'], ['srflx', 'public']], 'remote');
+  const host = summary.pairs.find(p => p.id === 'P1');
+  assertEquals([host.local.type, host.remote.type, host.state, host.requestsSent, host.responsesReceived, host.requestsReceived],
+    ['host', 'host', 'failed', 12, 0, 3], 'the host pair');
+  assertEquals(summariseIceStats(null), { local: [], remote: [], pairs: [], selectedPairId: null }, 'no stats');
+});
+
+Deno.test('the candidates the trace saw replace what Chrome\'s stats leave out', () => {
+  // Setup: a summary as Chrome gives it for an attempt that never paired: this computer's host
+  // candidate without its address (Chrome hides the .local name in stats), and no remote
+  // candidate at all (Chrome lists one only once it is in a pair). The trace saw, from the
+  // description and the trickled candidates, the computer's .local host and the phone's host.
+  // Test: candidateFromLine on those lines, then withSeenCandidates.
+  // Verifies: a line is read with or without "a=" into type, protocol, address, kind and port;
+  // the merged summary lists both devices' addresses; the pair's local candidate gets its .local
+  // address back by type, protocol and port; the reading no longer claims nothing arrived but
+  // says the phone's local address was never checked.
+  const mine = candidateFromLine('candidate:911 1 udp 2113937151 c49b.local 61969 typ host generation 0 ufrag 5U5p');
+  const theirs = candidateFromLine('a=candidate:1 1 UDP 2122260223 d7e8.local 50000 typ host');
+  assertEquals(mine, { type: 'host', protocol: 'udp', address: 'c49b.local', kind: 'mDNS name', port: 61969 }, 'mine');
+  assertEquals([theirs.protocol, theirs.kind, theirs.port], ['udp', 'mDNS name', 50000], 'theirs');
+  assertEquals(candidateFromLine('not a candidate'), null, 'not a line');
+  const stats = {
+    local: [{ id: 'L', type: 'host', protocol: 'udp', address: '', kind: 'none', port: 61969 }],
+    remote: [],
+    pairs: [],
+    selectedPairId: null,
+  };
+  assert(failureReading(stats, 'computer').some(r => r.startsWith('No address of the phone arrived')), 'stats alone mislead');
+  const merged = withSeenCandidates({ ...stats, pairs: [{ local: stats.local[0], remote: null, state: 'waiting' }] }, [mine], [theirs]);
+  assertEquals(merged.remote, [theirs], 'the phone\'s address');
+  assertEquals(merged.pairs[0].local.address, 'c49b.local', 'the pair\'s address filled in');
+  const reading = failureReading(merged, 'computer');
+  assert(!reading.some(r => r.startsWith('No address of the phone arrived')), `no false claim: ${reading}`);
+  assert(reading.some(r => r.includes('its .local name could not be looked up (mDNS)')), `the host never checked: ${reading}`);
+});
+
+Deno.test('the reading names the likely cause from the pairs', () => {
+  // Setup: three failures -- the phone's .local name never looked up (no host pair); a host pair
+  // tried with nothing answered; and nothing arriving from the phone at all.
+  // Test: failureReading as the computer.
+  // Verifies: the first says the .local name could not be looked up (mDNS); the second that the
+  // local address was not answered and that no pair was answered, with the check counts; the
+  // third that no address of the phone arrived.
+  const noLookup = failureReading(summariseIceStats(failedStats({ hostPair: false })), 'computer');
+  assert(noLookup.some(r => r.includes('.local name could not be looked up (mDNS)')), `no lookup: ${noLookup}`);
+  const unanswered = failureReading(summariseIceStats(failedStats()), 'computer');
+  assert(unanswered.some(r => r.startsWith('No check on the phone\'s local address was answered')), `unanswered host: ${unanswered}`);
+  assert(unanswered.some(r => r.includes('No check on any pair was answered (21 sent, 3 received from the phone)')), `unanswered all: ${unanswered}`);
+  const nothing = failureReading({ local: [], remote: [], pairs: [] }, 'computer');
+  assert(nothing.some(r => r.startsWith('No address of the phone arrived')), `nothing: ${nothing}`);
+});
+
+Deno.test('the report lists what happened, both devices\' addresses, every pair and the STUN errors', () => {
+  // Setup: the failed attempt with the host pair, 12.34 s after the phone's offer, one STUN error.
+  // Test: failureReport as the computer.
+  // Verifies: the first line says it failed, why, when and the states; then this computer's
+  // addresses, the phone's, one line per pair with its checks, the STUN error, and at least one
+  // "reading:" line.
+  const lines = failureReport(summariseIceStats(failedStats()), {
+    role: 'computer', why: 'ICE failed', seconds: 12.34, ice: 'failed', connection: 'failed', gathering: 'complete',
+    candidateErrors: [{ url: 'stun:stun.l.google.com:19302', errorCode: 701, errorText: 'STUN host lookup received error.' }],
+  });
+  assertEquals(lines[0], 'the direct connection failed: ICE failed, 12.3 s after the phone\'s description (ICE failed, connection failed, gathering complete)', 'the head');
+  assert(lines[1].startsWith('this computer\'s addresses (2): host a1b2.local:50000 (mDNS name, udp)'), lines[1]);
+  assert(lines[2].startsWith('the phone\'s addresses (2): host 192.168.1.20:60000 (private, udp)'), lines[2]);
+  assertEquals(lines[3], 'pairs tried (2):', 'the pairs head');
+  assert(lines.some(l => l.includes('↔ host 192.168.1.20:60000 (private, udp): failed; checks sent 12, answered 0; received 3, answered 3')), 'the host pair line');
+  assert(lines.some(l => l === 'STUN errors while gathering: stun:stun.l.google.com:19302 701 STUN host lookup received error.'), 'the STUN error');
+  assert(lines.some(l => l.startsWith('reading: ')), 'a reading');
+});
+
+/** A stand-in RTCPeerConnection: states set by the test, events dispatched, stats from `stats`. */
+function fakePeerConnectionClass(stats) {
+  return class extends EventTarget {
+    iceConnectionState = 'new';
+    connectionState = 'new';
+    iceGatheringState = 'complete';
+    async setRemoteDescription() {}
+    async addIceCandidate() {}
+    async getStats() {
+      if (this.connectionState === 'closed') {
+        throw new Error('InvalidStateError');
+      }
+
+      return stats;
+    }
+    close() {
+      this.connectionState = 'closed';
+      this.iceConnectionState = 'closed';
+    }
+    // The test's way to move the connection on, as the browser would.
+    go(ice, connection) {
+      this.iceConnectionState = ice;
+      this.connectionState = connection;
+      this.dispatchEvent(new Event('iceconnectionstatechange'));
+    }
+  };
+}
+
+Deno.test('a failure whose stats have lost their pairs reports the last reading taken while it was trying', async () => {
+  // Setup: a fake connection whose stats have the failed attempt's pairs while it is checking,
+  // and none once it has failed (what Chrome does, measured in headless Chrome on 2026-10-14).
+  // Test: set the description (the pairs are read then), move it to checking, then to failed.
+  // Verifies: the report lists the pairs from the earlier reading, says so, and does not say
+  // "pairs tried (0)".
+  const stats = failedStats();
+  const Base = class extends fakePeerConnectionClass(stats) {
+    async getStats() {
+      return this.connectionState === 'failed' ? new Map([...stats].filter(([, r]) => r.type !== 'candidate-pair')) : stats;
+    }
+  };
+  const { trace, warnings } = traceWith(Base);
+  const pc = new trace.rtcPolyfill({});
+  await pc.setRemoteDescription({ type: 'answer', sdp: '' });
+  await settle();
+  pc.go('checking', 'connecting');
+  pc.go('failed', 'failed');
+  await settle();
+  const report = warnings.find(w => w.includes('the direct connection failed: ICE failed'));
+  assert(report && report.includes('pairs as last read while it was trying') && report.includes('pairs tried (2)'), `the report: ${report}`);
+  trace.close();
+});
+
+/** A trace on one fake relay whose WebRTC class is `Base`; its warnings collected in `warnings`. */
+function traceWith(Base) {
+  const warnings = [];
+  const sink = { info: () => {}, debug: () => {}, warn: (...a) => warnings.push(a.join(' ')) };
+  const trace = createScanTrace({
+    role: 'computer', appId: 'houseki-scanner', roomId: 'room1', relayUrls: ['wss://a'],
+    getSockets: () => ({}), selfId: 'me', log: createScanLog('computer', { sink }),
+    setInterval: () => 1, clearInterval: () => {}, RTCPeerConnection: Base,
+  });
+  return { trace, warnings };
+}
+
+const settle = () => new Promise(resolve => setTimeout(resolve, 0));
+
+Deno.test('an attempt whose ICE fails logs the report with its pairs read at that moment', async () => {
+  // Setup: a trace whose WebRTC class is the fake, returning the failed attempt's stats.
+  // Test: make a connection (as Trystero would), set the phone's description, move it to
+  // checking, then to failed.
+  // Verifies: one warning carries the report -- "ICE failed", the phone's addresses and the host
+  // pair's checks -- not marked stale (read while the connection was still open); the step falls
+  // back with the failure set; closing the connection afterwards adds no second report.
+  const { trace, warnings } = traceWith(fakePeerConnectionClass(failedStats()));
+  const pc = new trace.rtcPolyfill({});
+  await pc.setRemoteDescription({ type: 'offer', sdp: '' });
+  pc.go('checking', 'connecting');
+  pc.go('failed', 'failed');
+  await settle();
+  const reports = warnings.filter(w => w.includes('the direct connection failed: ICE failed'));
+  assertEquals(reports.length, 1, 'one report');
+  assert(reports[0].includes('the phone\'s addresses (2)'), 'the addresses');
+  assert(reports[0].includes('checks sent 12, answered 0'), 'the pair');
+  assert(!reports[0].includes('pairs as last read'), 'read fresh');
+  assertEquals(trace.snapshot().failure, 'direct-failed', 'the failure is shown');
+  pc.close();
+  await settle();
+  assertEquals(warnings.filter(w => w.includes('the direct connection failed')).length, 2, 'only the old warning and the one report');
+  trace.close();
+});
+
+Deno.test('an attempt closed before it connected logs the report from its last reading', async () => {
+  // Setup: as above.
+  // Test: set the phone's description (the first reading of the pairs happens then), leave it
+  // checking, and close it the way Trystero does when its ~23 s run out (no state event).
+  // Verifies: the close is reported as "closed by Trystero before it connected", with the pairs
+  // from the last reading, marked as such (getStats fails once closed). An attempt that came up
+  // and later closes reports nothing.
+  const { trace, warnings } = traceWith(fakePeerConnectionClass(failedStats()));
+  const pc = new trace.rtcPolyfill({});
+  await pc.setRemoteDescription({ type: 'offer', sdp: '' });
+  await settle();
+  pc.go('checking', 'connecting');
+  pc.close();
+  await settle();
+  const report = warnings.find(w => w.includes('closed by Trystero before it connected'));
+  assert(report, `the report: ${warnings}`);
+  assert(report.includes('pairs as last read while it was trying') && report.includes('checks sent 12'), 'the last reading');
+
+  const up = new trace.rtcPolyfill({});
+  await up.setRemoteDescription({ type: 'answer', sdp: '' });
+  up.go('connected', 'connected');
+  const before = warnings.length;
+  up.close();
+  await settle();
+  assertEquals(warnings.length, before, 'a connection that was up reports nothing on close');
+  trace.close();
 });
