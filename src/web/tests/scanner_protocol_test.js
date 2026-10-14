@@ -34,7 +34,7 @@ function assert(condition, message) {
 /**
  * A scan page's window: framed by `parent` (or, with `framed: false`, its own parent, as a page
  * opened on its own is). `deliver(data, { source, origin, ports })` plays the browser handing it a
- * message.
+ * message. What the page posts to its parent lands in `parent.posted` as [data, targetOrigin].
  */
 function fakeWindow({ framed = true } = {}) {
   const listeners = new Set();
@@ -47,7 +47,10 @@ function fakeWindow({ framed = true } = {}) {
     listening: () => listeners.size,
   };
 
-  win.parent = framed ? { name: "the website" } : win;
+  const posted = [];
+
+  win.parent = framed ? { name: "the website", posted, postMessage: (data, target) => posted.push([data, target]) } : win;
+  win.posted = posted;
   return win;
 }
 
@@ -76,6 +79,24 @@ Deno.test("defaultEmbedUrl picks the scan page beside the page over http(s), the
     "http://127.0.0.1:8123/scanner/embed.html", "a local server");
   assertEqual(protocol.defaultEmbedUrl({ protocol: "file:", origin: "null" }), protocol.PUBLIC_EMBED_URL, "a file");
   assertEqual(protocol.defaultEmbedUrl(undefined), protocol.PUBLIC_EMBED_URL, "no location");
+});
+
+Deno.test("studioEmbedUrl opens the scan page in the same build when the studio is a file", () => {
+  // Setup: the studio's locations -- opened from a file in a build, the published site, a local
+  // test server, and none at all.
+  // Test: ask each for the scan page the studio opens.
+  // Verifies: from a file the studio opens scanner/embed.html beside studio.html in that same
+  // build (so a local build shows its own scan page, not the published, possibly older one, which
+  // is what a website's own file still gets from defaultEmbedUrl); over http(s), and with no
+  // location, it is exactly defaultEmbedUrl's choice.
+  const file = { protocol: "file:", origin: "null", href: "file:///Users/me/gems/build/www/studio.html#x" };
+  assertEqual(protocol.studioEmbedUrl(file), "file:///Users/me/gems/build/www/scanner/embed.html", "a file");
+  assertEqual(protocol.defaultEmbedUrl(file), protocol.PUBLIC_EMBED_URL, "a website's file is unchanged");
+  assertEqual(protocol.studioEmbedUrl({ protocol: "https:", origin: "https://houseki.app" }),
+    "https://houseki.app/scanner/embed.html", "the published site");
+  assertEqual(protocol.studioEmbedUrl({ protocol: "http:", origin: "http://127.0.0.1:8123" }),
+    "http://127.0.0.1:8123/scanner/embed.html", "a local server");
+  assertEqual(protocol.studioEmbedUrl(undefined), protocol.PUBLIC_EMBED_URL, "no location");
 });
 
 Deno.test("the handshake is addressed to the scan page's own origin, and only a file falls back to '*'", () => {
@@ -173,6 +194,34 @@ Deno.test("the scan page accepts the framing website's handshake and talks to it
   channel.port1.close();
 });
 
+Deno.test("the scan page says hello to the window that framed it as soon as it listens", () => {
+  // Setup: a framed scan page whose parent records what it is sent.
+  // Test: start waiting for a website, then accept its init.
+  // Verifies: the page greets its parent once, with the protocol's 'hello' and nothing else in it,
+  // addressed to '*' (it cannot know the website's origin before the handshake, and the hello
+  // carries nothing to protect) -- and only after it is listening, so a website that answers the
+  // hello at once is heard. This is what lets a website send its handshake without waiting for
+  // the frame's `load`, which came seconds late, or never, for a busy studio opened from a file.
+  const win = fakeWindow();
+  const channel = new MessageChannel();
+  let listeningAtHello = null;
+
+  win.parent.postMessage = (data, target) => {
+    listeningAtHello = win.listening();
+    win.posted.push([data, target]);
+  };
+
+  waitForSite({ window: win, onInit: site => site.close() });
+
+  assertEqual(win.posted, [[{ protocol: protocol.SCAN_PROTOCOL, type: "hello" }, "*"]], "one hello, to '*'");
+  assertEqual(listeningAtHello, 1, "sent once the page is listening");
+  assertEqual(protocol.readScanMessage(win.posted[0][0], "scanner")?.type, "hello", "a message the website reads as the scanner's");
+
+  win.deliver(protocol.scanMessage("init", { version: 1 }), { ports: [channel.port2] });
+  assertEqual(win.posted.length, 1, "and no second hello after the handshake");
+  channel.port1.close();
+});
+
 Deno.test("the scan page ignores handshakes from anyone but the window that framed it", async () => {
   // Setup: a framed scan page waiting for a website.
   // Test: deliver an init from another window (a frame inside the page, a page it opened), one
@@ -234,8 +283,8 @@ Deno.test("a newer protocol version is refused, telling the website why", async 
 Deno.test("a page opened on its own is not framed and listens for nothing", () => {
   // Setup: a scan page whose parent is itself, as a page opened in its own tab is.
   // Test: wait for a website, and deliver an init as if from its own window.
-  // Verifies: `framed` is false, so the page shows what it is for instead of starting a session,
-  // and nothing it receives is taken for a handshake.
+  // Verifies: `framed` is false, so the page shows what it is for instead of starting a session;
+  // it says hello to nobody; and nothing it receives is taken for a handshake.
   const win = fakeWindow({ framed: false });
   let started = false;
 
@@ -244,6 +293,7 @@ Deno.test("a page opened on its own is not framed and listens for nothing", () =
   const channel = new MessageChannel();
 
   assert(!waiting.framed, "not framed");
+  assertEqual(win.posted, [], "no hello: there is nobody to greet");
   win.deliver(protocol.scanMessage("init", { version: 1 }), { source: win, ports: [channel.port2] });
   assert(!started, "nothing starts");
   assertEqual(win.listening(), 0, "nothing listened for");

@@ -1,0 +1,77 @@
+{
+ "format": "houseki.board.v1",
+ "name": "charuco_23x17_10mm_grey_black_spiral",
+ "palette": "black-to-grey",
+ "for": "dark rough",
+ "dictionary": "DICT_4X4_1000",
+ "first_marker_id": 500,
+ "squares_x": 23,
+ "squares_y": 17,
+ "legacy": false,
+ "square_mm": 10.0,
+ "marker_mm": 7.0,
+ "marker_ratio": 0.7,
+ "frame": "origin at the top-left chessboard corner; X down the page (rows), Y right (columns), Z up out of the paper; millimetres",
+ "target": {
+  "centre_mm": [
+   85.0,
+   115.0
+  ]
+ },
+ "removed_marker_ids": [],
+ "invalid_corner_ids": [],
+ "unreadable_marker_ids": [],
+ "colours": {
+  "dark_srgb": 0,
+  "light_srgb": 110,
+  "note": "grey levels as printed: the squares without markers and the markers' ink are dark_srgb, the marker squares light_srgb"
+ },
+ "spiral": {
+  "origin_mm": 2.669,
+  "cell_mm": 1.1655,
+  "levels_srgb": [
+   [
+    0,
+    18,
+    29,
+    38
+   ],
+   [
+    87,
+    93,
+    99,
+    45
+   ],
+   [
+    82,
+    110,
+    104,
+    52
+   ],
+   [
+    76,
+    70,
+    64,
+    58
+   ]
+  ],
+  "note": "in every dark square: a 4 x 4 grid of cell_mm cells starting origin_mm from the square's top-left corner along X (rows) and Y (columns); levels_srgb[i][j] is the cell i along X, j along Y"
+ },
+ "print": {
+  "image": "charuco_23x17_10mm_grey_black_spiral.png",
+  "image_px": [
+   5900,
+   4307
+  ],
+  "px_per_mm": 23.6,
+  "board_origin_px": [
+   94,
+   83
+  ],
+  "size_cm": [
+   25.0,
+   18.25
+  ]
+ },
+ "source": "measured on the user's charuco_23x17_10mm_grey_black_spiral.png (2026-10-13, T-0340): OpenCV CharucoBoard 23 x 17, 10 mm squares, 7 mm markers, DICT_4X4_1000 ids 500-694, non-legacy"
+}

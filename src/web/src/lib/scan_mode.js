@@ -14,9 +14,11 @@
 // The mode ends when the scanner does: Done (the result, which the studio does not use yet), its
 // Close, or Escape, in the scan page or in the studio.
 //
-// The scan page is the one beside the studio when the studio is served over http(s) (houseki.app,
-// or a local test server), and the published one when the studio is opened from a file
-// (scanner_protocol.js defaultEmbedUrl), as the phone's page is picked.
+// The scan page is the one beside the studio: on its own site when the studio is served over
+// http(s) (houseki.app, or a local test server), and in the same build when the studio is opened
+// from a file (scanner_protocol.js studioEmbedUrl), so a local build always tries its own. A saved
+// copy of the studio is a single file with no scan page beside it: then the published one is
+// opened instead (scanner_sdk.js's fallbackUrl).
 
 import { writable, get } from 'svelte/store';
 import { editing } from './edit_mode.js';
@@ -25,17 +27,17 @@ import { setLocalHistory } from './session.js';
 import { setRenderHold, releaseRenderHold } from './viewport.js';
 import { showError } from './stores.js';
 import { openScanner } from './scanner_sdk.js';
-import { defaultEmbedUrl } from './scanner_protocol.js';
+import { studioEmbedUrl, PUBLIC_EMBED_URL } from './scanner_protocol.js';
 
 /** Added to every tier toolbar button's tooltip while the mode holds the design. */
 export const CLOSE_SCAN_TIP = ' Close the rough scan first: Done, or Escape.';
 
 // The pieces from outside the mode, replaceable by the tests (`setScanBackend`):
-//   open      scanner_sdk.js's openScanner: `({ onResult, onCancel, embedUrl }) => { close }`
+//   open      scanner_sdk.js's openScanner: `({ onResult, onCancel, embedUrl, fallbackUrl }) => { close }`
 //   embedUrl  the scan page's address, for this page's location
 const DEFAULT_BACKEND = {
   open: openScanner,
-  embedUrl: () => defaultEmbedUrl(globalThis.location),
+  embedUrl: () => studioEmbedUrl(globalThis.location),
 };
 
 let backend = DEFAULT_BACKEND;
@@ -91,7 +93,10 @@ export function enterScan() {
   try {
     handle = { close: () => {} };
     scanner = handle;
-    const opened = backend.open({ embedUrl: backend.embedUrl(), onResult: ended, onCancel: ended });
+    const embedUrl = backend.embedUrl();
+    // Only a scan page beside a file may be missing (a saved copy of the studio).
+    const fallbackUrl = embedUrl.startsWith('file:') ? PUBLIC_EMBED_URL : undefined;
+    const opened = backend.open({ embedUrl, fallbackUrl, onResult: ended, onCancel: ended });
 
     if (scanner === handle) {
       handle.close = () => opened.close();

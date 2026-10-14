@@ -22,8 +22,8 @@
 import { loadOpenCv } from '../src/lib/vision/opencv.js';
 import { createBoardDetector, MIN_CORNER_SHARPNESS } from '../src/lib/vision/board_detect.js';
 import { createBoardDetector as createOpenCvDetector } from '../src/lib/vision/board_detect_opencv.js';
-import { BOARD_SPECS, cornerPoint } from '../src/lib/vision/board_frame.js';
-import { boardImage, cornerErrors, makeFrame, visibleIds } from './vision_synth.js';
+import { BOARD_LIST, BOARD_SPECS, cornerPoint } from '../src/lib/vision/board_frame.js';
+import { applyH, boardImage, cornerErrors, makeFrame, markerSquares, visibleIds } from './vision_synth.js';
 import { loadBuiltVision, VISION_BUILT } from './vision_test_support.js';
 import { TEST_BOARD_SPECS } from './vision_test_boards.js';
 
@@ -48,7 +48,10 @@ const OVERVIEW = [[230, 110], [1060, 80], [1180, 650], [150, 610]];
 const CLOSE_UP = [[-420, -330], [1580, -380], [1760, 1120], [-560, 1060]];
 const WIDTH = 1280;
 const HEIGHT = 720;
-const STRIP = BOARD_SPECS.charuco_23x17_10mm_strip;
+// The intermediate (white/black) board, and the two grey ones (T-0340).
+const WHITE_BLACK = BOARD_SPECS.charuco_23x17_10mm_white_black_spiral;
+const GREY_BLACK = BOARD_SPECS.charuco_23x17_10mm_grey_black_spiral;
+const WHITE_GREY = BOARD_SPECS.charuco_23x17_10mm_white_grey_spiral;
 
 /** A grey cv.Mat as the ImageData-like { data, width, height } the phone's detector takes. */
 function greyImage(mat) {
@@ -85,16 +88,17 @@ function compare(rust, opencv) {
     p95: pick(0.95),
     max: gaps.at(-1) ?? 0,
     sameMarkers: JSON.stringify(markersA) === JSON.stringify(markersB),
+    markerDiff: [markersA.filter((id) => !markersB.includes(id)), markersB.filter((id) => !markersA.includes(id))],
     sameMarkerCounts: both.every((id) => a.get(id).markers === b.get(id).markers),
     sharpnessGap: Math.max(0, ...both.map((id) => Math.abs((a.get(id).sharpness ?? 0) - (b.get(id).sharpness ?? 0)))),
   };
 }
 
 Deno.test('every 23 x 17 board is found in a perspective view, to a tenth of a pixel, without its invalid corners', TEST, () => {
-  // Setup: for the shipped strip board and the three test-only sheets with a blank centre target
-  // (vision_test_boards.js: markers removed, corners invalid), one sharp perspective frame of the whole board
-  // (markers about 25-30 px) with mild sensor noise (sigma 2 grey levels), as grey pixels.
-  // Test: detect once with the Rust detector.
+  // Setup: for each of the three boards (white/grey, grey/black, white/black: their own colours,
+  // spirals and marker ids), one sharp perspective frame of the whole board (markers about 25-30
+  // px) with mild sensor noise (sigma 2 grey levels), as grey pixels.
+  // Test: detect once with the Rust detector, given all three boards (as the phone is).
   // Verifies: (1) at least 95% of the board's valid corners well inside the frame are found;
   // (2) the 2-marker corners are within 0.15 px median and 0.5 px worst of the truth, the
   // 1-marker ones within 1 px -- which also pins the + 0.5 px between OpenCV's pixel centres and
@@ -103,7 +107,7 @@ Deno.test('every 23 x 17 board is found in a perspective view, to a tenth of a p
   for (const [name, spec] of Object.entries(TEST_BOARD_SPECS)) {
     const printed = boardImage(cv, spec, { pps: 48 });
     const { frame, truth } = makeFrame(cv, spec, printed, { width: WIDTH, height: HEIGHT, quad: OVERVIEW, noise: 2, seed: 3 });
-    const detector = createBoardDetector(vision, spec);
+    const detector = createBoardDetector(vision, spec, { boards: BOARD_LIST });
     const detection = detector.detect(greyImage(frame));
     const expected = visibleIds(spec, truth, WIDTH, HEIGHT, 40).filter((id) => cornerPoint(spec, id));
     const found = new Set(detection.corners.map((c) => c.id));
@@ -117,6 +121,7 @@ Deno.test('every 23 x 17 board is found in a perspective view, to a tenth of a p
     assert(detection.markers.every((m) => !(spec.removed_marker_ids ?? []).includes(m.id)), `${name}: a removed marker was returned`);
     assert(detection.recognised, `${name}: not recognised`);
     assertEquals([detection.frame.width, detection.frame.height], [WIDTH, HEIGHT], `${name}: frame size`);
+    assertEquals(detection.board, name, `${name}: the board named`);
 
     detector.dispose();
     frame.delete();
@@ -125,7 +130,7 @@ Deno.test('every 23 x 17 board is found in a perspective view, to a tenth of a p
 });
 
 Deno.test('a blurred close-up keeps its corners, and blurred corners are re-refined without a half-pixel bias', TEST, () => {
-  // Setup: the 3 x 3-target board seen close (markers ~50-65 px, running off every edge) and
+  // Setup: the grey/black board seen close (markers ~50-65 px, running off every edge) and
   // defocused (Gaussian sigma 2.5 px) with noise, as the phone's 2x zoom does.
   // Test: detect three frames (the first tunes the marker-size factor), then once more with and
   // without desktopHalfPixelShift (detect.py refine_blurred's -0.5 / +0.5, reproduced).
@@ -133,7 +138,7 @@ Deno.test('a blurred close-up keeps its corners, and blurred corners are re-refi
   // are blurred (sharpness < MIN_CORNER_SHARPNESS), so the re-refinement ran; (3) with the
   // desktop's shift every re-refined corner moves by about (+0.5, +0.5) px and their error grows by
   // more than 0.3 px -- the measurement behind leaving the shift out.
-  const spec = TEST_BOARD_SPECS.charuco_23x17_10mm_centre3x3;
+  const spec = GREY_BLACK;
   const printed = boardImage(cv, spec, { pps: 48 });
   const { frame, truth } = makeFrame(cv, spec, printed, { width: WIDTH, height: HEIGHT, quad: CLOSE_UP, blur: 2.5, noise: 2, seed: 5 });
   const image = greyImage(frame);
@@ -173,20 +178,20 @@ Deno.test('a blurred close-up keeps its corners, and blurred corners are re-refi
 });
 
 Deno.test('a partial view returns only corners inside the frame, and too few corners or none are not recognised', TEST, () => {
-  // Setup: the strip board (a) so close that only part of it is in the frame, sharp; (b) seen in
+  // Setup: the white/black board (a) so close that only part of it is in the frame, sharp; (b) seen in
   // one corner of the frame with only a handful of its corners visible; (c) a plain table.
   // Test: detect each with one detector (m fixed at 1).
   // Verifies: (a) every corner inside the frame, 2-marker median < 0.15 px, recognised; (b) a few
   // corners but fewer than 8: not recognised; (c) nothing, not recognised, empty lists, the
   // frame time passed through, and no exception.
-  const printed = boardImage(cv, STRIP, { pps: 48 });
-  const close = makeFrame(cv, STRIP, printed, { width: WIDTH, height: HEIGHT, quad: CLOSE_UP, noise: 2 });
-  const detector = createBoardDetector(vision, STRIP, { markerScale: 1 });
+  const printed = boardImage(cv, WHITE_BLACK, { pps: 48 });
+  const close = makeFrame(cv, WHITE_BLACK, printed, { width: WIDTH, height: HEIGHT, quad: CLOSE_UP, noise: 2 });
+  const detector = createBoardDetector(vision, WHITE_BLACK, { markerScale: 1 });
   const a = detector.detect(greyImage(close.frame));
   assert(a.corners.every((c) => c.x >= 0 && c.y >= 0 && c.x <= WIDTH && c.y <= HEIGHT), 'a corner outside the frame');
   assert(a.recognised && byMarkers(a, close.truth).two.median < 0.15, `close-up: ${JSON.stringify(byMarkers(a, close.truth))}`);
 
-  const corner = makeFrame(cv, STRIP, printed, { width: WIDTH, height: HEIGHT, quad: [[1030, 590], [2410, 590], [2410, 1610], [1030, 1610]], noise: 2 });
+  const corner = makeFrame(cv, WHITE_BLACK, printed, { width: WIDTH, height: HEIGHT, quad: [[1030, 590], [2410, 590], [2410, 1610], [1030, 1610]], noise: 2 });
   const b = detector.detect(greyImage(corner.frame));
   assert(b.corners.length > 0 && b.corners.length < 8, `expected a few corners, got ${b.corners.length}`);
   assert(!b.recognised, 'a handful of corners was recognised');
@@ -202,13 +207,13 @@ Deno.test('a partial view returns only corners inside the frame, and too few cor
 });
 
 Deno.test('a processing scale of 0.5 reports full-resolution coordinates, and RGBA input matches grey input', TEST, () => {
-  // Setup: the centre1 board close up, as grey pixels and as an RGBA ImageData-like copy (what a
+  // Setup: the white/grey board close up, as grey pixels and as an RGBA ImageData-like copy (what a
   // canvas getImageData gives the phone page).
   // Test: detect at processing scale 0.5 (a 640 x 360 copy), and at 1 from grey and from RGBA.
   // Verifies: at scale 0.5 the corners come back in FULL-frame pixels, within 0.35 px median (no
   // half-pixel or scale slip, which would show as >= 0.5 px everywhere); the RGBA path gives the
   // same corners as the grey one exactly (OpenCV's grey conversion of grey RGB is lossless).
-  const spec = TEST_BOARD_SPECS.charuco_23x17_10mm_centre1;
+  const spec = WHITE_GREY;
   const printed = boardImage(cv, spec, { pps: 48 });
   const close = makeFrame(cv, spec, printed, { width: WIDTH, height: HEIGHT, quad: CLOSE_UP, noise: 2 });
   const grey = greyImage(close.frame);
@@ -242,29 +247,37 @@ Deno.test('a processing scale of 0.5 reports full-resolution coordinates, and RG
 });
 
 Deno.test('boards the module cannot read are refused, and a disposed detector says so', TEST, () => {
-  // Setup: the strip spec with another dictionary, the legacy pattern on an even row count, and a
-  // frame with three bytes per pixel.
+  // Setup: the white/black spec with another dictionary, the legacy pattern on an even row count,
+  // a board of another layout among the boards, and a frame with three bytes per pixel.
   // Test: create detectors and detect.
   // Verifies: each is refused with an error naming the problem, instead of a detector that would
   // silently find nothing; and detect() after dispose() throws rather than touching freed memory.
   let message = '';
 
   try {
-    createBoardDetector(vision, { ...STRIP, dictionary: 'DICT_5X5_100' });
+    createBoardDetector(vision, { ...WHITE_BLACK, dictionary: 'DICT_5X5_100' });
   } catch (error) {
     message = String(error.message);
   }
 
-  assert(message.includes('DICT_4X4_250'), `other dictionary: ${message}`);
+  assert(message.includes('DICT_4X4_1000'), `other dictionary: ${message}`);
   assert((() => {
     try {
-      createBoardDetector(vision, { ...STRIP, legacy: true, squares_y: 16 });
+      createBoardDetector(vision, WHITE_BLACK, { boards: [WHITE_BLACK, { ...GREY_BLACK, squares_x: 22 }] });
+      return false;
+    } catch {
+      return true;
+    }
+  })(), 'a board of another layout accepted');
+  assert((() => {
+    try {
+      createBoardDetector(vision, { ...WHITE_BLACK, legacy: true, squares_y: 16 });
       return false;
     } catch {
       return true;
     }
   })(), 'legacy pattern accepted');
-  const detector = createBoardDetector(vision, STRIP);
+  const detector = createBoardDetector(vision, WHITE_BLACK);
   assert((() => {
     try {
       detector.detect({ data: new Uint8Array(30), width: 5, height: 2 });
@@ -284,9 +297,56 @@ Deno.test('boards the module cannot read are refused, and a disposed detector sa
   })(), 'detect after dispose');
 });
 
+Deno.test('the fast path does not take the boards\' spirals for markers (T-0340)', TEST, () => {
+  // Setup: each of the three boards, the whole board at the phone's 960 x 540 (markers ~20 px),
+  // defocused (Gaussian 1.5 and 2 px) with noise -- the views where, before T-0340's fixes, the
+  // dark squares' spirals read as the white/grey board's markers 187 and 191 in a dozen places,
+  // outvoted the real board and put corners hundreds of pixels off.
+  // Test: detect each with the phone's detector (fast path, all three boards), twice so the
+  // marker-size factor settles.
+  // Verifies: wherever markers are found, the frame is read as the board shown, every marker sits
+  // within a third of a square of where that id is printed, and every corner within 5 px of the
+  // truth.
+  const k = 960 / 1280;
+  const quad = OVERVIEW.map(([x, y]) => [x * k, y * k]);
+
+  for (const spec of BOARD_LIST) {
+    const printed = boardImage(cv, spec, { pps: 64 });
+    const squares = markerSquares(spec);
+
+    for (const blur of [1.5, 2]) {
+      const { frame, truth, H } = makeFrame(cv, spec, printed, { width: 960, height: 540, quad, blur, noise: 2, seed: 9 });
+      const detector = createBoardDetector(vision, spec, { fast: true, boards: BOARD_LIST });
+      const image = greyImage(frame);
+      detector.detect(image);
+      const r = detector.detect(image);
+      const what = `${spec.name} blur ${blur}`;
+
+      if (r.markers.length) {
+        assertEquals(r.board, spec.name, `${what}: the board`);
+      }
+
+      for (const m of r.markers) {
+        const [row, col] = squares[m.id];
+        const [tx, ty] = applyH(H, col + 0.5, row + 0.5);
+        const [mx, my] = [0, 1].map((a) => m.corners.reduce((sum, c) => sum + c[a], 0) / 4);
+        assert(Math.hypot(mx - tx, my - ty) < (0.33 * 900 * k) / 23, `${what}: marker ${m.id} misplaced`);
+      }
+
+      const errors = cornerErrors(r, truth);
+      assert(!(errors.max > 5), `${what}: a corner ${errors.max} px off`);
+      console.log(`  ${what}: ${r.markers.length} markers, ${r.corners.length} corners, max error ${(errors.max ?? 0).toFixed(2)} px`);
+      detector.dispose();
+      frame.delete();
+    }
+
+    printed.image.delete();
+  }
+});
+
 Deno.test('the Rust detector reproduces the opencv.js detector on synthetic frames from 480p to 1080p', TEST, () => {
-  // Setup: the strip board (and, as the real-frame fixtures use it, the older 22 x 22 board with
-  // 0.689 markers) rendered at 64 px per square; for 480p, 720p and 1080p, the whole board in
+  // Setup: each of the three boards (their own marker ids, colours and spirals) rendered at 64 px
+  // per square; for 480p, 720p and 1080p, the whole board in
   // perspective and a close-up running off the frame, each sharp and blurred (1.5 px; the close-up
   // 2.5 px), with noise; at 720p also a partial view; and the 720p cases again at processing
   // scale 0.5.
@@ -296,10 +356,9 @@ Deno.test('the Rust detector reproduces the opencv.js detector on synthetic fram
   // counts, positions within 0.001 px of opencv.js's, the same sharpness to 0.01 -- and so exactly
   // as accurate against the truth. Prints, per case, the corners matched, missing and extra, the
   // gaps to opencv.js (median / 95th / max px) and both detectors' median error to the truth.
-  const old = { ...STRIP, squares_x: 22, squares_y: 22, marker_mm: 6.89, marker_ratio: 0.689 };
   const rows = [];
 
-  for (const [boardName, spec] of [['strip', STRIP], ['22x22', old]]) {
+  for (const [boardName, spec] of [['w/b', WHITE_BLACK], ['g/b', GREY_BLACK], ['w/g', WHITE_GREY]]) {
     const printed = boardImage(cv, spec, { pps: 64 });
     const cases = [];
 
@@ -340,7 +399,8 @@ Deno.test('the Rust detector reproduces the opencv.js detector on synthetic fram
   for (const row of rows) {
     console.log(`  ${row.board.padEnd(6)} ${row.label.padEnd(34)} ${String(row.n).padStart(4)} ${String(row.matched).padStart(5)} `
       + `${String(row.missing.length).padStart(5)} ${String(row.extra.length).padStart(5)}   `
-      + `${row.median.toFixed(4)} / ${row.p95.toFixed(4)} / ${row.max.toFixed(4)}                ${row.truthRust.toFixed(3)} / ${row.truthOpenCv.toFixed(3)}`);
+      + `${row.median.toFixed(4)} / ${row.p95.toFixed(4)} / ${row.max.toFixed(4)}                ${row.truthRust.toFixed(3)} / ${row.truthOpenCv.toFixed(3)}`
+      + (row.sameMarkers ? '' : `   markers only rust ${row.markerDiff[0]} / only opencv.js ${row.markerDiff[1]}`));
   }
 
   for (const row of rows) {

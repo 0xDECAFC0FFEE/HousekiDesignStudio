@@ -814,7 +814,7 @@ export function createOutlineFinder(glOrCanvas, spec, options = {}) {
  * The board points whose projection is the core a rock must touch: the target's footprint on the
  * board (a rock placed on the target covers part of it in every view, since its base stands
  * there), clipped to the bound's base less the inset; or a disc of coreRadiusMm when the board has
- * no target area (the plain and strip boards).
+ * no target area (the scanner's boards, T-0340).
  */
 function corePoints(spec, centre, boundRadius, o) {
   const t = spec.target ?? {};

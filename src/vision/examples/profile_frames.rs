@@ -1,11 +1,11 @@
 // Times the board detector's stages on grey frames given as binary PGM files (P5), natively:
 //
-//   cargo run --release -p houseki-vision --example profile_frames -- [--board 22x22:0.685] frame.pgm ...
+//   cargo run --release -p houseki-vision --example profile_frames -- [--board 23x17:0.7] [--boards 250,500,750] frame.pgm ...
 //
 // For finding where the time goes before optimising (T-0330); the shares carry over to the wasm
 // build, the absolute times do not (time the browser with tests/harness/test_vision_detect.py's
-// opt-in timing test for those). The board defaults to the strip sheet's, 23 x 17 squares with
-// 0.7 markers.
+// opt-in timing test for those). The board defaults to the scanner's, 23 x 17 squares with 0.7
+// markers, printed as its three boards (dictionary ids from 250, 500 and 750, T-0340).
 
 use houseki_vision::aruco::ArucoDetector;
 use houseki_vision::board::{BoardDetector, FrameOptions};
@@ -55,6 +55,13 @@ fn main() {
         sx = a.parse().unwrap();
         sy = b.parse().unwrap();
         ratio = r.parse().unwrap();
+    }
+
+    let mut first_ids: Vec<usize> = vec![250, 500, 750];
+
+    if args.first().map(String::as_str) == Some("--boards") {
+        first_ids = args[1].split(',').map(|v| v.parse().unwrap()).collect();
+        args.drain(..2);
     }
 
     // T-0332's fast-path parts: --noretry (no second reading of near-duplicate candidates),
@@ -121,6 +128,8 @@ fn main() {
             }
         }
 
+        let tracing = ms(t, reps);
+
         // approxPolyDP alone, on the contours the perimeter filter keeps.
         let longest = grey.width.max(grey.height) as f64;
         let (lo, hi) = ((0.03 * longest) as usize, (4.0 * longest) as usize);
@@ -152,8 +161,8 @@ fn main() {
         println!("    approxPolyDP alone {:.2} ms on {} contours ({} points, the largest {}), {} quadrilaterals",
             ms(t, reps), kept.len(), kept.iter().map(|c| c.len()).sum::<usize>(), biggest, quads);
         println!("    tracing alone {:.2} ms ({} contours, {} points per frame; copying the images included)",
-            ms(t, reps), count / reps, points / reps);
-        let mut aruco = ArucoDetector::new((sx * sy) / 2);
+            tracing, count / reps, points / reps);
+        let mut aruco = ArucoDetector::for_boards(&first_ids, (sx * sy) / 2, &[437, 441]);
         aruco.params.win_step = win_step;
         aruco.params.retry_close = retry;
         aruco.params.local_refine = local;
@@ -179,7 +188,7 @@ fn main() {
         }
 
         let markers_total = ms(t, reps);
-        let mut board = BoardDetector::new(sx, sy, ratio);
+        let mut board = BoardDetector::for_boards(sx, sy, ratio, &first_ids, &[437, 441]);
         board.aruco.params.win_step = win_step;
         board.aruco.params.retry_close = retry;
         board.aruco.params.local_refine = local;
@@ -234,7 +243,7 @@ fn main() {
         }
 
         let persp = ms(t, reps);
-        let params = CellParams { pixel_per_cell: 8, margin_rate: 0.3, min_otsu_std: 5.0 };
+        let params = CellParams::DESKTOP;
         let mut scratch = Vec::new();
         let t = Instant::now();
 

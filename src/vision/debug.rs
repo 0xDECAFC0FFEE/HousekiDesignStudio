@@ -76,7 +76,7 @@ pub fn debug_cells(pixels: &[u8], width: u32, height: u32, c: &[f32]) -> Result<
     use crate::linalg::Pt;
     let grey = grey_of(pixels, width, height)?;
     let corners = [Pt::new(c[0], c[1]), Pt::new(c[2], c[3]), Pt::new(c[4], c[5]), Pt::new(c[6], c[7])];
-    let params = crate::marker::CellParams { pixel_per_cell: 8, margin_rate: 0.3, min_otsu_std: 5.0 };
+    let params = crate::marker::CellParams::DESKTOP;
     let mut scratch = Vec::new();
     Ok(crate::marker::cell_ratios(&grey, &corners, &params, &mut scratch).map(|r| r.to_vec()).unwrap_or_default())
 }

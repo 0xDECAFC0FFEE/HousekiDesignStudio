@@ -6,7 +6,7 @@
  *
  * HOW TO RUN (from src/web/): deno test --allow-read --allow-env tests/   (also `deno task test`)
  *
- * Frames are drawn by tests/vision_render.js (the strip sheet through a known camera, a little
+ * Frames are drawn by tests/vision_render.js (the white/black board through a known camera, a little
  * noise), so every pose's truth is known: a detected frame, then the camera moved as a phone moves
  * in a 30th of a second, and further. The camera's focal length is the phone's first guess (0.85 x
  * the long side), so poses can be judged against the truth before any live calibration.
@@ -33,14 +33,14 @@ const CV_TEST = { sanitizeOps: false, sanitizeResources: false, ignore: !VISION_
 
 const WIDTH = 800;
 const HEIGHT = 600;
-const SHEET = 'charuco_23x17_10mm_strip';
+const SHEET = 'charuco_23x17_10mm_white_black_spiral';
 const SPEC = BOARD_SPECS[SHEET];
 const view = (azimuthDeg, elevationDeg = 45, distanceMm = 230) => cameraPose([80, 110, 0], {
   azimuthDeg, elevationDeg, distanceMm, rollDeg: 0, width: WIDTH, height: HEIGHT, f: 0.85 * WIDTH,
 });
 const frameAt = (timeMs) => ({ width: WIDTH, height: HEIGHT, timeMs });
 
-/** A live vision (on the strip sheet, the one board it supports), refinement never scheduled, no outline. */
+/** A live vision (on the white/black board), refinement never scheduled, no outline. */
 const newLive = () => createLiveVision(cv, {
   vision, frameSize: { width: WIDTH, height: HEIGHT }, glCanvas: null, schedule: () => {},
 });

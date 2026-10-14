@@ -23,16 +23,23 @@
 // page. So this module closes them itself when its last session closes, with Trystero's
 // reconnection paused, and resumes it before the next session joins (see acquireRelays). The
 // desktop therefore talks to the relays only while a session is open.
+//
+// What the connection is doing (T-0342): each session is watched by scan_trace.js, which logs
+// every step to the console ("[houseki scan computer +1.23s] ...") and reports the current step
+// (`onTrace`) for the connection picture on both ends. It sees the relay sockets and, through
+// Trystero's `rtcPolyfill` option, the WebRTC connections; it changes nothing they do.
 
 import {
   getRelaySockets,
   joinRoom,
   pauseRelayReconnection,
   resumeRelayReconnection,
+  selfId,
 } from 'trystero';
 import { decodeScanHash, defaultScannerBaseUrl, newScanSecrets, scanLinkUrl } from './scan_link_hash.js';
 import { SCAN_RELAY_URLS } from './scan_relays.js';
 import { phoneVisionChannel, studioVisionChannel } from './scan_vision.js';
+import { createScanTrace } from './scan_trace.js';
 
 export { decodeScanHash, ScanLinkError } from './scan_link_hash.js';
 export { SCAN_RELAY_URLS } from './scan_relays.js';
@@ -61,10 +68,27 @@ const isPasswordError = message => /password/i.test(String(message));
  * SCAN_RELAY_URLS (scan_relays.js), never Trystero's own pick: two of the five relays Trystero
  * chose for this app id refused its events when measured (T-0316).
  */
-export function roomConfig(password, relayUrls) {
+export function roomConfig(password, relayUrls, rtcPolyfill = null) {
   const urls = relayUrls && relayUrls.length ? relayUrls : SCAN_RELAY_URLS;
+  const config = { appId: SCAN_APP_ID, password, relayConfig: { urls: [...urls] } };
 
-  return { appId: SCAN_APP_ID, password, relayConfig: { urls: [...urls] } };
+  if (rtcPolyfill) {
+    config.rtcPolyfill = rtcPolyfill;
+  }
+
+  return config;
+}
+
+/** The trace (scan_trace.js) of one session, on Trystero's relays and peer id. */
+function traceSession(role, roomId, relayUrls) {
+  return createScanTrace({
+    role,
+    appId: SCAN_APP_ID,
+    roomId,
+    relayUrls: relayUrls && relayUrls.length ? [...relayUrls] : [...SCAN_RELAY_URLS],
+    getSockets: getRelaySockets,
+    selfId,
+  });
 }
 
 // --- the relay sockets' lifetime -----------------------------------------------------------
@@ -225,6 +249,8 @@ function channel(initial) {
  *   onVision(cb)  cb(message, peerId) for each of the streaming phone's vision messages
  *                 (scan_vision.js: asked for when its stream arrives, validated, at most ~25 a
  *                 second). A phone page older than them sends none. Returns an unsubscribe.
+ *   onTrace(cb)   cb(snapshot) whenever the connection's step changes (scan_trace.js: step, text,
+ *                 the relays' states, the counts); replayed. Returns an unsubscribe.
  *   close()       leaves the room and stops everything, and once no session is left closes the
  *                 relay connections; no callback fires after it.
  */
@@ -233,6 +259,7 @@ export function createScanSession({ scannerBaseUrl, relayUrls = [], location = g
   const base = scannerBaseUrl ?? defaultScannerBaseUrl(location);
   const url = scanLinkUrl(base, { roomId, password, relayUrls });
 
+  const trace = traceSession('computer', roomId, relayUrls);
   const status = channel(['waiting']);
   const streams = channel(null);
   const rejected = channel(null);
@@ -250,6 +277,7 @@ export function createScanSession({ scannerBaseUrl, relayUrls = [], location = g
     }
 
     current = next;
+    trace.noteStatus(next, detail);
     status.emit(next, detail);
   };
 
@@ -259,15 +287,18 @@ export function createScanSession({ scannerBaseUrl, relayUrls = [], location = g
     }
 
     if (isPasswordError(error)) {
+      trace.noteStatus('rejected', error);
       rejected.emit({ error, peerId });
     } else if (current !== 'connected') {
       setStatus('error', error);
     }
   };
 
-  const leave = openRoom(roomConfig(password, relayUrls), roomId, { onJoinError }, room => {
+  const leave = openRoom(roomConfig(password, relayUrls, trace.rtcPolyfill), roomId, { onJoinError }, room => {
     room.onPeerJoin = peerId => {
       peers.add(peerId);
+      trace.noteJoined(peerId);
+
 
       if (current !== 'connected') {
         setStatus('connecting', peerId);
@@ -293,6 +324,7 @@ export function createScanSession({ scannerBaseUrl, relayUrls = [], location = g
 
     room.onPeerLeave = peerId => {
       peers.delete(peerId);
+      trace.noteLeft(peerId);
 
       if (peerId === streamingPeer) {
         streamingPeer = null;
@@ -325,6 +357,7 @@ export function createScanSession({ scannerBaseUrl, relayUrls = [], location = g
       visions.add(listener);
       return () => visions.delete(listener);
     },
+    onTrace: listener => trace.onChange(listener),
     close() {
       if (closed) {
         return;
@@ -332,6 +365,7 @@ export function createScanSession({ scannerBaseUrl, relayUrls = [], location = g
 
       closed = true;
       clearInterval(relayWatch);
+      trace.close();
       status.clear();
       streams.clear();
       rejected.clear();
@@ -362,6 +396,7 @@ export function createScanSession({ scannerBaseUrl, relayUrls = [], location = g
  *   sendVision(m) sends a vision message (scan_vision.js makeVisionMessage) to the computer, at
  *                 most ~10 a second, and only once the computer has asked for them; otherwise
  *                 does nothing.
+ *   onTrace(cb)   as createScanSession's.
  *   close()       leaves the room. The stream's tracks are the caller's to stop.
  */
 export function joinScanSession(link, stream, { connectTimeoutMs = PHONE_CONNECT_TIMEOUT_MS } = {}) {
@@ -371,6 +406,7 @@ export function joinScanSession(link, stream, { connectTimeoutMs = PHONE_CONNECT
     throw new Error('joinScanSession needs a room id and a password.');
   }
 
+  const trace = traceSession('phone', roomId, relayUrls);
   const status = channel(['connecting']);
   let current = 'connecting';
   let host = null;
@@ -384,6 +420,7 @@ export function joinScanSession(link, stream, { connectTimeoutMs = PHONE_CONNECT
     }
 
     current = next;
+    trace.noteStatus(next, detail);
     status.emit(next, detail);
   };
 
@@ -395,17 +432,20 @@ export function joinScanSession(link, stream, { connectTimeoutMs = PHONE_CONNECT
     setStatus('error', isPasswordError(error) ? 'wrong-password' : error);
   };
 
-  const leave = openRoom(roomConfig(password, relayUrls), roomId, { onJoinError }, room => {
+  const leave = openRoom(roomConfig(password, relayUrls, trace.rtcPolyfill), roomId, { onJoinError }, room => {
     vision = phoneVisionChannel(room, () => host);
 
     room.onPeerJoin = peerId => {
       host = peerId;
+      trace.noteJoined(peerId);
       everConnected = true;
       room.addStream(stream, { target: peerId });
       setStatus('connected', peerId);
     };
 
     room.onPeerLeave = peerId => {
+      trace.noteLeft(peerId);
+
       if (peerId === host) {
         host = null;
         setStatus('disconnected', peerId);
@@ -422,6 +462,7 @@ export function joinScanSession(link, stream, { connectTimeoutMs = PHONE_CONNECT
   return {
     onStatus: listener => status.add(listener),
     sendVision: message => vision?.send(message),
+    onTrace: listener => trace.onChange(listener),
     close() {
       if (closed) {
         return;
@@ -429,6 +470,7 @@ export function joinScanSession(link, stream, { connectTimeoutMs = PHONE_CONNECT
 
       closed = true;
       clearTimeout(timeout);
+      trace.close();
       status.clear();
       vision?.close();
       leave();

@@ -104,6 +104,13 @@ export const scanning = writable(closedState());
 export const scanStream = writable(null);
 
 /**
+ * How the connection is going (T-0342): the session's latest scan_trace.js snapshot (`step`,
+ * `text`, the relays, the counts, a failure), or null without a session (or one, such as a test
+ * double, that reports none). The panel's connection picture and its words follow it.
+ */
+export const scanTrace = writable(null);
+
+/**
  * The phone's latest vision message, `{ message, receivedAt }`, while its camera streams; null
  * otherwise, and while it has sent none (see the header).
  */
@@ -165,6 +172,7 @@ export function stopScan() {
   closeSession();
   mode = null;
   scanning.set(closedState());
+  scanTrace.set(null);
   dropPicture();
 }
 
@@ -186,6 +194,7 @@ export function newScanCode() {
 /** Makes a session, and shows its code. A session that cannot be made is an 'error'. */
 function startSession() {
   setState({ status: 'waiting', url: '', qr: null, error: '', copy: null });
+  scanTrace.set(null);
 
   if (typeof backend.createSession !== 'function') {
     setState({ status: 'error', error: NO_LINK_MESSAGE });
@@ -228,6 +237,11 @@ function startSession() {
     }
   });
 
+  link.onTrace?.(snapshot => {
+    if (current()) {
+      scanTrace.set(snapshot);
+    }
+  });
   link.onStream(stream => {
     if (current()) {
       scanStream.set(stream ?? null);
@@ -379,11 +393,36 @@ export async function copyScanLink() {
   return outcome;
 }
 
+/** What each connection step means, under its title (T-0342; the titles are scan_trace.js's). */
+export const STEP_DETAILS = Object.freeze({
+  servers: 'Connecting to the servers that introduce your phone to this computer.',
+  waiting: 'Scan the code with your phone\'s camera, or send it the link.',
+  introducing: 'Your phone has opened the link. The two are exchanging connection details through the servers, encrypted with this session\'s password.',
+  direct: 'Trying to reach the phone directly over your network.',
+  verifying: 'Checking that the phone has this session\'s password.',
+  connected: 'Your phone has connected. Waiting for its camera: allow it on the phone if it asks.',
+});
+
+/** Under a step whose direct connection failed last time (scan_trace.js `failure`). */
+export const DIRECT_FAILED_DETAIL = 'The direct connection to the phone failed. This usually means a VPN on either device, a Wi-Fi network that keeps devices apart (guest, office, school or hotel Wi-Fi), or the phone on mobile data. Trying again; connecting both to the same home Wi-Fi, or this computer to the phone\'s hotspot, usually fixes it.';
+
+/**
+ * Whether, after the phone left ('disconnected'), another phone (or the same one, reloaded) is
+ * already on its way in: the trace has heard it. The words and the picture then follow its steps,
+ * instead of saying "Phone disconnected" until its camera arrives (the user, 2026-10-13: "after the
+ * phone disconnects, the computer isn't able to reconnect to a new phone with the same code" --
+ * measured, it reconnected in 7-10 s, while every word on the screen said it had not).
+ */
+export function scanReconnecting(state, trace) {
+  return state.status === 'disconnected' && Boolean(trace) && ['introducing', 'direct', 'verifying', 'connected'].includes(trace.step);
+}
+
 /**
  * The status in words, for the panel and under the code: `{ title, detail }`. `streaming` is
- * whether the phone's camera has arrived.
+ * whether the phone's camera has arrived; `trace` the connection's latest step (scanTrace), which
+ * names the step while the session is waiting or connecting.
  */
-export function scanStatusText(state, streaming) {
+export function scanStatusText(state, streaming, trace = null) {
   if (state.status === 'error') {
     return {
       title: 'Something went wrong',
@@ -393,6 +432,10 @@ export function scanStatusText(state, streaming) {
 
   if (streaming) {
     return { title: 'Streaming', detail: 'The phone\'s camera is showing. Done finishes the scan and ends the session.' };
+  }
+
+  if (trace && (state.status === 'waiting' || state.status === 'connecting' || scanReconnecting(state, trace))) {
+    return { title: trace.text, detail: trace.failure ? DIRECT_FAILED_DETAIL : STEP_DETAILS[trace.step] ?? '' };
   }
 
   switch (state.status) {
@@ -442,6 +485,15 @@ export function speedText(speed) {
 }
 
 /**
+ * Which of the scanner's boards a sheet name is, in words (T-0340): 'white/black' for
+ * charuco_23x17_10mm_white_black_spiral; null for any other name (an older phone's board).
+ */
+export function boardColours(sheet) {
+  const match = /^charuco_23x17_10mm_(white|grey)_(grey|black)_spiral$/.exec(sheet ?? '');
+  return match ? `${match[1]}/${match[2]}` : null;
+}
+
+/**
  * The panel's readout of what the phone sees, as rows of plain words: `{ rows: [{ label, value }],
  * note }`, or null while the phone has sent nothing. `nowMs` is on the receivedAt clock.
  */
@@ -453,13 +505,14 @@ export function scanVisionText(vision, nowMs) {
   const { board, pose, intrinsics, outline } = vision.message;
   const stale = visionAge(vision, nowMs) > VISION_GONE_MS;
   const posed = Boolean(pose?.valid);
-  // Another printed board than the scanner's (T-0335): the phone says so and finds no position.
+  // Another printed board than the scanner's (T-0335): an older phone says so and finds no position.
   const wrongBoard = board.wrongBoard === true;
   const rows = [];
+  const colours = boardColours(board.sheet);
 
   rows.push({
     label: 'Board',
-    value: wrongBoard ? 'Not the scanner board' : board.recognised ? 'Found' : 'Not in view',
+    value: wrongBoard ? 'Not the scanner board' : board.recognised ? (colours ? `Found (${colours})` : 'Found') : 'Not in view',
   });
 
   const guide = posed ? vision.message.guide ?? null : null;

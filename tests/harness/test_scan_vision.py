@@ -11,11 +11,11 @@ three views, each held 4 s, looped). They check:
   * the phone recognises the board and draws its overlay (pixels on the overlay canvas), and says
     so in its vision line;
   * the studio receives vision messages at about 10 a second, draws them over the phone's video,
-    and reads them out in the panel; the board is the strip sheet, the one the phone supports
-    (T-0335), and it is never taken for another board;
-  * a phone shown ANOTHER ChArUco board (the scanner's older 22 x 22 reference board, a second
-    synthetic video) says it is not the scanner board, sends no pose and leaves its lens estimate
-    alone, and the studio reads out "Not the scanner board" (T-0335);
+    and reads them out in the panel; the board is the white/black spiral board, named as such;
+  * the other two boards (grey/black, white/grey: two more synthetic videos) are found, posed and
+    named too (T-0340);
+  * a phone shown the same layout printed with the OLDER boards' markers (DICT_4X4_250 ids 0-194)
+    reads no marker at all, sends no pose and leaves its lens estimate alone (T-0340);
   * the received pose matches the video's true pose (rotation, camera position, the azimuth,
     elevation and distance read out), within stated tolerances, once the phone's first lens
     estimate is in;
@@ -60,7 +60,7 @@ try:
     from scanner_frame import ScannerFrame, in_frame
     from test_scan_link import CHROME_ARGS, CONNECT_TIMEOUT, Relay, Server
     from test_vision_detect import native_chrome
-    from make_scan_video import ensure_video, ensure_wrong_board_video
+    from make_scan_video import OTHER_BOARDS, ensure_board_video, ensure_older_board_video, ensure_video
     import numpy as np
     from PIL import Image, ImageDraw
 except ImportError as error:  # websocket-client, numpy or PIL missing
@@ -179,7 +179,7 @@ class ScanVisionTest(unittest.TestCase):
 
     def start_phone(self, camera_file=True, video=None):
         """A separate, native Chrome for the phone, its fake camera playing the video file (`video`,
-        else the strip board's), or Chrome's own test pattern."""
+        else the white/black board's), or Chrome's own test pattern."""
         args = list(CHROME_ARGS)
 
         if camera_file:
@@ -291,16 +291,16 @@ class ScanVisionTest(unittest.TestCase):
         """The phone finds the board, draws it, and the studio receives the true pose and outline.
 
         Setup: the studio with Rough scan open; a phone browser whose camera plays the synthetic
-        video (three views of a rock on the strip sheet, 4 s each, looped; true focal length 1000 px
+        video (three views of a rock on the white/black board, 4 s each, looped; true focal length 1000 px
         against the phone's first guess of 1088). Test: open the link on the phone; wait for its
         vision; then record every vision value the studio takes for COLLECT_S seconds. Verifies:
-          - the phone's vision line says the board is found ('pose') and its overlay canvas has
-            drawn pixels;
+          - the phone's vision line says the board is found ('pose'), its canvas shows the camera
+            frame with the overlay drawn over it (COMPOSITED, T-0340), and its detected poses reach
+            the overlay ahead of their frame's result (earlyPoses);
           - the studio takes 5-11 messages a second, each under 2 kB, draws them over the video
             ('pose+outline'), and its panel reads out the board ("Found"), the camera, the lens and
             the rock;
-          - every message names the strip board ('default': nothing is recognised or chosen since
-            T-0335), none says it is another board, and the phone never took a frame for one;
+          - every message names the white/black board ('default'), and none says wrongBoard;
           - every valid pose received after the lens's first estimate matches the true pose of
             the view it shows: rotation within MAX_ROTATION_DEG, camera centre within
             MAX_CENTRE_MM, azimuth and elevation within MAX_ANGLE_DEG, distance within
@@ -344,13 +344,15 @@ class ScanVisionTest(unittest.TestCase):
         self.assertLess(sizes[-1], 2048, "a message over 2 kB")
         self.assertIn(overlay, ("pose+outline", "pose"))
         self.assertIn("Found", readout)
-        self.assertNotIn("Not the scanner board", readout)
+        self.assertIn("white/black", readout)
         self.assertIn("above the board", readout)
+        state = json.loads(phone_state)["state"]
+        self.assertGreater(state["composited"], 30, "the camera frame was not drawn into the canvas")
+        self.assertGreater(state["earlyPoses"], 5, "no pose reached the overlay ahead of its result")
 
-        boards = {(e["message"]["board"]["sheet"], e["message"]["board"]["sheetFrom"]) for e in log}
+        boards = {(e["message"]["board"]["sheet"], e["message"]["board"]["sheetFrom"]) for e in log if e["message"]["board"]["markers"]}
         self.assertEqual(boards, {(self.truth["sheet"], "default")}, "the board named in the messages")
-        self.assertFalse(any(e["message"]["board"].get("wrongBoard") for e in log), "the strip board taken for another")
-        self.assertEqual(json.loads(phone_state)["state"]["wrongBoards"], 0, "the phone took a frame for another board")
+        self.assertFalse(any(e["message"]["board"].get("wrongBoard") for e in log), "a wrongBoard flag")
 
         # The poses, once the lens has its first estimate.
         errors = []
@@ -368,7 +370,7 @@ class ScanVisionTest(unittest.TestCase):
             truth = self.truth["views"][view]
             seen.add(view)
             # Azimuth, elevation and distance are measured from the board's target as the message
-            # gives it (board.targetMm: the strip sheet's 80, 110 mm), and so is the truth.
+            # gives it (board.targetMm: the board's middle, 85, 115 mm), and so is the truth.
             target = message["board"]["targetMm"] + [0.0]
             u = [c - t for c, t in zip(truth["center"], target)]
             true_azimuth = math.degrees(math.atan2(u[1], u[0])) % 360
@@ -412,11 +414,11 @@ class ScanVisionTest(unittest.TestCase):
     def test_a_board_without_a_pose_still_shows_its_corners(self):
         """A board found but never posed still shows its red points and blue lines (T-0335 follow-up).
 
-        The user, on the real strip board with every pose failing its checks: "still not showing the
+        The user, on the real board with every pose failing its checks: "still not showing the
         board - the old slower opencv version would show the dots without any problems". Setup: the
         phone page's harness-only residual limit (houseki.scannerTestPoseMaxRmsPx = 0.001 px, saved in
         the phone's storage before the link is opened) makes every pose invalid; the camera plays the
-        strip board's video. Test: connect, wait for the phone's 'unsteady' state, then sample what
+        white/black board's video. Test: connect, wait for the phone's 'unsteady' state, then sample what
         its overlay draws for 3 s. Verifies: no pose is ever valid, yet the overlay draws the
         detection's corners (cornersFrom 'detection') with more than 20 red points and blue lines
         between them on most samples, and pixels on the overlay canvas.
@@ -452,53 +454,68 @@ class ScanVisionTest(unittest.TestCase):
         self.assertGreaterEqual(len(shown), 0.8 * len(samples), "the found corners were not drawn without a pose")
         self.assertGreater(pixels, 1000)
 
-    def test_another_board_is_named_and_never_posed(self):
-        """A phone shown another ChArUco board says so, and nothing is measured from it (T-0335).
+    def test_the_other_two_boards_are_found_posed_and_named(self):
+        """The grey/black and white/grey boards are found and posed like the white/black (T-0340).
+
+        Setup: the studio with Rough scan open; for each of the other two boards, a phone browser
+        whose camera plays CONFIG's video of that board (make_scan_video.ensure_board_video).
+        Test: open the link on the phone; wait for its vision line to say 'pose'; record the studio's
+        vision values for 6 s. Verifies: the studio takes messages naming that board (and only
+        it), with valid poses, and its panel names the board's colours.
+        """
+        for name in OTHER_BOARDS:
+            video = ensure_board_video(name)
+            phone = self.start_phone(video=video)
+            self.connect()
+            self.start_log()
+            phone.wait_for_expression("document.getElementById('scanner-vision')?.dataset.state === 'pose'", timeout=90)
+            self.studio.send("Page.bringToFront")
+            time.sleep(6)
+            log = self.stop_log()
+            readout = self.scanner.evaluate("document.getElementById('scan-vision-readout')?.textContent ?? ''")
+            sheets = {e["message"]["board"]["sheet"] for e in log if e["message"]["board"]["markers"]}
+            posed = sum(1 for e in log if e["message"]["pose"] and e["message"]["pose"]["valid"])
+            colours = "/".join(name.split("_")[3:5])
+            print("\n[scan_vision] %s: %d messages, %d posed, sheets %s, readout %r" % (name, len(log), posed, sorted(sheets), readout),
+                  file=sys.stderr)
+            self.assertEqual(sheets, {name})
+            self.assertGreater(posed, 10)
+            self.assertIn(colours, readout)
+            self.press_escape()
+            phone.close()
+            self.phone = None
+
+    def test_an_older_board_is_not_read(self):
+        """A phone shown the board's layout printed with the older boards' markers reads nothing (T-0340).
 
         Setup: the studio with Rough scan open; a phone browser whose camera plays a synthetic video
-        of the scanner's OLDER 22 x 22 reference board (make_scan_video.WRONG_BOARD_CONFIG: three
-        views of a rock on it, 3 s each, looped; the same DICT_4X4_250 markers as the strip sheet,
-        in other squares) -- the board the user's phone was pointed at when it "wasn't recognising
-        the board". Test: open the link on the phone; wait for its vision line; record every vision
-        value the studio takes for 8 s. Verifies:
-          - the phone's vision line is in its 'wrong-board' state and tells the person to print the
-            scanner's board at 100% -- not to hold the phone steady;
-          - the phone reads the board's markers but posed no frame, and its lens estimate never left
-            the first guess (the frames of the other board once dragged it far off);
-          - every message the studio takes has no pose and the lens as 'guess', and those with the
-            board in view say wrongBoard; the panel reads out "Not the scanner board".
+        of the 23 x 17 layout printed with DICT_4X4_250 ids 0-194 in black and white, no spirals
+        (make_scan_video.OLDER_BOARD_CONFIG), the markers the older boards printed. Test: open the
+        link on the phone; record every vision value the studio takes for 8 s after the phone's
+        vision has started. Verifies: the phone reads no marker on any frame, its line asks to point
+        the camera at the board, it posed no frame and its lens estimate never left the first guess;
+        every message the studio takes has no marker, no pose and the lens as 'guess'.
         """
-        video = ensure_wrong_board_video()
+        video = ensure_older_board_video()
         phone = self.start_phone(video=video)
         self.connect()
         self.start_log()
-        phone.wait_for_expression("document.getElementById('scanner-vision')?.dataset.state === 'wrong-board'", timeout=90)
-        phone_line = phone.evaluate("document.getElementById('scanner-vision').textContent")
+        phone.wait_for_expression("(window.housekiScanVision?.state?.processed ?? 0) > 10", timeout=90)
         self.studio.send("Page.bringToFront")
         time.sleep(8)
         log = self.stop_log()
-        readout = self.scanner.evaluate("document.getElementById('scan-vision-readout')?.textContent ?? ''")
         state = json.loads(phone.evaluate(
             "JSON.stringify({ state: housekiScanVision.state, latest: housekiScanVision.latest() }, (k, v) => k === 'last' ? undefined : v)"))
-        states = phone.evaluate("document.getElementById('scanner-vision').dataset.state")
-
-        print("\n[scan_vision] another board: phone %r (%s); processed %d, wrong-board frames %d, poses %d; lens %s; "
-              "studio %d messages, %d flagged; readout %r"
-              % (phone_line, states, state["state"]["processed"], state["state"]["wrongBoards"], state["state"]["poses"],
-                 json.dumps(state["latest"]["intrinsics"]), len(log), sum(1 for e in log if e["message"]["board"].get("wrongBoard")),
-                 readout), file=sys.stderr)
-        self.assertIn("isn't the Houseki scanner board", phone_line)
-        self.assertIn("100 mm", phone_line)
-        self.assertNotIn("steady", phone_line)
-        self.assertGreater(state["state"]["wrongBoards"], 10, "few frames taken for another board")
-        self.assertEqual(state["state"]["poses"], 0, "a pose from another board")
+        line = phone.evaluate("document.getElementById('scanner-vision').textContent")
+        print("\n[scan_vision] older board: phone %r; processed %d, poses %d; studio %d messages"
+              % (line, state["state"]["processed"], state["state"]["poses"], len(log)), file=sys.stderr)
+        self.assertEqual(state["latest"]["markers"], 0)
+        self.assertIn("Point the camera at the printed board", line)
+        self.assertEqual(state["state"]["poses"], 0, "a pose from the older board")
         self.assertEqual(state["latest"]["intrinsics"]["source"], "guess", "the lens estimate moved")
         self.assertTrue(log, "the studio took no message")
-        self.assertTrue(all(e["message"]["pose"] is None for e in log), "a pose reached the studio")
-        self.assertTrue(all(e["message"]["intrinsics"]["source"] == "guess" for e in log), "the lens estimate moved")
-        self.assertTrue(all(e["message"]["board"].get("wrongBoard") for e in log if e["message"]["board"]["markers"] > 0),
-                        "a message with the board in view without the flag")
-        self.assertIn("Not the scanner board", readout)
+        self.assertTrue(all(e["message"]["board"]["markers"] == 0 and e["message"]["pose"] is None for e in log))
+        self.assertTrue(all(e["message"]["intrinsics"]["source"] == "guess" for e in log))
 
     def test_a_phone_without_vision_leaves_the_studio_as_it_was(self):
         """A phone that sends no vision: the studio streams it exactly as before.

@@ -56,6 +56,13 @@ export function waitForSite({ window = globalThis.window, onInit, onRefused = ()
 
   if (framed) {
     window.addEventListener('message', onMessage);
+    // 'hello' (scanner_protocol.js, step 0): listening now, so the website may send its handshake
+    // without waiting for the frame's `load`.
+    try {
+      parent.postMessage?.(scanMessage('hello'), '*');
+    } catch (cause) {
+      console.warn('[houseki scan] could not greet the website:', cause);
+    }
   }
 
   return {

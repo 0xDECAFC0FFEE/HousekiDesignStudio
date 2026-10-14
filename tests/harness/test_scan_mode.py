@@ -42,6 +42,7 @@ import json
 import os
 import shutil
 import sys
+import tempfile
 import time
 import unittest
 
@@ -394,6 +395,116 @@ class RoughScanModeTest(unittest.TestCase):
         self.click("#embed-close")
         self.studio.wait_for_expression("!document.getElementById('houseki-scanner')", timeout=10)
         self.assertEqual(self.mode_readout(), "Overview")
+
+    def test_a_studio_opened_from_a_file_opens_the_scan_page_beside_it(self):
+        """A studio opened from a file opens the scan page in the same build, and it starts.
+
+        The user, 2026-10-13, trying a local build opened from a file: "don't think the animation
+        is in the computer side - only see the connection status". The studio opened the
+        published scan page then, older than the build; and the build's own one, once chosen,
+        never got its handshake: Chrome names a file's origin "file://", which no file page has
+        (their origin is 'null'), and the frame's `load` came late or not at all.
+
+        Setup: the studio navigated to build/www/studio.html as a file:// page (so the public
+        relays, not the test relay: this file page has its own storage). Test: Tools > Rough scan
+        with the mouse; read the scan page through an isolated world of its frame (a file page is
+        cross-origin to the studio, so ScannerFrame cannot reach into it). Verifies the iframe is
+        build/www/scanner/embed.html beside the studio, not the published page; that within the
+        ready timeout the handshake is done and the session started -- the code, the link to the
+        published phone page (a phone cannot open a file on this computer) and the connection
+        picture are all up, with no "could not be loaded" notice. The studio is put back on the
+        test server afterwards for the other tests.
+        """
+        try:
+            self.studio.navigate("file://" + STUDIO_PAGE, timeout=120)
+            self.studio.wait_for_expression("!!window.gemApp", timeout=120)
+            self.studio.send("Page.bringToFront")
+            self.click("#menu-button-tools", in_scanner=False)
+            self.studio.wait_for_expression("!!document.getElementById('menu-item-rough-scan')", timeout=10)
+            self.click("#menu-item-rough-scan", in_scanner=False)
+
+            self.assertEqual(self.studio.evaluate("document.querySelector('#houseki-scanner iframe').src"),
+                             "file://" + EMBED_PAGE)
+
+            # The scan page's frame, and a world of our own in it to read its page from.
+            self.studio.send("Page.enable")
+            context = None
+            deadline = time.time() + 20
+
+            while context is None and time.time() < deadline:
+                frames = [self.studio.send("Page.getFrameTree")["frameTree"]]
+                found = []
+
+                while frames:
+                    node = frames.pop()
+                    found.append(node["frame"])
+                    frames.extend(node.get("childFrames", []))
+
+                ids = [frame["id"] for frame in found if frame.get("url") == "file://" + EMBED_PAGE]
+
+                if ids:
+                    context = self.studio.send("Page.createIsolatedWorld", {"frameId": ids[0], "worldName": "test"})["executionContextId"]
+                else:
+                    time.sleep(0.2)
+
+            self.assertIsNotNone(context, "the scan page's frame never appeared")
+
+            def in_scan_page(expression):
+                return self.studio.send("Runtime.evaluate", {
+                    "expression": expression, "contextId": context, "returnByValue": True,
+                })["result"].get("value")
+
+            started = "!!document.getElementById('scan-qr') && !!document.querySelector('#scan-view svg.cd')"
+            deadline = time.time() + 25
+
+            while not in_scan_page(started) and time.time() < deadline:
+                time.sleep(0.2)
+
+            self.assertTrue(in_scan_page(started), "the session did not start in the scan page")
+            self.assertTrue(in_scan_page("document.getElementById('scan-url').textContent.trim()")
+                            .startswith("https://houseki.app/scanner#v=1&r="))
+            self.assertNotIn("could not be loaded", self.studio.evaluate("document.getElementById('houseki-scanner').textContent"))
+        finally:
+            if self.scanner.is_open():
+                self.press_escape()
+
+            self.studio.navigate(self.server.origin + "/studio.html", timeout=120)
+            self.studio.wait_for_expression("!!window.gemApp", timeout=120)
+
+    def test_a_saved_copy_of_the_studio_falls_back_to_the_published_scan_page(self):
+        """A saved single-file studio, with no scan page beside it, opens the published one.
+
+        Setup: studio.html copied alone into an empty temporary directory, as a person's saved
+        copy is (the help's "Saving the studio to your computer"), and opened from there as a
+        file. Test: Tools > Rough scan with the mouse. Verifies the scanner first tries the scan
+        page beside the file (scanner/embed.html, missing here), and, when what loaded there has
+        not said hello, opens the published scan page instead -- so a saved copy still scans,
+        as it did before the studio looked beside itself. Only the frame's address is checked:
+        whether the published page then starts depends on this machine's internet connection.
+        The studio is put back on the test server afterwards for the other tests.
+        """
+        saved = tempfile.mkdtemp(prefix="houseki-saved-")
+
+        try:
+            shutil.copy(STUDIO_PAGE, os.path.join(saved, "my studio.html"))
+            page = "file://" + os.path.join(saved, "my studio.html").replace(" ", "%20")
+            self.studio.navigate(page, timeout=120)
+            self.studio.wait_for_expression("!!window.gemApp", timeout=120)
+            self.studio.send("Page.bringToFront")
+            self.click("#menu-button-tools", in_scanner=False)
+            self.studio.wait_for_expression("!!document.getElementById('menu-item-rough-scan')", timeout=10)
+            self.click("#menu-item-rough-scan", in_scanner=False)
+
+            frame_src = "document.querySelector('#houseki-scanner iframe')?.src"
+            self.assertEqual(self.studio.evaluate(frame_src), "file://" + saved + "/scanner/embed.html")
+            self.studio.wait_for_expression(frame_src + " === 'https://houseki.app/scanner/embed.html'", timeout=20)
+        finally:
+            if self.scanner.is_open():
+                self.press_escape()
+
+            self.studio.navigate(self.server.origin + "/studio.html", timeout=120)
+            self.studio.wait_for_expression("!!window.gemApp", timeout=120)
+            shutil.rmtree(saved, ignore_errors=True)
 
 
 if __name__ == "__main__":

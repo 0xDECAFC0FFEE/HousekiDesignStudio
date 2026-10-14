@@ -1,754 +1,2121 @@
 {
- "source": "HousekiScanner's desktop detector (board.py, detect.py, calibrate.py; OpenCV 5.0.0) run on each padded crop by make_charuco_fixture.py",
+ "source": "the desktop detector's parameters and passes (HousekiScanner board.py, detect.py, calibrate.py) with each board's own dictionary, native OpenCV 5.0.0, on each padded crop, by make_charuco_fixture.py",
  "pixel_convention": "OpenCV: pixel centres at integer coordinates",
  "inset_markers": 1.0,
  "frames": [
   {
-   "capture": "moissanite",
-   "index": 1171,
-   "file": "moissanite_001171.jpg",
-   "size": [
-    1080,
-    1920
-   ],
-   "crop": [
-    80,
-    533,
-    1000,
-    1000
-   ],
-   "background": 128,
-   "marker_px": 145.4,
-   "marker_scale": 1.0,
-   "spec": {
-    "format": "houseki.board.v1",
-    "dictionary": "DICT_4X4_250",
-    "squares_x": 22,
-    "squares_y": 22,
-    "legacy": false,
-    "square_mm": 10.0,
-    "marker_mm": 6.89,
-    "marker_ratio": 0.689,
-    "removed_marker_ids": [],
-    "invalid_corner_ids": []
-   },
-   "expected": [
-    {
-     "id": 116,
-     "x": 358.5278015136719,
-     "y": 1375.27001953125,
-     "markers": 1,
-     "sharpness": 41.92807388305664
-    },
-    {
-     "id": 136,
-     "x": 557.7610473632812,
-     "y": 1241.017578125,
-     "markers": 1,
-     "sharpness": 177.1923065185547
-    },
-    {
-     "id": 137,
-     "x": 431.9471130371094,
-     "y": 1125.73583984375,
-     "markers": 1,
-     "sharpness": 57.47365188598633
-    },
-    {
-     "id": 138,
-     "x": 292.6545715332031,
-     "y": 998.390380859375,
-     "markers": 1,
-     "sharpness": 23.399253845214844
-    },
-    {
-     "id": 154,
-     "x": 912.334716796875,
-     "y": 1321.2528076171875,
-     "markers": 2,
-     "sharpness": 25.653852462768555
-    },
-    {
-     "id": 155,
-     "x": 823.1763305664062,
-     "y": 1228.1529541015625,
-     "markers": 2,
-     "sharpness": 67.8852767944336
-    },
-    {
-     "id": 156,
-     "x": 729.1484985351562,
-     "y": 1133.3731689453125,
-     "markers": 1,
-     "sharpness": 134.97596740722656
-    },
-    {
-     "id": 176,
-     "x": 873.2538452148438,
-     "y": 1032.771728515625,
-     "markers": 2,
-     "sharpness": 32.20970153808594
-    },
-    {
-     "id": 177,
-     "x": 798.8265991210938,
-     "y": 857.8599243164062,
-     "markers": 1,
-     "sharpness": 5.311011791229248
-    },
-    {
-     "id": 197,
-     "x": 916.9140625,
-     "y": 844.20654296875,
-     "markers": 2,
-     "sharpness": 40.78424072265625
-    },
-    {
-     "id": 198,
-     "x": 830.9998168945312,
-     "y": 731.367431640625,
-     "markers": 1,
-     "sharpness": 35.97177505493164
-    }
-   ],
-   "full_frame_ids": [
-    116,
-    135,
-    136,
-    137,
-    138,
-    154,
-    155,
-    156,
-    159,
-    176,
-    177,
-    197,
-    198
-   ]
-  },
-  {
-   "capture": "quartz",
-   "index": 433,
-   "file": "quartz_000433.jpg",
-   "size": [
-    1080,
-    1920
-   ],
-   "crop": [
-    222,
-    545,
-    720,
-    720
-   ],
-   "background": 128,
-   "marker_px": 102.5,
-   "marker_scale": 1.0,
-   "spec": {
-    "format": "houseki.board.v1",
-    "dictionary": "DICT_4X4_250",
-    "squares_x": 22,
-    "squares_y": 22,
-    "legacy": false,
-    "square_mm": 10.0,
-    "marker_mm": 6.8,
-    "marker_ratio": 0.68,
-    "removed_marker_ids": [],
-    "invalid_corner_ids": []
-   },
-   "expected": [
-    {
-     "id": 79,
-     "x": 338.8013000488281,
-     "y": 710.7174072265625,
-     "markers": 1,
-     "sharpness": 79.36973571777344
-    },
-    {
-     "id": 80,
-     "x": 407.80682373046875,
-     "y": 677.5711059570312,
-     "markers": 1,
-     "sharpness": 47.78203201293945
-    },
-    {
-     "id": 99,
-     "x": 387.3664855957031,
-     "y": 780.5938110351562,
-     "markers": 2,
-     "sharpness": 139.3544921875
-    },
-    {
-     "id": 100,
-     "x": 462.90032958984375,
-     "y": 738.901123046875,
-     "markers": 2,
-     "sharpness": 58.838130950927734
-    },
-    {
-     "id": 101,
-     "x": 533.948486328125,
-     "y": 704.535888671875,
-     "markers": 1,
-     "sharpness": 69.16450500488281
-    },
-    {
-     "id": 102,
-     "x": 600.8408203125,
-     "y": 664.0154418945312,
-     "markers": 1,
-     "sharpness": 28.22617530822754
-    },
-    {
-     "id": 118,
-     "x": 357.47247314453125,
-     "y": 904.6954956054688,
-     "markers": 2,
-     "sharpness": 420.8048095703125
-    },
-    {
-     "id": 119,
-     "x": 441.40936279296875,
-     "y": 858.300537109375,
-     "markers": 2,
-     "sharpness": 365.81884765625
-    },
-    {
-     "id": 120,
-     "x": 519.1054077148438,
-     "y": 814.711669921875,
-     "markers": 2,
-     "sharpness": 148.6584014892578
-    },
-    {
-     "id": 121,
-     "x": 592.1277465820312,
-     "y": 773.3355712890625,
-     "markers": 2,
-     "sharpness": 109.0969467163086
-    },
-    {
-     "id": 122,
-     "x": 660.3306884765625,
-     "y": 735.2250366210938,
-     "markers": 1,
-     "sharpness": 45.750465393066406
-    },
-    {
-     "id": 123,
-     "x": 723.7279052734375,
-     "y": 697.2471923828125,
-     "markers": 1,
-     "sharpness": 66.11273956298828
-    },
-    {
-     "id": 124,
-     "x": 778.9826049804688,
-     "y": 662.10791015625,
-     "markers": 1,
-     "sharpness": 29.872753143310547
-    },
-    {
-     "id": 138,
-     "x": 414.9418640136719,
-     "y": 996.3406372070312,
-     "markers": 1,
-     "sharpness": 843.7822265625
-    },
-    {
-     "id": 139,
-     "x": 501.8982238769531,
-     "y": 943.6846313476562,
-     "markers": 2,
-     "sharpness": 885.5728149414062
-    },
-    {
-     "id": 140,
-     "x": 582.0745849609375,
-     "y": 895.5216064453125,
-     "markers": 2,
-     "sharpness": 361.35003662109375
-    },
-    {
-     "id": 141,
-     "x": 656.1246948242188,
-     "y": 849.851318359375,
-     "markers": 2,
-     "sharpness": 267.34588623046875
-    },
-    {
-     "id": 142,
-     "x": 724.895263671875,
-     "y": 807.4140014648438,
-     "markers": 2,
-     "sharpness": 93.79153442382812
-    },
-    {
-     "id": 143,
-     "x": 790.6163330078125,
-     "y": 767.228271484375,
-     "markers": 2,
-     "sharpness": 77.45633697509766
-    },
-    {
-     "id": 159,
-     "x": 568.5990600585938,
-     "y": 1040.586181640625,
-     "markers": 1,
-     "sharpness": 726.5526123046875
-    },
-    {
-     "id": 160,
-     "x": 652.2607421875,
-     "y": 984.8948974609375,
-     "markers": 2,
-     "sharpness": 724.7650756835938
-    },
-    {
-     "id": 161,
-     "x": 728.427978515625,
-     "y": 932.8194580078125,
-     "markers": 2,
-     "sharpness": 534.2589721679688
-    },
-    {
-     "id": 162,
-     "x": 799.0065307617188,
-     "y": 885.29833984375,
-     "markers": 2,
-     "sharpness": 202.37744140625
-    },
-    {
-     "id": 179,
-     "x": 647.1845092773438,
-     "y": 1150.783935546875,
-     "markers": 1,
-     "sharpness": 752.7429809570312
-    },
-    {
-     "id": 180,
-     "x": 731.8584594726562,
-     "y": 1086.1600341796875,
-     "markers": 2,
-     "sharpness": 922.8031005859375
-    },
-    {
-     "id": 181,
-     "x": 809.5592041015625,
-     "y": 1027.0338134765625,
-     "markers": 1,
-     "sharpness": 857.830322265625
-    }
-   ],
-   "full_frame_ids": [
-    79,
-    80,
-    99,
-    100,
-    101,
-    102,
-    118,
-    119,
-    120,
-    121,
-    122,
-    123,
-    124,
-    138,
-    139,
-    140,
-    141,
-    142,
-    143,
-    159,
-    160,
-    161,
-    162,
-    179,
-    180,
-    181
-   ]
-  },
-  {
-   "capture": "quartz",
-   "index": 2167,
-   "file": "quartz_002167.jpg",
-   "size": [
-    1080,
-    1920
-   ],
-   "crop": [
-    102,
-    770,
-    900,
-    900
-   ],
-   "background": 128,
-   "marker_px": 102.5,
-   "marker_scale": 1.0,
-   "spec": {
-    "format": "houseki.board.v1",
-    "dictionary": "DICT_4X4_250",
-    "squares_x": 22,
-    "squares_y": 22,
-    "legacy": false,
-    "square_mm": 10.0,
-    "marker_mm": 6.8,
-    "marker_ratio": 0.68,
-    "removed_marker_ids": [],
-    "invalid_corner_ids": []
-   },
-   "expected": [
-    {
-     "id": 115,
-     "x": 651.8086547851562,
-     "y": 1383.2734375,
-     "markers": 1,
-     "sharpness": 61.41991424560547
-    },
-    {
-     "id": 116,
-     "x": 320.48065185546875,
-     "y": 1412.5740966796875,
-     "markers": 2,
-     "sharpness": 44.98645782470703
-    },
-    {
-     "id": 135,
-     "x": 844.7796020507812,
-     "y": 1219.8623046875,
-     "markers": 1,
-     "sharpness": 224.5904541015625
-    },
-    {
-     "id": 136,
-     "x": 551.8919067382812,
-     "y": 1239.489990234375,
-     "markers": 2,
-     "sharpness": 124.39513397216797
-    },
-    {
-     "id": 137,
-     "x": 243.5411834716797,
-     "y": 1259.462158203125,
-     "markers": 1,
-     "sharpness": 110.7005386352539
-    },
-    {
-     "id": 156,
-     "x": 738.8196411132812,
-     "y": 1100.54443359375,
-     "markers": 1,
-     "sharpness": 772.0423583984375
-    },
-    {
-     "id": 157,
-     "x": 467.5384826660156,
-     "y": 1116.39990234375,
-     "markers": 1,
-     "sharpness": 386.32965087890625
-    }
-   ],
-   "full_frame_ids": [
-    94,
-    115,
-    116,
-    135,
-    136,
-    137,
-    156,
-    157
-   ]
-  },
-  {
-   "capture": "spinel",
-   "index": 1555,
-   "file": "spinel_001555.jpg",
+   "capture": "PXL_20261013_025238515",
+   "second": 40,
+   "board": "charuco_23x17_10mm_white_black_spiral",
+   "file": "025238515_040s.jpg",
    "size": [
     1920,
     1080
    ],
    "crop": [
-    639,
-    59,
-    720,
+    309,
+    0,
+    1280,
     720
    ],
    "background": 128,
-   "marker_px": 83.3,
+   "marker_px": 95.01,
    "marker_scale": 1.0,
    "spec": {
     "format": "houseki.board.v1",
-    "dictionary": "DICT_4X4_250",
-    "squares_x": 22,
-    "squares_y": 22,
+    "name": "charuco_23x17_10mm_white_black_spiral",
+    "palette": "black-to-white",
+    "for": "intermediate rough",
+    "dictionary": "DICT_4X4_1000",
+    "first_marker_id": 750,
+    "squares_x": 23,
+    "squares_y": 17,
     "legacy": false,
     "square_mm": 10.0,
-    "marker_mm": 6.85,
-    "marker_ratio": 0.685,
+    "marker_mm": 7.0,
+    "marker_ratio": 0.7,
+    "frame": "origin at the top-left chessboard corner; X down the page (rows), Y right (columns), Z up out of the paper; millimetres",
+    "target": {
+     "centre_mm": [
+      85.0,
+      115.0
+     ]
+    },
     "removed_marker_ids": [],
-    "invalid_corner_ids": []
+    "invalid_corner_ids": [],
+    "unreadable_marker_ids": [],
+    "colours": {
+     "dark_srgb": 0,
+     "light_srgb": 255,
+     "note": "grey levels as printed: the squares without markers and the markers' ink are dark_srgb, the marker squares light_srgb"
+    },
+    "spiral": {
+     "origin_mm": 2.669,
+     "cell_mm": 1.1655,
+     "levels_srgb": [
+      [
+       0,
+       32,
+       50,
+       65
+      ],
+      [
+       180,
+       197,
+       215,
+       79
+      ],
+      [
+       163,
+       255,
+       234,
+       92
+      ],
+      [
+       148,
+       133,
+       119,
+       106
+      ]
+     ],
+     "note": "in every dark square: a 4 x 4 grid of cell_mm cells starting origin_mm from the square's top-left corner along X (rows) and Y (columns); levels_srgb[i][j] is the cell i along X, j along Y"
+    },
+    "print": {
+     "image": "charuco_23x17_10mm_white_black_spiral.png",
+     "image_px": [
+      5900,
+      4307
+     ],
+     "px_per_mm": 23.6,
+     "board_origin_px": [
+      94,
+      83
+     ],
+     "size_cm": [
+      25.0,
+      18.25
+     ]
+    },
+    "source": "measured on the user's charuco_23x17_10mm_white_black_spiral.png (2026-10-13, T-0340): OpenCV CharucoBoard 23 x 17, 10 mm squares, 7 mm markers, DICT_4X4_1000 ids 750-944, non-legacy"
    },
    "expected": [
     {
-     "id": 76,
-     "x": 763.3836669921875,
-     "y": 218.01292419433594,
+     "id": 184,
+     "x": 1404.436767578125,
+     "y": 572.7760620117188,
      "markers": 2,
-     "sharpness": 46.20210266113281
+     "sharpness": 689.4566040039062
     },
     {
-     "id": 77,
-     "x": 833.1605224609375,
-     "y": 174.1973876953125,
-     "markers": 2,
-     "sharpness": 66.27892303466797
+     "id": 185,
+     "x": 1199.70556640625,
+     "y": 600.7608642578125,
+     "markers": 1,
+     "sharpness": 1058.3221435546875
     },
     {
-     "id": 96,
-     "x": 766.0219116210938,
-     "y": 308.35552978515625,
-     "markers": 2,
-     "sharpness": 89.23175048828125
+     "id": 206,
+     "x": 1310.84765625,
+     "y": 465.3529052734375,
+     "markers": 1,
+     "sharpness": 460.5297546386719
     },
     {
-     "id": 97,
-     "x": 841.1592407226562,
-     "y": 258.4626770019531,
-     "markers": 2,
-     "sharpness": 91.3052749633789
+     "id": 209,
+     "x": 699.646240234375,
+     "y": 543.2178344726562,
+     "markers": 1,
+     "sharpness": 682.8041381835938
     },
     {
-     "id": 98,
-     "x": 910.7500610351562,
-     "y": 212.36038208007812,
-     "markers": 2,
-     "sharpness": 51.28410720825195
+     "id": 210,
+     "x": 478.44525146484375,
+     "y": 569.7362060546875,
+     "markers": 1,
+     "sharpness": 734.80322265625
     },
+    {
+     "id": 227,
+     "x": 1407.662353515625,
+     "y": 347.8968200683594,
+     "markers": 1,
+     "sharpness": 136.30810546875
+    },
+    {
+     "id": 228,
+     "x": 1225.724365234375,
+     "y": 369.1803283691406,
+     "markers": 1,
+     "sharpness": 139.839111328125
+    },
+    {
+     "id": 231,
+     "x": 640.1422729492188,
+     "y": 437.4032897949219,
+     "markers": 1,
+     "sharpness": 298.9677429199219
+    },
+    {
+     "id": 232,
+     "x": 428.8805236816406,
+     "y": 458.9704284667969,
+     "markers": 1,
+     "sharpness": 301.2218017578125
+    },
+    {
+     "id": 248,
+     "x": 1492.883544921875,
+     "y": 247.71339416503906,
+     "markers": 1,
+     "sharpness": 51.07188034057617
+    },
+    {
+     "id": 249,
+     "x": 1321.6414794921875,
+     "y": 262.1971130371094,
+     "markers": 2,
+     "sharpness": 52.198001861572266
+    },
+    {
+     "id": 250,
+     "x": 1148.7767333984375,
+     "y": 281.6861267089844,
+     "markers": 2,
+     "sharpness": 95.55529022216797
+    },
+    {
+     "id": 251,
+     "x": 967.3348388671875,
+     "y": 300.4766845703125,
+     "markers": 1,
+     "sharpness": 94.0571060180664
+    },
+    {
+     "id": 252,
+     "x": 780.474853515625,
+     "y": 320.3382568359375,
+     "markers": 1,
+     "sharpness": 129.15492248535156
+    },
+    {
+     "id": 253,
+     "x": 586.1619873046875,
+     "y": 340.0728454589844,
+     "markers": 2,
+     "sharpness": 113.09517669677734
+    },
+    {
+     "id": 270,
+     "x": 1406.595703125,
+     "y": 171.57290649414062,
+     "markers": 2,
+     "sharpness": 25.964096069335938
+    },
+    {
+     "id": 271,
+     "x": 1247.1170654296875,
+     "y": 188.30087280273438,
+     "markers": 2,
+     "sharpness": 44.48473358154297
+    },
+    {
+     "id": 272,
+     "x": 1077.5218505859375,
+     "y": 201.7257537841797,
+     "markers": 2,
+     "sharpness": 36.08537673950195
+    },
+    {
+     "id": 273,
+     "x": 903.525390625,
+     "y": 218.6844940185547,
+     "markers": 2,
+     "sharpness": 63.465335845947266
+    },
+    {
+     "id": 274,
+     "x": 723.8784790039062,
+     "y": 235.80551147460938,
+     "markers": 2,
+     "sharpness": 46.08769226074219
+    },
+    {
+     "id": 275,
+     "x": 536.4586181640625,
+     "y": 252.81744384765625,
+     "markers": 2,
+     "sharpness": 68.42880249023438
+    },
+    {
+     "id": 292,
+     "x": 1334.0538330078125,
+     "y": 105.93478393554688,
+     "markers": 1,
+     "sharpness": 27.281038284301758
+    },
+    {
+     "id": 293,
+     "x": 1171.6123046875,
+     "y": 116.17221069335938,
+     "markers": 1,
+     "sharpness": 21.92959976196289
+    },
+    {
+     "id": 294,
+     "x": 1013.4415283203125,
+     "y": 132.2041015625,
+     "markers": 2,
+     "sharpness": 37.299285888671875
+    },
+    {
+     "id": 295,
+     "x": 842.93798828125,
+     "y": 143.1306915283203,
+     "markers": 2,
+     "sharpness": 32.2830696105957
+    },
+    {
+     "id": 296,
+     "x": 671.3443603515625,
+     "y": 160.4198455810547,
+     "markers": 2,
+     "sharpness": 41.89861297607422
+    },
+    {
+     "id": 297,
+     "x": 493.8200988769531,
+     "y": 175.64990234375,
+     "markers": 2,
+     "sharpness": 35.06982421875
+    },
+    {
+     "id": 319,
+     "x": 449.8625793457031,
+     "y": 104.63912963867188,
+     "markers": 1,
+     "sharpness": 26.255855560302734
+    }
+   ]
+  },
+  {
+   "capture": "PXL_20261013_060912163",
+   "second": 5,
+   "board": "charuco_23x17_10mm_white_black_spiral",
+   "file": "060912163_005s.jpg",
+   "size": [
+    1920,
+    1080
+   ],
+   "crop": [
+    186,
+    124,
+    1280,
+    720
+   ],
+   "background": 128,
+   "marker_px": 131.86,
+   "marker_scale": 1.0,
+   "spec": {
+    "format": "houseki.board.v1",
+    "name": "charuco_23x17_10mm_white_black_spiral",
+    "palette": "black-to-white",
+    "for": "intermediate rough",
+    "dictionary": "DICT_4X4_1000",
+    "first_marker_id": 750,
+    "squares_x": 23,
+    "squares_y": 17,
+    "legacy": false,
+    "square_mm": 10.0,
+    "marker_mm": 7.0,
+    "marker_ratio": 0.7,
+    "frame": "origin at the top-left chessboard corner; X down the page (rows), Y right (columns), Z up out of the paper; millimetres",
+    "target": {
+     "centre_mm": [
+      85.0,
+      115.0
+     ]
+    },
+    "removed_marker_ids": [],
+    "invalid_corner_ids": [],
+    "unreadable_marker_ids": [],
+    "colours": {
+     "dark_srgb": 0,
+     "light_srgb": 255,
+     "note": "grey levels as printed: the squares without markers and the markers' ink are dark_srgb, the marker squares light_srgb"
+    },
+    "spiral": {
+     "origin_mm": 2.669,
+     "cell_mm": 1.1655,
+     "levels_srgb": [
+      [
+       0,
+       32,
+       50,
+       65
+      ],
+      [
+       180,
+       197,
+       215,
+       79
+      ],
+      [
+       163,
+       255,
+       234,
+       92
+      ],
+      [
+       148,
+       133,
+       119,
+       106
+      ]
+     ],
+     "note": "in every dark square: a 4 x 4 grid of cell_mm cells starting origin_mm from the square's top-left corner along X (rows) and Y (columns); levels_srgb[i][j] is the cell i along X, j along Y"
+    },
+    "print": {
+     "image": "charuco_23x17_10mm_white_black_spiral.png",
+     "image_px": [
+      5900,
+      4307
+     ],
+     "px_per_mm": 23.6,
+     "board_origin_px": [
+      94,
+      83
+     ],
+     "size_cm": [
+      25.0,
+      18.25
+     ]
+    },
+    "source": "measured on the user's charuco_23x17_10mm_white_black_spiral.png (2026-10-13, T-0340): OpenCV CharucoBoard 23 x 17, 10 mm squares, 7 mm markers, DICT_4X4_1000 ids 750-944, non-legacy"
+   },
+   "expected": [
     {
      "id": 99,
-     "x": 977.1569213867188,
-     "y": 169.78794860839844,
-     "markers": 2,
-     "sharpness": 52.15983581542969
-    },
-    {
-     "id": 116,
-     "x": 770.3334350585938,
-     "y": 411.4618225097656,
-     "markers": 2,
-     "sharpness": 234.997802734375
-    },
-    {
-     "id": 117,
-     "x": 850.1539916992188,
-     "y": 354.98919677734375,
-     "markers": 2,
-     "sharpness": 174.96835327148438
-    },
-    {
-     "id": 118,
-     "x": 923.9324340820312,
-     "y": 302.52264404296875,
-     "markers": 2,
-     "sharpness": 105.38365173339844
-    },
-    {
-     "id": 119,
-     "x": 993.8274536132812,
-     "y": 253.1719970703125,
-     "markers": 2,
-     "sharpness": 94.22149658203125
+     "x": 368.9149169921875,
+     "y": 310.9324645996094,
+     "markers": 1,
+     "sharpness": 11.040215492248535
     },
     {
      "id": 120,
-     "x": 1056.32958984375,
-     "y": 207.83822631835938,
-     "markers": 2,
-     "sharpness": 45.279998779296875
+     "x": 370.1066589355469,
+     "y": 483.5435791015625,
+     "markers": 1,
+     "sharpness": 23.193599700927734
     },
     {
      "id": 121,
-     "x": 1118.5885009765625,
-     "y": 164.8343963623047,
+     "x": 544.3719482421875,
+     "y": 386.8865661621094,
      "markers": 2,
-     "sharpness": 53.41604995727539
+     "sharpness": 7.495567321777344
     },
     {
-     "id": 136,
-     "x": 774.6826171875,
-     "y": 530.4434814453125,
+     "id": 122,
+     "x": 695.7225341796875,
+     "y": 303.07379150390625,
      "markers": 2,
-     "sharpness": 764.2008056640625
-    },
-    {
-     "id": 137,
-     "x": 868.08935546875,
-     "y": 459.7793884277344,
-     "markers": 1,
-     "sharpness": 5.541954517364502
-    },
-    {
-     "id": 138,
-     "x": 939.5782470703125,
-     "y": 403.8465576171875,
-     "markers": 1,
-     "sharpness": 313.8314514160156
-    },
-    {
-     "id": 139,
-     "x": 1012.7463989257812,
-     "y": 347.8604736328125,
-     "markers": 2,
-     "sharpness": 192.56625366210938
-    },
-    {
-     "id": 140,
-     "x": 1080.1732177734375,
-     "y": 295.9205627441406,
-     "markers": 2,
-     "sharpness": 97.28746032714844
+     "sharpness": 10.35938835144043
     },
     {
      "id": 141,
-     "x": 1143.871337890625,
-     "y": 247.35165405273438,
-     "markers": 2,
-     "sharpness": 83.29920196533203
+     "x": 373.1867980957031,
+     "y": 690.1217651367188,
+     "markers": 1,
+     "sharpness": 54.8896369934082
     },
     {
      "id": 142,
-     "x": 1200.48583984375,
-     "y": 201.71279907226562,
+     "x": 558.2678833007812,
+     "y": 575.2356567382812,
      "markers": 2,
-     "sharpness": 50.455467224121094
+     "sharpness": 22.9775447845459
     },
     {
      "id": 143,
-     "x": 1258.671630859375,
-     "y": 161.88352966308594,
+     "x": 724.5306396484375,
+     "y": 472.3573303222656,
      "markers": 1,
-     "sharpness": 46.38201141357422
+     "sharpness": 24.360157012939453
+    },
+    {
+     "id": 144,
+     "x": 870.1288452148438,
+     "y": 379.2601623535156,
+     "markers": 1,
+     "sharpness": 10.149365425109863
+    },
+    {
+     "id": 145,
+     "x": 1013.546630859375,
+     "y": 295.8870544433594,
+     "markers": 1,
+     "sharpness": 14.894805908203125
+    },
+    {
+     "id": 164,
+     "x": 758.7272338867188,
+     "y": 674.32666015625,
+     "markers": 1,
+     "sharpness": 78.98619842529297
+    },
+    {
+     "id": 166,
+     "x": 1065.7950439453125,
+     "y": 462.4311218261719,
+     "markers": 1,
+     "sharpness": 27.94585609436035
+    },
+    {
+     "id": 167,
+     "x": 1192.426025390625,
+     "y": 369.8805236816406,
+     "markers": 1,
+     "sharpness": 11.385588645935059
+    },
+    {
+     "id": 187,
+     "x": 1130.5797119140625,
+     "y": 658.651611328125,
+     "markers": 1,
+     "sharpness": 51.84654235839844
+    },
+    {
+     "id": 188,
+     "x": 1268.4449462890625,
+     "y": 550.7601928710938,
+     "markers": 2,
+     "sharpness": 22.31473731994629
+    }
+   ]
+  },
+  {
+   "capture": "PXL_20261013_025610567",
+   "second": 40,
+   "board": "charuco_23x17_10mm_white_grey_spiral",
+   "file": "025610567_040s.jpg",
+   "size": [
+    1920,
+    1080
+   ],
+   "crop": [
+    331,
+    146,
+    1280,
+    720
+   ],
+   "background": 128,
+   "marker_px": 79.58,
+   "marker_scale": 1.0,
+   "spec": {
+    "format": "houseki.board.v1",
+    "name": "charuco_23x17_10mm_white_grey_spiral",
+    "palette": "grey-to-white",
+    "for": "light rough",
+    "dictionary": "DICT_4X4_1000",
+    "first_marker_id": 250,
+    "squares_x": 23,
+    "squares_y": 17,
+    "legacy": false,
+    "square_mm": 10.0,
+    "marker_mm": 7.0,
+    "marker_ratio": 0.7,
+    "frame": "origin at the top-left chessboard corner; X down the page (rows), Y right (columns), Z up out of the paper; millimetres",
+    "target": {
+     "centre_mm": [
+      85.0,
+      115.0
+     ]
+    },
+    "removed_marker_ids": [],
+    "invalid_corner_ids": [],
+    "unreadable_marker_ids": [
+     187,
+     191
+    ],
+    "unreadable_note": "markers 187 and 191 (DICT_4X4_1000 ids 437 and 441) are never read: once blurred, the spiral in the dark squares of all three boards reads as their codes (measured T-0340 on 360 synthetic views: 599 and 19 of 653 misread markers)",
+    "colours": {
+     "dark_srgb": 145,
+     "light_srgb": 255,
+     "note": "grey levels as printed: the squares without markers and the markers' ink are dark_srgb, the marker squares light_srgb"
+    },
+    "spiral": {
+     "origin_mm": 2.669,
+     "cell_mm": 1.1655,
+     "levels_srgb": [
+      [
+       145,
+       151,
+       158,
+       164
+      ],
+      [
+       222,
+       230,
+       238,
+       171
+      ],
+      [
+       214,
+       255,
+       246,
+       177
+      ],
+      [
+       206,
+       199,
+       191,
+       184
+      ]
+     ],
+     "note": "in every dark square: a 4 x 4 grid of cell_mm cells starting origin_mm from the square's top-left corner along X (rows) and Y (columns); levels_srgb[i][j] is the cell i along X, j along Y"
+    },
+    "print": {
+     "image": "charuco_23x17_10mm_white_grey_spiral.png",
+     "image_px": [
+      5900,
+      4307
+     ],
+     "px_per_mm": 23.6,
+     "board_origin_px": [
+      94,
+      83
+     ],
+     "size_cm": [
+      25.0,
+      18.25
+     ]
+    },
+    "source": "measured on the user's charuco_23x17_10mm_white_grey_spiral.png (2026-10-13, T-0340): OpenCV CharucoBoard 23 x 17, 10 mm squares, 7 mm markers, DICT_4X4_1000 ids 250-444, non-legacy"
+   },
+   "expected": [
+    {
+     "id": 81,
+     "x": 412.7245788574219,
+     "y": 328.0806884765625,
+     "markers": 1,
+     "sharpness": 27.351938247680664
+    },
+    {
+     "id": 82,
+     "x": 494.3451843261719,
+     "y": 285.9405517578125,
+     "markers": 1,
+     "sharpness": 18.908784866333008
+    },
+    {
+     "id": 83,
+     "x": 568.7180786132812,
+     "y": 248.59901428222656,
+     "markers": 1,
+     "sharpness": 16.67060661315918
+    },
+    {
+     "id": 102,
+     "x": 457.58538818359375,
+     "y": 401.1943054199219,
+     "markers": 2,
+     "sharpness": 34.3133430480957
+    },
+    {
+     "id": 103,
+     "x": 541.63037109375,
+     "y": 355.2071228027344,
+     "markers": 2,
+     "sharpness": 31.938087463378906
+    },
+    {
+     "id": 104,
+     "x": 619.865966796875,
+     "y": 311.35162353515625,
+     "markers": 2,
+     "sharpness": 22.26218032836914
+    },
+    {
+     "id": 105,
+     "x": 692.8570556640625,
+     "y": 274.8077087402344,
+     "markers": 2,
+     "sharpness": 14.625244140625
+    },
+    {
+     "id": 106,
+     "x": 761.660400390625,
+     "y": 239.6604766845703,
+     "markers": 1,
+     "sharpness": 15.382076263427734
+    },
+    {
+     "id": 122,
+     "x": 411.4222717285156,
+     "y": 541.116455078125,
+     "markers": 1,
+     "sharpness": 192.0240478515625
+    },
+    {
+     "id": 123,
+     "x": 506.353515625,
+     "y": 485.5699462890625,
+     "markers": 2,
+     "sharpness": 85.95178985595703
+    },
+    {
+     "id": 124,
+     "x": 593.7185668945312,
+     "y": 433.3747863769531,
+     "markers": 2,
+     "sharpness": 72.65339660644531
+    },
+    {
+     "id": 125,
+     "x": 674.9287719726562,
+     "y": 386.2528076171875,
+     "markers": 2,
+     "sharpness": 31.80133056640625
+    },
+    {
+     "id": 126,
+     "x": 749.2540893554688,
+     "y": 342.2225646972656,
+     "markers": 2,
+     "sharpness": 29.665550231933594
+    },
+    {
+     "id": 127,
+     "x": 817.14892578125,
+     "y": 302.5343933105469,
+     "markers": 2,
+     "sharpness": 19.86854362487793
+    },
+    {
+     "id": 128,
+     "x": 883.1292114257812,
+     "y": 265.227783203125,
+     "markers": 1,
+     "sharpness": 16.58579444885254
+    },
+    {
+     "id": 143,
+     "x": 463.7364196777344,
+     "y": 644.4630126953125,
+     "markers": 1,
+     "sharpness": 511.7169494628906
+    },
+    {
+     "id": 144,
+     "x": 563.2017822265625,
+     "y": 580.2892456054688,
+     "markers": 2,
+     "sharpness": 183.1968994140625
+    },
+    {
+     "id": 145,
+     "x": 652.7312622070312,
+     "y": 522.5776977539062,
+     "markers": 1,
+     "sharpness": 154.8120574951172
+    },
+    {
+     "id": 146,
+     "x": 735.3827514648438,
+     "y": 469.2364807128906,
+     "markers": 1,
+     "sharpness": 80.92872619628906
+    },
+    {
+     "id": 147,
+     "x": 811.8936767578125,
+     "y": 418.7996520996094,
+     "markers": 2,
+     "sharpness": 50.89638900756836
+    },
+    {
+     "id": 148,
+     "x": 882.5726928710938,
+     "y": 373.43743896484375,
+     "markers": 2,
+     "sharpness": 33.465328216552734
+    },
+    {
+     "id": 149,
+     "x": 949.284912109375,
+     "y": 330.9259033203125,
+     "markers": 2,
+     "sharpness": 22.276723861694336
+    },
+    {
+     "id": 150,
+     "x": 1010.9878540039062,
+     "y": 293.3337707519531,
+     "markers": 1,
+     "sharpness": 19.395343780517578
+    },
+    {
+     "id": 164,
+     "x": 524.5958862304688,
+     "y": 762.2268676757812,
+     "markers": 1,
+     "sharpness": 1429.559814453125
+    },
+    {
+     "id": 165,
+     "x": 627.0521240234375,
+     "y": 688.5162353515625,
+     "markers": 2,
+     "sharpness": 294.8960876464844
+    },
+    {
+     "id": 166,
+     "x": 719.9637451171875,
+     "y": 621.1672973632812,
+     "markers": 1,
+     "sharpness": 526.4835815429688
+    },
+    {
+     "id": 169,
+     "x": 956.1595458984375,
+     "y": 446.12615966796875,
+     "markers": 1,
+     "sharpness": 170.68724060058594
+    },
+    {
+     "id": 170,
+     "x": 1021.529541015625,
+     "y": 405.0198669433594,
+     "markers": 2,
+     "sharpness": 58.422000885009766
+    },
+    {
+     "id": 171,
+     "x": 1082.7078857421875,
+     "y": 361.2221374511719,
+     "markers": 2,
+     "sharpness": 25.150733947753906
+    },
+    {
+     "id": 172,
+     "x": 1141.00634765625,
+     "y": 318.6595764160156,
+     "markers": 1,
+     "sharpness": 23.578121185302734
+    },
+    {
+     "id": 187,
+     "x": 796.7625122070312,
+     "y": 733.8358764648438,
+     "markers": 1,
+     "sharpness": 548.4868774414062
+    },
+    {
+     "id": 191,
+     "x": 1102.8394775390625,
+     "y": 487.1263427734375,
+     "markers": 1,
+     "sharpness": 91.4428482055664
+    },
+    {
+     "id": 192,
+     "x": 1164.6402587890625,
+     "y": 438.36669921875,
+     "markers": 2,
+     "sharpness": 44.033241271972656
+    },
+    {
+     "id": 193,
+     "x": 1223.3070068359375,
+     "y": 390.95184326171875,
+     "markers": 2,
+     "sharpness": 40.145751953125
+    },
+    {
+     "id": 194,
+     "x": 1275.1080322265625,
+     "y": 348.08795166015625,
+     "markers": 1,
+     "sharpness": 24.582796096801758
+    },
+    {
+     "id": 210,
+     "x": 1051.2823486328125,
+     "y": 709.3197021484375,
+     "markers": 1,
+     "sharpness": 924.914794921875
+    },
+    {
+     "id": 211,
+     "x": 1126.568115234375,
+     "y": 639.799072265625,
+     "markers": 1,
+     "sharpness": 242.19583129882812
+    },
+    {
+     "id": 212,
+     "x": 1193.8673095703125,
+     "y": 577.8693237304688,
+     "markers": 1,
+     "sharpness": 202.52162170410156
+    },
+    {
+     "id": 213,
+     "x": 1255.9609375,
+     "y": 522.0872192382812,
+     "markers": 2,
+     "sharpness": 105.81289672851562
+    },
+    {
+     "id": 214,
+     "x": 1313.52490234375,
+     "y": 470.67724609375,
+     "markers": 2,
+     "sharpness": 71.61798858642578
+    },
+    {
+     "id": 215,
+     "x": 1366.15869140625,
+     "y": 422.3392333984375,
+     "markers": 2,
+     "sharpness": 34.51408767700195
+    },
+    {
+     "id": 216,
+     "x": 1416.158935546875,
+     "y": 376.8363342285156,
+     "markers": 1,
+     "sharpness": 28.417884826660156
+    },
+    {
+     "id": 232,
+     "x": 1229.7896728515625,
+     "y": 753.7484130859375,
+     "markers": 2,
+     "sharpness": 281.3055725097656
+    },
+    {
+     "id": 233,
+     "x": 1297.665771484375,
+     "y": 684.0848999023438,
+     "markers": 2,
+     "sharpness": 436.58245849609375
+    },
+    {
+     "id": 234,
+     "x": 1359.299560546875,
+     "y": 618.6112060546875,
+     "markers": 2,
+     "sharpness": 201.94874572753906
+    },
+    {
+     "id": 235,
+     "x": 1415.713134765625,
+     "y": 559.43798828125,
+     "markers": 2,
+     "sharpness": 148.82424926757812
+    },
+    {
+     "id": 236,
+     "x": 1467.518798828125,
+     "y": 505.9207763671875,
+     "markers": 2,
+     "sharpness": 77.48046112060547
+    },
+    {
+     "id": 237,
+     "x": 1516.495361328125,
+     "y": 454.1726379394531,
+     "markers": 1,
+     "sharpness": 54.23680114746094
+    },
+    {
+     "id": 255,
+     "x": 1474.656982421875,
+     "y": 727.7719116210938,
+     "markers": 1,
+     "sharpness": 332.9620056152344
+    },
+    {
+     "id": 256,
+     "x": 1530.0718994140625,
+     "y": 659.73583984375,
+     "markers": 1,
+     "sharpness": 267.5410461425781
+    }
+   ]
+  },
+  {
+   "capture": "PXL_20261013_111244219",
+   "second": 35,
+   "board": "charuco_23x17_10mm_white_grey_spiral",
+   "file": "111244219_035s.jpg",
+   "size": [
+    1920,
+    1080
+   ],
+   "crop": [
+    283,
+    7,
+    1280,
+    720
+   ],
+   "background": 128,
+   "marker_px": 75.88,
+   "marker_scale": 1.0,
+   "spec": {
+    "format": "houseki.board.v1",
+    "name": "charuco_23x17_10mm_white_grey_spiral",
+    "palette": "grey-to-white",
+    "for": "light rough",
+    "dictionary": "DICT_4X4_1000",
+    "first_marker_id": 250,
+    "squares_x": 23,
+    "squares_y": 17,
+    "legacy": false,
+    "square_mm": 10.0,
+    "marker_mm": 7.0,
+    "marker_ratio": 0.7,
+    "frame": "origin at the top-left chessboard corner; X down the page (rows), Y right (columns), Z up out of the paper; millimetres",
+    "target": {
+     "centre_mm": [
+      85.0,
+      115.0
+     ]
+    },
+    "removed_marker_ids": [],
+    "invalid_corner_ids": [],
+    "unreadable_marker_ids": [
+     187,
+     191
+    ],
+    "unreadable_note": "markers 187 and 191 (DICT_4X4_1000 ids 437 and 441) are never read: once blurred, the spiral in the dark squares of all three boards reads as their codes (measured T-0340 on 360 synthetic views: 599 and 19 of 653 misread markers)",
+    "colours": {
+     "dark_srgb": 145,
+     "light_srgb": 255,
+     "note": "grey levels as printed: the squares without markers and the markers' ink are dark_srgb, the marker squares light_srgb"
+    },
+    "spiral": {
+     "origin_mm": 2.669,
+     "cell_mm": 1.1655,
+     "levels_srgb": [
+      [
+       145,
+       151,
+       158,
+       164
+      ],
+      [
+       222,
+       230,
+       238,
+       171
+      ],
+      [
+       214,
+       255,
+       246,
+       177
+      ],
+      [
+       206,
+       199,
+       191,
+       184
+      ]
+     ],
+     "note": "in every dark square: a 4 x 4 grid of cell_mm cells starting origin_mm from the square's top-left corner along X (rows) and Y (columns); levels_srgb[i][j] is the cell i along X, j along Y"
+    },
+    "print": {
+     "image": "charuco_23x17_10mm_white_grey_spiral.png",
+     "image_px": [
+      5900,
+      4307
+     ],
+     "px_per_mm": 23.6,
+     "board_origin_px": [
+      94,
+      83
+     ],
+     "size_cm": [
+      25.0,
+      18.25
+     ]
+    },
+    "source": "measured on the user's charuco_23x17_10mm_white_grey_spiral.png (2026-10-13, T-0340): OpenCV CharucoBoard 23 x 17, 10 mm squares, 7 mm markers, DICT_4X4_1000 ids 250-444, non-legacy"
+   },
+   "expected": [
+    {
+     "id": 101,
+     "x": 380.8381652832031,
+     "y": 391.55975341796875,
+     "markers": 1,
+     "sharpness": 90.36522674560547
+    },
+    {
+     "id": 102,
+     "x": 411.3032531738281,
+     "y": 317.1960144042969,
+     "markers": 2,
+     "sharpness": 48.0707893371582
+    },
+    {
+     "id": 103,
+     "x": 437.8949279785156,
+     "y": 248.01242065429688,
+     "markers": 2,
+     "sharpness": 41.75988006591797
+    },
+    {
+     "id": 104,
+     "x": 462.947265625,
+     "y": 183.91403198242188,
+     "markers": 2,
+     "sharpness": 28.56449317932129
+    },
+    {
+     "id": 105,
+     "x": 486.6873474121094,
+     "y": 125.68455505371094,
+     "markers": 2,
+     "sharpness": 25.516799926757812
+    },
+    {
+     "id": 121,
+     "x": 495.65277099609375,
+     "y": 575.159912109375,
+     "markers": 2,
+     "sharpness": 435.0185852050781
+    },
+    {
+     "id": 122,
+     "x": 523.0579833984375,
+     "y": 486.0036926269531,
+     "markers": 2,
+     "sharpness": 217.24166870117188
+    },
+    {
+     "id": 123,
+     "x": 548.0435180664062,
+     "y": 404.2677917480469,
+     "markers": 2,
+     "sharpness": 90.17050170898438
+    },
+    {
+     "id": 124,
+     "x": 570.3325805664062,
+     "y": 328.7989501953125,
+     "markers": 2,
+     "sharpness": 61.855499267578125
+    },
+    {
+     "id": 125,
+     "x": 591.520263671875,
+     "y": 259.275390625,
+     "markers": 2,
+     "sharpness": 33.85757064819336
+    },
+    {
+     "id": 126,
+     "x": 611.4266357421875,
+     "y": 195.14414978027344,
+     "markers": 2,
+     "sharpness": 31.58949089050293
+    },
+    {
+     "id": 127,
+     "x": 628.70751953125,
+     "y": 136.3548126220703,
+     "markers": 2,
+     "sharpness": 18.0
+    },
+    {
+     "id": 128,
+     "x": 645.9129028320312,
+     "y": 83.5430908203125,
+     "markers": 2,
+     "sharpness": 18.556415557861328
+    },
+    {
+     "id": 143,
+     "x": 678.0932006835938,
+     "y": 589.2846069335938,
+     "markers": 1,
+     "sharpness": 306.6372375488281
+    },
+    {
+     "id": 144,
+     "x": 697.673583984375,
+     "y": 499.21575927734375,
+     "markers": 1,
+     "sharpness": 256.42059326171875
+    },
+    {
+     "id": 145,
+     "x": 714.8619995117188,
+     "y": 417.59698486328125,
+     "markers": 2,
+     "sharpness": 111.6270751953125
+    },
+    {
+     "id": 146,
+     "x": 730.6483154296875,
+     "y": 342.25830078125,
+     "markers": 2,
+     "sharpness": 63.79788589477539
+    },
+    {
+     "id": 147,
+     "x": 745.6830444335938,
+     "y": 272.3557434082031,
+     "markers": 2,
+     "sharpness": 41.917274475097656
+    },
+    {
+     "id": 148,
+     "x": 759.3465576171875,
+     "y": 207.7254180908203,
+     "markers": 2,
+     "sharpness": 29.7614688873291
+    },
+    {
+     "id": 149,
+     "x": 772.4884033203125,
+     "y": 147.45079040527344,
+     "markers": 2,
+     "sharpness": 21.973569869995117
+    },
+    {
+     "id": 150,
+     "x": 783.214599609375,
+     "y": 94.86959838867188,
+     "markers": 2,
+     "sharpness": 23.15835952758789
+    },
+    {
+     "id": 167,
+     "x": 882.3316040039062,
+     "y": 427.369873046875,
+     "markers": 1,
+     "sharpness": 286.54486083984375
+    },
+    {
+     "id": 168,
+     "x": 891.82373046875,
+     "y": 354.9627990722656,
+     "markers": 2,
+     "sharpness": 66.65926361083984
+    },
+    {
+     "id": 169,
+     "x": 900.6685180664062,
+     "y": 285.5701904296875,
+     "markers": 2,
+     "sharpness": 43.13396453857422
+    },
+    {
+     "id": 170,
+     "x": 908.44287109375,
+     "y": 219.82200622558594,
+     "markers": 2,
+     "sharpness": 32.660736083984375
+    },
+    {
+     "id": 171,
+     "x": 915.4782104492188,
+     "y": 160.7101287841797,
+     "markers": 2,
+     "sharpness": 28.599075317382812
+    },
+    {
+     "id": 172,
+     "x": 923.164794921875,
+     "y": 103.72048950195312,
+     "markers": 2,
+     "sharpness": 22.77414321899414
+    },
+    {
+     "id": 187,
+     "x": 1043.3251953125,
+     "y": 617.4454345703125,
+     "markers": 1,
+     "sharpness": 238.44149780273438
+    },
+    {
+     "id": 188,
+     "x": 1041.835693359375,
+     "y": 526.0648803710938,
+     "markers": 1,
+     "sharpness": 301.9501037597656
+    },
+    {
+     "id": 189,
+     "x": 1050.7559814453125,
+     "y": 442.6546936035156,
+     "markers": 1,
+     "sharpness": 288.1646423339844
+    },
+    {
+     "id": 190,
+     "x": 1052.1365966796875,
+     "y": 367.14794921875,
+     "markers": 2,
+     "sharpness": 74.56950378417969
+    },
+    {
+     "id": 191,
+     "x": 1054.9970703125,
+     "y": 296.5377502441406,
+     "markers": 2,
+     "sharpness": 35.3256950378418
+    },
+    {
+     "id": 192,
+     "x": 1056.5572509765625,
+     "y": 231.32359313964844,
+     "markers": 2,
+     "sharpness": 36.015907287597656
+    },
+    {
+     "id": 193,
+     "x": 1058.8905029296875,
+     "y": 169.33523559570312,
+     "markers": 2,
+     "sharpness": 24.649099349975586
+    },
+    {
+     "id": 194,
+     "x": 1060.54736328125,
+     "y": 113.53561401367188,
+     "markers": 2,
+     "sharpness": 24.01510238647461
+    },
+    {
+     "id": 209,
+     "x": 1226.5567626953125,
+     "y": 631.3651733398438,
+     "markers": 2,
+     "sharpness": 379.0166015625
+    },
+    {
+     "id": 210,
+     "x": 1222.0712890625,
+     "y": 540.1629028320312,
+     "markers": 2,
+     "sharpness": 164.93096923828125
+    },
+    {
+     "id": 211,
+     "x": 1217.5400390625,
+     "y": 455.69219970703125,
+     "markers": 2,
+     "sharpness": 102.36896514892578
+    },
+    {
+     "id": 212,
+     "x": 1212.6409912109375,
+     "y": 378.44110107421875,
+     "markers": 2,
+     "sharpness": 62.28487014770508
+    },
+    {
+     "id": 213,
+     "x": 1209.4171142578125,
+     "y": 307.44024658203125,
+     "markers": 2,
+     "sharpness": 43.46006393432617
+    },
+    {
+     "id": 214,
+     "x": 1205.68408203125,
+     "y": 241.2071990966797,
+     "markers": 2,
+     "sharpness": 21.591594696044922
+    },
+    {
+     "id": 215,
+     "x": 1203.1282958984375,
+     "y": 180.2285919189453,
+     "markers": 2,
+     "sharpness": 27.193330764770508
+    },
+    {
+     "id": 216,
+     "x": 1198.4403076171875,
+     "y": 121.4005355834961,
+     "markers": 1,
+     "sharpness": 17.98957061767578
+    },
+    {
+     "id": 231,
+     "x": 1411.0877685546875,
+     "y": 644.3148803710938,
+     "markers": 2,
+     "sharpness": 228.92344665527344
+    },
+    {
+     "id": 232,
+     "x": 1397.7020263671875,
+     "y": 552.642333984375,
+     "markers": 2,
+     "sharpness": 149.76254272460938
+    },
+    {
+     "id": 233,
+     "x": 1385.8328857421875,
+     "y": 468.9034729003906,
+     "markers": 2,
+     "sharpness": 85.46749114990234
+    },
+    {
+     "id": 234,
+     "x": 1375.1646728515625,
+     "y": 390.9736022949219,
+     "markers": 2,
+     "sharpness": 62.111907958984375
+    },
+    {
+     "id": 235,
+     "x": 1364.44384765625,
+     "y": 318.6598205566406,
+     "markers": 2,
+     "sharpness": 46.74406433105469
+    },
+    {
+     "id": 236,
+     "x": 1355.6395263671875,
+     "y": 253.26034545898438,
+     "markers": 2,
+     "sharpness": 31.743478775024414
+    },
+    {
+     "id": 237,
+     "x": 1345.8031005859375,
+     "y": 190.30039978027344,
+     "markers": 2,
+     "sharpness": 26.709896087646484
+    },
+    {
+     "id": 238,
+     "x": 1338.034912109375,
+     "y": 135.2779541015625,
+     "markers": 1,
+     "sharpness": 25.109569549560547
+    },
+    {
+     "id": 260,
+     "x": 1475.1466064453125,
+     "y": 145.3255157470703,
+     "markers": 1,
+     "sharpness": 19.26866912841797
+    }
+   ]
+  },
+  {
+   "capture": "PXL_20261013_025748223",
+   "second": 35,
+   "board": "charuco_23x17_10mm_grey_black_spiral",
+   "file": "025748223_035s.jpg",
+   "size": [
+    1920,
+    1080
+   ],
+   "crop": [
+    236,
+    12,
+    1280,
+    720
+   ],
+   "background": 128,
+   "marker_px": 73.79,
+   "marker_scale": 1.0,
+   "spec": {
+    "format": "houseki.board.v1",
+    "name": "charuco_23x17_10mm_grey_black_spiral",
+    "palette": "black-to-grey",
+    "for": "dark rough",
+    "dictionary": "DICT_4X4_1000",
+    "first_marker_id": 500,
+    "squares_x": 23,
+    "squares_y": 17,
+    "legacy": false,
+    "square_mm": 10.0,
+    "marker_mm": 7.0,
+    "marker_ratio": 0.7,
+    "frame": "origin at the top-left chessboard corner; X down the page (rows), Y right (columns), Z up out of the paper; millimetres",
+    "target": {
+     "centre_mm": [
+      85.0,
+      115.0
+     ]
+    },
+    "removed_marker_ids": [],
+    "invalid_corner_ids": [],
+    "unreadable_marker_ids": [],
+    "colours": {
+     "dark_srgb": 0,
+     "light_srgb": 110,
+     "note": "grey levels as printed: the squares without markers and the markers' ink are dark_srgb, the marker squares light_srgb"
+    },
+    "spiral": {
+     "origin_mm": 2.669,
+     "cell_mm": 1.1655,
+     "levels_srgb": [
+      [
+       0,
+       18,
+       29,
+       38
+      ],
+      [
+       87,
+       93,
+       99,
+       45
+      ],
+      [
+       82,
+       110,
+       104,
+       52
+      ],
+      [
+       76,
+       70,
+       64,
+       58
+      ]
+     ],
+     "note": "in every dark square: a 4 x 4 grid of cell_mm cells starting origin_mm from the square's top-left corner along X (rows) and Y (columns); levels_srgb[i][j] is the cell i along X, j along Y"
+    },
+    "print": {
+     "image": "charuco_23x17_10mm_grey_black_spiral.png",
+     "image_px": [
+      5900,
+      4307
+     ],
+     "px_per_mm": 23.6,
+     "board_origin_px": [
+      94,
+      83
+     ],
+     "size_cm": [
+      25.0,
+      18.25
+     ]
+    },
+    "source": "measured on the user's charuco_23x17_10mm_grey_black_spiral.png (2026-10-13, T-0340): OpenCV CharucoBoard 23 x 17, 10 mm squares, 7 mm markers, DICT_4X4_1000 ids 500-694, non-legacy"
+   },
+   "expected": [
+    {
+     "id": 134,
+     "x": 1404.7735595703125,
+     "y": 140.0922088623047,
+     "markers": 1,
+     "sharpness": 21.72074317932129
+    },
+    {
+     "id": 135,
+     "x": 1391.6876220703125,
+     "y": 191.6348114013672,
+     "markers": 2,
+     "sharpness": 23.02519416809082
+    },
+    {
+     "id": 136,
+     "x": 1377.25439453125,
+     "y": 248.109375,
+     "markers": 2,
+     "sharpness": 32.91718292236328
+    },
+    {
+     "id": 137,
+     "x": 1361.571044921875,
+     "y": 307.23663330078125,
+     "markers": 2,
+     "sharpness": 69.90892791748047
+    },
+    {
+     "id": 138,
+     "x": 1344.3111572265625,
+     "y": 372.4222412109375,
+     "markers": 2,
+     "sharpness": 142.8215789794922
+    },
+    {
+     "id": 139,
+     "x": 1326.3826904296875,
+     "y": 441.11090087890625,
+     "markers": 2,
+     "sharpness": 191.28836059570312
+    },
+    {
+     "id": 140,
+     "x": 1306.348876953125,
+     "y": 516.338134765625,
+     "markers": 2,
+     "sharpness": 611.66015625
+    },
+    {
+     "id": 141,
+     "x": 1285.211669921875,
+     "y": 597.818359375,
+     "markers": 2,
+     "sharpness": 459.6137390136719
     },
     {
      "id": 156,
-     "x": 780.026123046875,
-     "y": 668.633056640625,
+     "x": 1271.788330078125,
+     "y": 124.81656646728516,
      "markers": 1,
-     "sharpness": 490.34521484375
+     "sharpness": 20.562305450439453
     },
     {
      "id": 157,
-     "x": 872.8788452148438,
-     "y": 591.4155883789062,
-     "markers": 1,
-     "sharpness": 2.99600887298584
+     "x": 1251.7545166015625,
+     "y": 175.51821899414062,
+     "markers": 2,
+     "sharpness": 20.473281860351562
+    },
+    {
+     "id": 158,
+     "x": 1233.09033203125,
+     "y": 229.56832885742188,
+     "markers": 2,
+     "sharpness": 42.383087158203125
     },
     {
      "id": 159,
-     "x": 1034.192626953125,
-     "y": 456.63128662109375,
-     "markers": 1,
-     "sharpness": 564.8129272460938
+     "x": 1211.88916015625,
+     "y": 287.88787841796875,
+     "markers": 2,
+     "sharpness": 80.27009582519531
     },
     {
      "id": 160,
-     "x": 1105.700927734375,
-     "y": 396.51422119140625,
+     "x": 1189.551025390625,
+     "y": 351.174560546875,
      "markers": 2,
-     "sharpness": 261.9171142578125
+     "sharpness": 161.81951904296875
     },
     {
      "id": 161,
-     "x": 1172.671875,
-     "y": 340.5161437988281,
+     "x": 1165.37646484375,
+     "y": 418.5885925292969,
      "markers": 2,
-     "sharpness": 160.38150024414062
+     "sharpness": 395.9725036621094
     },
     {
      "id": 162,
-     "x": 1233.7322998046875,
-     "y": 289.1641845703125,
-     "markers": 2,
-     "sharpness": 78.1873779296875
+     "x": 1140.098388671875,
+     "y": 491.3126525878906,
+     "markers": 1,
+     "sharpness": 682.8367309570312
+    },
+    {
+     "id": 163,
+     "x": 1109.154541015625,
+     "y": 572.2296752929688,
+     "markers": 1,
+     "sharpness": 563.0175170898438
+    },
+    {
+     "id": 178,
+     "x": 1136.9481201171875,
+     "y": 108.9228515625,
+     "markers": 1,
+     "sharpness": 14.468865394592285
     },
     {
      "id": 179,
-     "x": 1059.2423095703125,
-     "y": 581.0880737304688,
-     "markers": 1,
-     "sharpness": 747.4627075195312
+     "x": 1114.9976806640625,
+     "y": 159.30653381347656,
+     "markers": 2,
+     "sharpness": 25.20230484008789
     },
     {
      "id": 180,
-     "x": 1134.630615234375,
-     "y": 511.95526123046875,
+     "x": 1090.96826171875,
+     "y": 212.61460876464844,
      "markers": 2,
-     "sharpness": 626.528076171875
+     "sharpness": 36.402854919433594
     },
     {
      "id": 181,
-     "x": 1205.1146240234375,
-     "y": 447.6579895019531,
+     "x": 1065.13916015625,
+     "y": 268.5328674316406,
      "markers": 2,
-     "sharpness": 324.4582214355469
+     "sharpness": 61.8107795715332
     },
     {
      "id": 182,
-     "x": 1269.5374755859375,
-     "y": 388.8796691894531,
+     "x": 1036.9547119140625,
+     "y": 331.336669921875,
      "markers": 2,
-     "sharpness": 176.34593200683594
+     "sharpness": 127.26716613769531
+    },
+    {
+     "id": 183,
+     "x": 1008.65966796875,
+     "y": 393.9849548339844,
+     "markers": 1,
+     "sharpness": 94.64358520507812
     },
     {
      "id": 200,
-     "x": 1168.59814453125,
-     "y": 646.1181030273438,
-     "markers": 2,
-     "sharpness": 437.63330078125
+     "x": 1007.0133056640625,
+     "y": 93.2785415649414,
+     "markers": 1,
+     "sharpness": 22.45582389831543
     },
     {
      "id": 201,
-     "x": 1242.3909912109375,
-     "y": 571.9183349609375,
+     "x": 980.5364379882812,
+     "y": 141.51864624023438,
+     "markers": 2,
+     "sharpness": 24.60240936279297
+    },
+    {
+     "id": 202,
+     "x": 951.9077758789062,
+     "y": 194.04197692871094,
+     "markers": 2,
+     "sharpness": 28.293256759643555
+    },
+    {
+     "id": 203,
+     "x": 921.31494140625,
+     "y": 250.0680389404297,
+     "markers": 2,
+     "sharpness": 54.61119842529297
+    },
+    {
+     "id": 204,
+     "x": 887.7444458007812,
+     "y": 310.5285949707031,
+     "markers": 2,
+     "sharpness": 121.18685913085938
+    },
+    {
+     "id": 205,
+     "x": 852.488525390625,
+     "y": 376.25433349609375,
      "markers": 1,
-     "sharpness": 579.2222290039062
+     "sharpness": 306.0334167480469
+    },
+    {
+     "id": 206,
+     "x": 813.3956298828125,
+     "y": 446.7440490722656,
+     "markers": 1,
+     "sharpness": 693.3776245117188
+    },
+    {
+     "id": 207,
+     "x": 772.4778442382812,
+     "y": 522.4149169921875,
+     "markers": 1,
+     "sharpness": 1598.330810546875
+    },
+    {
+     "id": 208,
+     "x": 726.5179443359375,
+     "y": 606.335693359375,
+     "markers": 1,
+     "sharpness": 702.8145141601562
+    },
+    {
+     "id": 223,
+     "x": 847.2515258789062,
+     "y": 126.09697723388672,
+     "markers": 2,
+     "sharpness": 18.62246322631836
+    },
+    {
+     "id": 224,
+     "x": 814.4053955078125,
+     "y": 177.0313720703125,
+     "markers": 2,
+     "sharpness": 29.638280868530273
+    },
+    {
+     "id": 225,
+     "x": 778.0543823242188,
+     "y": 230.9614715576172,
+     "markers": 2,
+     "sharpness": 54.867698669433594
+    },
+    {
+     "id": 226,
+     "x": 740.2605590820312,
+     "y": 289.751953125,
+     "markers": 2,
+     "sharpness": 108.44468688964844
+    },
+    {
+     "id": 227,
+     "x": 698.6386108398438,
+     "y": 355.2100524902344,
+     "markers": 2,
+     "sharpness": 230.25238037109375
+    },
+    {
+     "id": 228,
+     "x": 654.764404296875,
+     "y": 424.14776611328125,
+     "markers": 2,
+     "sharpness": 578.9910888671875
+    },
+    {
+     "id": 229,
+     "x": 607.0062255859375,
+     "y": 497.8962097167969,
+     "markers": 2,
+     "sharpness": 1357.4197998046875
+    },
+    {
+     "id": 230,
+     "x": 554.482666015625,
+     "y": 580.7955322265625,
+     "markers": 2,
+     "sharpness": 2050.33349609375
+    },
+    {
+     "id": 245,
+     "x": 714.3060302734375,
+     "y": 110.23734283447266,
+     "markers": 2,
+     "sharpness": 23.488256454467773
+    },
+    {
+     "id": 246,
+     "x": 677.2621459960938,
+     "y": 159.38414001464844,
+     "markers": 2,
+     "sharpness": 25.50724220275879
+    },
+    {
+     "id": 247,
+     "x": 637.796142578125,
+     "y": 212.91932678222656,
+     "markers": 2,
+     "sharpness": 45.69680404663086
+    },
+    {
+     "id": 248,
+     "x": 593.67529296875,
+     "y": 270.01397705078125,
+     "markers": 2,
+     "sharpness": 74.96857452392578
+    },
+    {
+     "id": 249,
+     "x": 547.920654296875,
+     "y": 333.5987548828125,
+     "markers": 2,
+     "sharpness": 150.19419860839844
+    },
+    {
+     "id": 250,
+     "x": 497.09478759765625,
+     "y": 400.40789794921875,
+     "markers": 2,
+     "sharpness": 412.7515869140625
+    },
+    {
+     "id": 251,
+     "x": 442.8529052734375,
+     "y": 474.5664367675781,
+     "markers": 2,
+     "sharpness": 1241.737548828125
+    },
+    {
+     "id": 252,
+     "x": 384.702392578125,
+     "y": 554.7242431640625,
+     "markers": 1,
+     "sharpness": 1500.6397705078125
+    },
+    {
+     "id": 267,
+     "x": 584.201171875,
+     "y": 94.2642822265625,
+     "markers": 2,
+     "sharpness": 16.76518440246582
+    },
+    {
+     "id": 268,
+     "x": 541.2862548828125,
+     "y": 143.51124572753906,
+     "markers": 2,
+     "sharpness": 27.138031005859375
+    },
+    {
+     "id": 269,
+     "x": 498.689208984375,
+     "y": 195.42022705078125,
+     "markers": 2,
+     "sharpness": 42.75953674316406
+    },
+    {
+     "id": 270,
+     "x": 450.3666076660156,
+     "y": 251.5419158935547,
+     "markers": 2,
+     "sharpness": 62.37961196899414
+    },
+    {
+     "id": 271,
+     "x": 398.4886779785156,
+     "y": 313.49365234375,
+     "markers": 2,
+     "sharpness": 101.35990905761719
+    },
+    {
+     "id": 272,
+     "x": 342.6012878417969,
+     "y": 379.10308837890625,
+     "markers": 2,
+     "sharpness": 173.8625030517578
+    },
+    {
+     "id": 290,
+     "x": 411.7697448730469,
+     "y": 125.08236694335938,
+     "markers": 2,
+     "sharpness": 16.61569595336914
+    },
+    {
+     "id": 291,
+     "x": 363.1278991699219,
+     "y": 177.5212860107422,
+     "markers": 2,
+     "sharpness": 28.1066837310791
     }
+   ]
+  },
+  {
+   "capture": "PXL_20261013_060606316",
+   "second": 40,
+   "board": "charuco_23x17_10mm_grey_black_spiral",
+   "file": "060606316_040s.jpg",
+   "size": [
+    1920,
+    1080
    ],
-   "full_frame_ids": [
-    76,
-    77,
-    96,
-    97,
-    98,
-    99,
-    116,
-    117,
-    118,
-    119,
-    120,
-    121,
-    136,
-    137,
-    138,
-    139,
-    140,
-    141,
-    142,
-    143,
-    156,
-    157,
-    159,
-    160,
-    161,
-    162,
-    178,
-    179,
-    180,
-    181,
-    182,
-    200,
-    201
+   "crop": [
+    403,
+    75,
+    1280,
+    720
+   ],
+   "background": 128,
+   "marker_px": 108.92,
+   "marker_scale": 1.0,
+   "spec": {
+    "format": "houseki.board.v1",
+    "name": "charuco_23x17_10mm_grey_black_spiral",
+    "palette": "black-to-grey",
+    "for": "dark rough",
+    "dictionary": "DICT_4X4_1000",
+    "first_marker_id": 500,
+    "squares_x": 23,
+    "squares_y": 17,
+    "legacy": false,
+    "square_mm": 10.0,
+    "marker_mm": 7.0,
+    "marker_ratio": 0.7,
+    "frame": "origin at the top-left chessboard corner; X down the page (rows), Y right (columns), Z up out of the paper; millimetres",
+    "target": {
+     "centre_mm": [
+      85.0,
+      115.0
+     ]
+    },
+    "removed_marker_ids": [],
+    "invalid_corner_ids": [],
+    "unreadable_marker_ids": [],
+    "colours": {
+     "dark_srgb": 0,
+     "light_srgb": 110,
+     "note": "grey levels as printed: the squares without markers and the markers' ink are dark_srgb, the marker squares light_srgb"
+    },
+    "spiral": {
+     "origin_mm": 2.669,
+     "cell_mm": 1.1655,
+     "levels_srgb": [
+      [
+       0,
+       18,
+       29,
+       38
+      ],
+      [
+       87,
+       93,
+       99,
+       45
+      ],
+      [
+       82,
+       110,
+       104,
+       52
+      ],
+      [
+       76,
+       70,
+       64,
+       58
+      ]
+     ],
+     "note": "in every dark square: a 4 x 4 grid of cell_mm cells starting origin_mm from the square's top-left corner along X (rows) and Y (columns); levels_srgb[i][j] is the cell i along X, j along Y"
+    },
+    "print": {
+     "image": "charuco_23x17_10mm_grey_black_spiral.png",
+     "image_px": [
+      5900,
+      4307
+     ],
+     "px_per_mm": 23.6,
+     "board_origin_px": [
+      94,
+      83
+     ],
+     "size_cm": [
+      25.0,
+      18.25
+     ]
+    },
+    "source": "measured on the user's charuco_23x17_10mm_grey_black_spiral.png (2026-10-13, T-0340): OpenCV CharucoBoard 23 x 17, 10 mm squares, 7 mm markers, DICT_4X4_1000 ids 500-694, non-legacy"
+   },
+   "expected": [
+    {
+     "id": 141,
+     "x": 649.7232055664062,
+     "y": 310.54132080078125,
+     "markers": 2,
+     "sharpness": 539.6477661132812
+    },
+    {
+     "id": 142,
+     "x": 817.9159545898438,
+     "y": 304.19866943359375,
+     "markers": 2,
+     "sharpness": 820.474609375
+    },
+    {
+     "id": 143,
+     "x": 983.9019165039062,
+     "y": 297.2335205078125,
+     "markers": 2,
+     "sharpness": 501.01416015625
+    },
+    {
+     "id": 144,
+     "x": 1149.835205078125,
+     "y": 290.4526062011719,
+     "markers": 2,
+     "sharpness": 315.8042907714844
+    },
+    {
+     "id": 145,
+     "x": 1312.6602783203125,
+     "y": 284.27215576171875,
+     "markers": 2,
+     "sharpness": 220.365478515625
+    },
+    {
+     "id": 146,
+     "x": 1474.4437255859375,
+     "y": 277.46331787109375,
+     "markers": 2,
+     "sharpness": 232.21768188476562
+    },
+    {
+     "id": 163,
+     "x": 656.2811889648438,
+     "y": 454.16180419921875,
+     "markers": 2,
+     "sharpness": 1358.9627685546875
+    },
+    {
+     "id": 164,
+     "x": 828.7105712890625,
+     "y": 446.4444885253906,
+     "markers": 2,
+     "sharpness": 2985.4560546875
+    },
+    {
+     "id": 165,
+     "x": 999.4866943359375,
+     "y": 438.71282958984375,
+     "markers": 2,
+     "sharpness": 2893.582275390625
+    },
+    {
+     "id": 166,
+     "x": 1167.89404296875,
+     "y": 431.2768249511719,
+     "markers": 2,
+     "sharpness": 1698.173583984375
+    },
+    {
+     "id": 167,
+     "x": 1335.3154296875,
+     "y": 424.1011962890625,
+     "markers": 2,
+     "sharpness": 865.98779296875
+    },
+    {
+     "id": 168,
+     "x": 1502.1781005859375,
+     "y": 417.5054626464844,
+     "markers": 2,
+     "sharpness": 593.4451904296875
+    },
+    {
+     "id": 185,
+     "x": 664.2630615234375,
+     "y": 603.5897216796875,
+     "markers": 1,
+     "sharpness": 2812.760498046875
+    },
+    {
+     "id": 186,
+     "x": 806.39208984375,
+     "y": 598.4368896484375,
+     "markers": 1,
+     "sharpness": 36.23526382446289
+    },
+    {
+     "id": 187,
+     "x": 1019.8119506835938,
+     "y": 582.018798828125,
+     "markers": 1,
+     "sharpness": 90.78007507324219
+    },
+    {
+     "id": 188,
+     "x": 1186.850830078125,
+     "y": 580.1695556640625,
+     "markers": 1,
+     "sharpness": 2132.713134765625
+    },
+    {
+     "id": 189,
+     "x": 1357.508056640625,
+     "y": 570.8738403320312,
+     "markers": 2,
+     "sharpness": 1646.144775390625
+    },
+    {
+     "id": 190,
+     "x": 1531.8153076171875,
+     "y": 563.6227416992188,
+     "markers": 2,
+     "sharpness": 1759.887939453125
+    }
    ]
   }
  ]

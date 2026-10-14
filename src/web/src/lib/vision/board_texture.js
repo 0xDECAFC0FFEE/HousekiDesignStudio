@@ -2,52 +2,44 @@
 // bare sheet, as an albedo texture the rock outline (outline.js) predicts each frame from.
 //
 // It is the phone's port of the HousekiScanner project's board texture (src/houseki/pipeline/
-// boardtex.py) and of its board maker (houseki.tools.make_board), drawn without OpenCV:
+// boardtex.py), drawn without OpenCV, for the scanner's three boards (T-0340, board_frame.js):
 //
 // - the chessboard in OpenCV's current ChArUco pattern (`legacy: false`): square (row 0, col 0) is
-//   black, so a square is black when row + col is even, and the white squares carry the markers,
-//   numbered 0, 1, 2 ... row-major over the white squares;
-// - each marker is DICT_4X4_250's 4 x 4 bit pattern (aruco_4x4_250.json, extracted from OpenCV)
-//   with a one-cell black border: 6 x 6 cells over `marker_mm`, centred in its square. Marker image
-//   rows run along the board's X (down the page), its columns along Y, as OpenCV draws the board
-//   with image x along the columns;
-// - the centre target (`target`): blanked cells (paper, so their markers are gone: the spec's
-//   `removed_marker_ids`), grey guide rings with four inward side ticks, and black dots.
+//   dark, so a square is dark when row + col is even, and the light squares carry the markers,
+//   numbered row-major over the light squares; marker k prints DICT_4X4_1000 id first_marker_id + k;
+// - each marker is its 4 x 4 bit pattern (aruco_4x4_1000.json, extracted from OpenCV) with a
+//   one-cell border, in the dark colour on the light one: 6 x 6 cells over `marker_mm`, centred in
+//   its square. Marker image rows run along the board's X (down the page), its columns along Y, as
+//   OpenCV draws the board with image x along the columns;
+// - the colours (`colours`): the dark squares and the markers' ink are `dark_srgb`, the marker
+//   squares `light_srgb`, printed grey levels (0 black .. 255 the paper's white);
+// - the grey spiral in every dark square (`spiral`): a 4 x 4 grid of `cell_mm` cells from
+//   `origin_mm` in, each its own grey level.
 //
 // Geometry is exact in millimetres and every texel holds its exact area coverage (an
-// anti-aliased, box-filtered rendering), so the texture can be drawn at any density. OpenCV's own
-// rendering at the print's 23.6 px/mm rounds marker edges to whole print pixels, so a print differs
-// from this by at most one print pixel (0.04 mm) along marker edges; the harness test compares the
-// two pixel by pixel (tests/harness/test_vision_outline.py).
+// anti-aliased, box-filtered rendering), so the texture can be drawn at any density. A print at
+// 23.6 px/mm rounds edges to whole print pixels, so it differs from this by at most one print pixel
+// (0.04 mm) along edges.
 //
 // Texture convention (boardtex.py's): grey, 0 = black ink, 255 = paper; `ppm` texels per mm; texel
 // (u, v) (column, row) covers the board point (X, Y) = (x0 + (v + 0.5) / ppm, y0 + (u + 0.5) / ppm)
 // in board_frame.js's frame (X down the page, Y right, mm), where (x0, y0) = originMm. The texture
 // covers the chessboard plus a margin of plain paper `padMm` wide; beyond it (the sheet's edge, the
-// patch strips, the table) the board is not modelled.
+// rulers, the table) the board is not modelled.
 
-import dictionary from './aruco_4x4_250.json' with { type: 'json' };
+import dictionary from './aruco_4x4_1000.json' with { type: 'json' };
 
-/** Paper modelled around the chessboard, mm (boardtex.PAD_MM; the sheets' margins are 25-37 mm). */
+/** Paper modelled around the chessboard, mm (boardtex.PAD_MM). */
 export const PAD_MM = 5.0;
 
-/** Ring and tick line width when the spec has no print density: make_board's 0.2 mm. */
-const RING_WIDTH_MM = 0.2;
-
-/** make_board's side ticks run this fraction of the target's side inwards. */
-const TICK_FRACTION = 0.07;
-
-/** Sub-samples per texel side for the round shapes (rings, ticks, dots). */
-const ROUND_SUPERSAMPLE = 6;
-
 /**
- * The 4 x 4 inner bits of DICT_4X4_250 marker `id`, as a 4 x 4 array of rows (1 = white).
+ * The 4 x 4 inner bits of DICT_4X4_1000 marker `id`, as a 4 x 4 array of rows (1 = white).
  */
 export function markerBits(id) {
   const hex = dictionary.markers[id];
 
   if (hex === undefined) {
-    throw new Error(`DICT_4X4_250 has no marker ${id}`);
+    throw new Error(`DICT_4X4_1000 has no marker ${id}`);
   }
 
   const value = parseInt(hex, 16);
@@ -67,8 +59,9 @@ export function markerBits(id) {
 }
 
 /**
- * The marker squares of a board, in id order: [{ id, row, col }]. White squares (row + col odd in
- * the current pattern) are numbered row-major, as OpenCV's CharucoBoard numbers them.
+ * The marker squares of a board, in board order: [{ id, row, col }], `id` the index on the board
+ * (its dictionary id is first_marker_id + id). Light squares (row + col odd in the current
+ * pattern) are numbered row-major, as OpenCV's CharucoBoard numbers them.
  */
 export function markerSquares(spec) {
   checkSpec(spec);
@@ -88,8 +81,9 @@ export function markerSquares(spec) {
 }
 
 function checkSpec(spec) {
-  if (spec.dictionary && spec.dictionary !== 'DICT_4X4_250') {
-    throw new Error(`board_texture draws DICT_4X4_250 boards only, not ${spec.dictionary}`);
+  // DICT_4X4_250 is the first 250 of DICT_4X4_1000.
+  if (spec.dictionary && spec.dictionary !== 'DICT_4X4_1000' && spec.dictionary !== 'DICT_4X4_250') {
+    throw new Error(`board_texture draws DICT_4X4_1000 boards only, not ${spec.dictionary}`);
   }
 
   // The legacy pattern only differs from the current one on boards with an even number of rows.
@@ -98,7 +92,7 @@ function checkSpec(spec) {
   }
 }
 
-/** The marker side in mm: `marker_mm`, or `marker_ratio` x the square (the scanner's capture specs). */
+/** The marker side in mm: `marker_mm`, or `marker_ratio` x the square. */
 function markerMm(spec) {
   if (spec.marker_mm) {
     return spec.marker_mm;
@@ -110,16 +104,17 @@ function markerMm(spec) {
 /**
  * Draws the board's albedo texture.
  *
- * @param {object} spec  a houseki.board.v1 spec (board_frame.js's BOARD_SPECS), or the same fields
- *                       for an older board (squares_x, squares_y, square_mm, marker_mm or
- *                       marker_ratio; `target` optional)
+ * @param {object} spec  a houseki.board.v1 spec (board_frame.js's BOARD_SPECS), or the same layout
+ *                       fields alone (squares_x, squares_y, square_mm, marker_mm or marker_ratio;
+ *                       `colours` and `spiral` optional: black and white, no spiral)
  * @param {{ ppm?: number, padMm?: number, linear?: boolean }} [options]  ppm: texels per mm
  *        (default 10). linear: store reflectance instead of the print's grey levels: 0 ink .. 255
- *        paper, linear in reflected light, so a grey printed at sRGB level v (the rings) holds
+ *        paper, linear in reflected light, so a grey printed at sRGB level v holds
  *        255 x linear(v / 255), what a colour-managed print aims at (make_board's nominal model,
- *        ink + (1 - ink) x linear(intent), with the ink taken as 0 here). The edges' coverage is
- *        linear in reflected light either way. A camera's blur mixes reflected light, so the
- *        outline blurs this texture and applies a tone curve afterwards.
+ *        ink + (1 - ink) x linear(intent), with the ink taken as 0 here: the outline's tone curve
+ *        adds it). The edges' coverage is linear in reflected light either way. A camera's blur
+ *        mixes reflected light, so the outline blurs this texture and applies a tone curve
+ *        afterwards.
  * @returns {{ data: Uint8Array, width: number, height: number, ppm: number,
  *             originMm: [number, number], sizeMm: [number, number], linear: boolean }}
  *          data: width x height grey texels, row-major from row 0 (smallest X); originMm: the board
@@ -137,10 +132,15 @@ export function renderBoardTexture(spec, options = {}) {
   const height = Math.round((rowsMm + 2 * padMm) * ppm);
   const x0 = -padMm;
   const y0 = -padMm;
+  // A printed grey level (0..255) as this texture stores it (0..1).
+  const level = (srgb) => (linear ? srgbToLinear(srgb / 255) : srgb / 255);
+  const dark = level(spec.colours?.dark_srgb ?? 0);
+  const light = level(spec.colours?.light_srgb ?? 255);
 
-  // Ink coverage per texel (0 = paper .. 1 = black ink); the drawn shapes never overlap, so each
-  // adds its own exact area.
-  const ink = new Float32Array(width * height);
+  // The albedo per texel (0 = black .. 1 = paper), starting as paper. Each shape lies wholly
+  // inside the one drawn before it (the board, its dark squares, their spirals; the markers in
+  // the light squares), so drawing one adds its exact coverage x (its level - the level under it).
+  const albedo = new Float32Array(width * height).fill(1);
 
   // Texel space: column u along Y, row v along X.
   const toU = (y) => (y - y0) * ppm;
@@ -170,67 +170,49 @@ export function renderBoardTexture(spec, options = {}) {
         const cx = Math.min(u + 1, u1) - Math.max(u, u0);
 
         if (cx > 0) {
-          ink[base + u] += amount * cx * cy;
+          albedo[base + u] += amount * cx * cy;
         }
       }
     }
   }
 
-  // Adds `amount` x the coverage of a round shape, by supersampling every texel of its bounding
-  // box (mm). inside(X, Y) says whether a board point is in the shape.
-  function addRound(box, inside, amount) {
-    const ua = Math.max(0, Math.floor(toU(box.ya)));
-    const ub = Math.min(width - 1, Math.ceil(toU(box.yb)));
-    const va = Math.max(0, Math.floor(toV(box.xa)));
-    const vb = Math.min(height - 1, Math.ceil(toV(box.xb)));
-    const n = ROUND_SUPERSAMPLE;
+  // The board in the light colour, then the dark squares and their spirals.
+  addRect(0, rowsMm, 0, colsMm, light - 1);
+  const spiral = spec.spiral ?? null;
 
-    for (let v = va; v <= vb; v += 1) {
-      for (let u = ua; u <= ub; u += 1) {
-        let hits = 0;
-
-        for (let j = 0; j < n; j += 1) {
-          const X = x0 + (v + (j + 0.5) / n) / ppm;
-
-          for (let i = 0; i < n; i += 1) {
-            const Y = y0 + (u + (i + 0.5) / n) / ppm;
-
-            if (inside(X, Y)) {
-              hits += 1;
-            }
-          }
-        }
-
-        if (hits) {
-          ink[v * width + u] += (amount * hits) / (n * n);
-        }
-      }
-    }
-  }
-
-  const target = spec.target ?? {};
-  const blank = new Set((target.cells_row_col ?? []).map(([r, c]) => `${r},${c}`));
-
-  // Black squares.
   for (let row = 0; row < spec.squares_y; row += 1) {
     for (let col = 0; col < spec.squares_x; col += 1) {
-      if ((row + col) % 2 === 0 && !blank.has(`${row},${col}`)) {
-        addRect(row * sq, (row + 1) * sq, col * sq, (col + 1) * sq, 1);
+      if ((row + col) % 2 !== 0) {
+        continue;
+      }
+
+      addRect(row * sq, (row + 1) * sq, col * sq, (col + 1) * sq, dark - light);
+
+      if (spiral) {
+        const c = spiral.cell_mm;
+
+        spiral.levels_srgb.forEach((cells, i) => cells.forEach((grey, j) => {
+          const xa = row * sq + spiral.origin_mm + i * c;
+          const ya = col * sq + spiral.origin_mm + j * c;
+          addRect(xa, xa + c, ya, ya + c, level(grey) - dark);
+        }));
       }
     }
   }
 
-  // Markers: the black cells of the 6 x 6 grid (border and 0 bits), centred in the white square.
+  // Markers: the dark cells of the 6 x 6 grid (border and 0 bits), centred in the light square.
   const m = markerMm(spec);
   const off = (sq - m) / 2;
   const cell = m / 6;
+  const first = spec.first_marker_id ?? 0;
+  const removed = new Set(spec.removed_marker_ids ?? []);
 
   for (const { id, row, col } of markerSquares(spec)) {
-    if (blank.has(`${row},${col}`) || id >= dictionary.markers.length) {
+    if (removed.has(id) || first + id >= dictionary.markers.length) {
       continue;
     }
 
-    const bits = markerBits(id);
+    const bits = markerBits(first + id);
 
     for (let i = 0; i < 6; i += 1) {
       for (let j = 0; j < 6; j += 1) {
@@ -239,85 +221,16 @@ export function renderBoardTexture(spec, options = {}) {
         if (border || bits[i - 1][j - 1] === 0) {
           const xa = row * sq + off + i * cell;
           const ya = col * sq + off + j * cell;
-          addRect(xa, xa + cell, ya, ya + cell, 1);
+          addRect(xa, xa + cell, ya, ya + cell, dark - light);
         }
       }
-    }
-  }
-
-  // The centre target's rings and ticks (grey `ring_grey` on paper) and dots (black).
-  const printPpm = spec.print?.px_per_mm;
-  const lineMm = printPpm ? Math.max(1, Math.round(RING_WIDTH_MM * printPpm)) / printPpm : RING_WIDTH_MM;
-  const ringLevel = (target.ring_grey ?? 150) / 255;
-  const greyInk = 1 - (linear ? srgbToLinear(ringLevel) : ringLevel);
-  const rings = target.rings_diameter_mm ?? [];
-
-  if (rings.length) {
-    const [cx, cy] = target.centre_mm;
-
-    for (const d of rings) {
-      const r = d / 2;
-      const half = lineMm / 2;
-      const reach = r + half;
-      addRound(
-        { xa: cx - reach, xb: cx + reach, ya: cy - reach, yb: cy + reach },
-        (X, Y) => Math.abs(Math.hypot(X - cx, Y - cy) - r) <= half,
-        greyInk,
-      );
-    }
-
-    // Ticks: make_board's four short lines at the middle of each side, pointing inwards, drawn
-    // with OpenCV's round line ends (a capsule of the line width).
-    const [xa, xb] = target.x_range_mm;
-    const [ya] = target.y_range_mm;
-    const size = xb - xa;
-    const ticks = [
-      [[0, 0.5], [TICK_FRACTION, 0.5]],
-      [[1, 0.5], [1 - TICK_FRACTION, 0.5]],
-      [[0.5, 0], [0.5, TICK_FRACTION]],
-      [[0.5, 1], [0.5, 1 - TICK_FRACTION]],
-    ];
-
-    for (const [a, b] of ticks) {
-      const p = [xa + a[0] * size, ya + a[1] * size];
-      const q = [xa + b[0] * size, ya + b[1] * size];
-      const half = lineMm / 2;
-      addRound(
-        {
-          xa: Math.min(p[0], q[0]) - half,
-          xb: Math.max(p[0], q[0]) + half,
-          ya: Math.min(p[1], q[1]) - half,
-          yb: Math.max(p[1], q[1]) + half,
-        },
-        (X, Y) => segmentDistance(X, Y, p, q) <= half,
-        greyInk,
-      );
-    }
-  }
-
-  const dots = target.dots_mm ?? [];
-
-  if (dots.length) {
-    // make_board rounds the radius to 1/16 of a print pixel (cv2.circle's fixed point).
-    let r = target.dot_diameter_mm / 2;
-
-    if (printPpm) {
-      r = Math.round(r * printPpm * 16) / 16 / printPpm;
-    }
-
-    for (const [cx, cy] of dots) {
-      addRound(
-        { xa: cx - r, xb: cx + r, ya: cy - r, yb: cy + r },
-        (X, Y) => (X - cx) ** 2 + (Y - cy) ** 2 <= r * r,
-        1,
-      );
     }
   }
 
   const data = new Uint8Array(width * height);
 
   for (let k = 0; k < data.length; k += 1) {
-    data[k] = Math.round(255 * (1 - Math.min(1, Math.max(0, ink[k]))));
+    data[k] = Math.round(255 * Math.min(1, Math.max(0, albedo[k])));
   }
 
   return { data, width, height, ppm, originMm: [x0, y0], sizeMm: [rowsMm, colsMm], linear };
@@ -326,15 +239,6 @@ export function renderBoardTexture(spec, options = {}) {
 /** The sRGB transfer function's inverse: code value (0..1) to linear light. */
 export function srgbToLinear(c) {
   return c <= 0.04045 ? c / 12.92 : ((c + 0.055) / 1.055) ** 2.4;
-}
-
-function segmentDistance(X, Y, p, q) {
-  const dx = q[0] - p[0];
-  const dy = q[1] - p[1];
-  const len2 = dx * dx + dy * dy;
-  let s = len2 > 0 ? ((X - p[0]) * dx + (Y - p[1]) * dy) / len2 : 0;
-  s = Math.min(1, Math.max(0, s));
-  return Math.hypot(X - (p[0] + s * dx), Y - (p[1] + s * dy));
 }
 
 /**

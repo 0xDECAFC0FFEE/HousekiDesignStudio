@@ -52,7 +52,7 @@ export function makeMode(mode, options = {}) {
   }
 
   if (mode === 'smooth') {
-    const smoother = createPoseSmoother({ target: { centre_mm: [80, 110] } });
+    const smoother = createPoseSmoother({ target: { centre_mm: [85, 115] } });
     let last = null;
     return { feed: (p) => { last = smoother.update(p); }, pose: () => last };
   }

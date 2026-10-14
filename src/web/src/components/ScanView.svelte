@@ -13,19 +13,21 @@
   // a worse angle. The link is plain selectable text (one click selects all of it), so it can be
   // copied by hand where the clipboard refuses, as it can from a page opened as a file.
   //
-  // Over the phone's video, what the phone sees (T-0326): the rock's outline, the board's edge and
-  // its axes at the target, drawn from the phone's latest vision message (scan_session.js
+  // Over the phone's video, what the phone sees (T-0326): the rock's outline and the board's grid
+  // (its X/Y/Z axes are off since T-0340: overlay.js style.axes), drawn from the phone's latest
+  // vision message (scan_session.js
   // `scanVision`) on a canvas the size of the video element, mapped as the video's object-fit:
   // contain maps the phone's frame. The messages are about 10 a second and can lead or lag the
   // picture by a few frames; the latest is always drawn, faded once it is older than
   // VISION_STALE_MS and gone after VISION_GONE_MS. Nothing is drawn while the video's shape does
   // not match the message's frame (the phone was just turned).
+  import ConnectionDiagram from './ConnectionDiagram.svelte';
   import CopyIcon from '@lucide/svelte/icons/copy';
   import CheckIcon from '@lucide/svelte/icons/check';
   import RefreshIcon from '@lucide/svelte/icons/refresh-cw';
   import { Button } from '$lib/components/ui/button/index.js';
   import {
-    scanning, scanStream, scanVision, copyScanLink, newScanCode, scanStatusText, visionAge,
+    scanning, scanStream, scanVision, scanTrace, copyScanLink, newScanCode, scanStatusText, scanReconnecting, visionAge,
     VISION_STALE_MS, VISION_GONE_MS,
   } from '../lib/scan_session.js';
   import { isMacPlatform } from '../lib/keys.js';
@@ -39,7 +41,9 @@
 
   const scan = $derived($scanning);
   const stream = $derived($scanStream);
-  const status = $derived(scanStatusText(scan, stream !== null));
+  const status = $derived(scanStatusText(scan, stream !== null, $scanTrace));
+  // A new phone on its way in after the last one left: the steps, not "Phone disconnected".
+  const reconnecting = $derived(scanReconnecting(scan, $scanTrace));
   // The code is shown until the phone streams, while a session is there to be joined -- after a
   // phone left too, since the same code connects it again.
   const showCode = $derived(stream === null && scan.qr !== null && scan.status !== 'error');
@@ -189,9 +193,15 @@
         </div>
       {/if}
 
+      <!-- How the connection is going (T-0342), above its words: the user asked for it on the
+           computer where the code is, as on the phone. -->
+      <div class="scan-diagram">
+        <ConnectionDiagram trace={$scanTrace} error={scan.status === 'error'} />
+      </div>
+
       <div class="scan-status" id="scan-status" role="status" aria-live="polite">
         <span class="scan-dot" class:scan-dot-busy={scan.status === 'connecting' || scan.status === 'connected'}
-          class:scan-dot-error={scan.status === 'error' || scan.status === 'disconnected'}></span>
+          class:scan-dot-error={scan.status === 'error' || (scan.status === 'disconnected' && !reconnecting)}></span>
         <span><strong>{status.title}</strong> · {status.detail}</span>
       </div>
 
@@ -325,6 +335,12 @@
 
   .scan-copy-note:empty {
     display: none;
+  }
+
+  .scan-diagram {
+    width: 100%;
+    max-width: 250px;
+    margin: 6px auto 0;
   }
 
   .scan-status {

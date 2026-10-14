@@ -5,9 +5,8 @@
  *
  * Each pixel's ray (2 x 2 rays per pixel, averaged, so edges are anti-aliased) is cut with the
  * board plane through the pose (outline_geometry.pixelToBoard) and given the sheet's reflectance
- * there (board_texture.js's texture, which draws the chessboard, the markers, the centre target's
- * rings and dots exactly; plus, for the strip sheet, its colour and grey patches in the margins,
- * which the texture leaves out). Paper beyond the texture; a dark table beyond the sheet's
+ * there (board_texture.js's texture in reflectance, which draws the chessboard, the markers and the
+ * spirals in the board's colours exactly). Paper beyond the texture; a dark table beyond the sheet's
  * margins. An optional "rock" is a disc on the board (a flat stand-in: what matters to these tests
  * is which board points it hides) in a brown that is neither ink nor paper.
  *
@@ -44,7 +43,7 @@ const textures = new Map();
 
 function textureFor(spec) {
   if (!textures.has(spec)) {
-    textures.set(spec, renderBoardTexture(spec, { ppm: 8, padMm: 40 }));
+    textures.set(spec, renderBoardTexture(spec, { ppm: 8, padMm: 40, linear: true }));
   }
 
   return textures.get(spec);
@@ -68,7 +67,6 @@ export function renderSheet(spec, pose, options = {}) {
   const margin = options.sheetMarginMm ?? 30;
   const sizeX = spec.squares_y * spec.square_mm;
   const sizeY = spec.squares_x * spec.square_mm;
-  const patches = spec.strip?.patches ?? [];
   const rock = options.rock ?? null;
 
   const colourAt = (X, Y) => {
@@ -78,16 +76,6 @@ export function renderSheet(spec, pose, options = {}) {
 
     if (X < -margin || Y < -margin || X > sizeX + margin || Y > sizeY + margin) {
       return TABLE_RGB;
-    }
-
-    for (const patch of patches) {
-      const [xa, xb] = patch.x_range_mm;
-      const [ya, yb] = patch.y_range_mm;
-
-      if (X >= xa && X <= xb && Y >= ya && Y <= yb) {
-        // The patch as printed: ink plus the sRGB intent, through the same tone curve.
-        return patch.srgb.map((c) => code(((c / 255) ** 2.2)));
-      }
     }
 
     const albedo = sampleBoardTexture(texture, X, Y);

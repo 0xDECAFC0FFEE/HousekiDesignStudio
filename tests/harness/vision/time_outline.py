@@ -42,7 +42,7 @@ def main():
             time.sleep(0.05)
 
         out = {"renderer": chrome.gpu_renderer_string(), "runs": []}
-        case = {"spec": "charuco_23x17_10mm_centre3x3", "width": 1920, "height": 1080, "f": 1500, "k1": 0.03,
+        case = {"spec": "charuco_23x17_10mm_white_black_spiral", "width": 1920, "height": 1080, "f": 1500, "k1": 0.03,
                 "distanceMm": 170, "elevation": 40, "azimuth": 30}
 
         for crop in (256, 512):

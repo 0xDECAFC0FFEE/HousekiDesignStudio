@@ -17,10 +17,18 @@
 // website does (decided with the user, 2026-10-12), so the studio is the protocol's first user.
 //
 // THE HANDSHAKE (version 1)
-//   1. The website's page (the "site") makes the iframe and, on its `load`, a MessageChannel. It
-//      posts { protocol: 'houseki-scan', type: 'init', version: 1 } to the iframe's window,
-//      addressed to the scan page's origin (so nobody else can receive it), with one end of the
-//      channel transferred alongside.
+//   0. The scan page, as soon as it listens for the handshake, posts { protocol, type: 'hello' }
+//      to the window that framed it (to '*': it carries nothing, and the scan page cannot know the
+//      site's origin yet). Since 2026-10-13: the iframe's `load` alone came seconds late, or not
+//      at all, for a studio opened from a file and busy drawing (measured in headless Chrome), and
+//      the modal said "could not be loaded" with the scan page sitting there ready.
+//   1. The website's page (the "site") makes the iframe and, on its 'hello' (and on its `load`
+//      until a hello has come, for a scan page older than 'hello'), a MessageChannel. It posts
+//      { protocol: 'houseki-scan', type: 'init', version: 1 } to the iframe's window, addressed to
+//      the scan page's origin (so nobody else can receive it), with one end of the channel
+//      transferred alongside. The `load` can come before the hello, so a page may be sent two
+//      inits: it takes the first, and the site keeps every channel open until the page answers
+//      ('ready') on one, then closes the others.
 //   2. The scan page accepts the first such message that comes from its parent window. The
 //      browser stamps the message with the site's origin, which the site cannot fake: the scan
 //      page names it to the person ("Scanning for shop.example"), the way an OAuth consent screen
@@ -56,7 +64,7 @@ export const EMBED_PATH = '/scanner/embed.html';
 export const SITE_STATUSES = Object.freeze(['waiting', 'connecting', 'streaming', 'disconnected', 'error']);
 
 /** The message types each side sends. */
-const FROM_SCANNER = new Set(['ready', 'status', 'result', 'cancel']);
+const FROM_SCANNER = new Set(['hello', 'ready', 'status', 'result', 'cancel']);
 const FROM_SITE = new Set(['init', 'close']);
 
 /**
@@ -75,13 +83,31 @@ export function defaultEmbedUrl(location) {
 }
 
 /**
+ * The scan page the studio opens, for the studio at `location`: as defaultEmbedUrl over http(s),
+ * but from a file the scan page in the same build, beside the studio (scanner/embed.html), not the
+ * published one. The user, 2026-10-13, with the studio opened from build/www: "don't think the
+ * animation is in the computer side - only see the connection status" -- the published scan page
+ * was older than the build being tried. A website using /scanner.js keeps defaultEmbedUrl: a file
+ * of its own has no scan page beside it.
+ */
+export function studioEmbedUrl(location) {
+  if (location?.protocol === 'file:' && typeof location.href === 'string') {
+    return new URL(EMBED_PATH.slice(1), location.href).href;
+  }
+
+  return defaultEmbedUrl(location);
+}
+
+/**
  * The origin to post the handshake to, for a scan page at `embedUrl`: its own origin, or '*' for a
- * page opened from a file, whose origin is 'null' and cannot be named (see the header).
+ * page opened from a file, whose origin is 'null' and cannot be named (see the header). Chrome's
+ * URL gives a file:// address the origin "file://", not "null" (Deno's gives "null"), and a
+ * handshake addressed to "file://" is dropped without a word, so a file is told by its protocol.
  */
 export function embedTargetOrigin(embedUrl) {
-  const origin = new URL(embedUrl).origin;
+  const url = new URL(embedUrl);
 
-  return origin === 'null' ? '*' : origin;
+  return url.protocol === 'file:' || url.origin === 'null' ? '*' : url.origin;
 }
 
 /** A protocol message of `type`, with `fields`. */

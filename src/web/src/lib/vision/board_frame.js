@@ -1,18 +1,24 @@
-// The printed ChArUco board's coordinate frame, shared by the phone's board detection, pose and
-// rock outline (T-0322). The board is the HousekiScanner project's printable strip sheet,
-// charuco_23x17_10mm_strip, copied with its spec file into ./boards/ (format houseki.board.v1). It
-// is the only board the phone supports (the user, 2026-10-07, T-0335: "we don't need to support any
-// board other than" it); the three other sheets the scanner project prints, with a blank target in
-// the middle, were dropped then with the phone's sheet picker. Every piece of the phone pipeline
-// still takes a spec rather than assuming a layout, so the tests can give it others (the older
-// boards of the real-frame fixtures, src/web/tests/vision_test_boards.js).
+// The printed ChArUco boards' coordinate frame, shared by the phone's board detection, pose and
+// rock outline (T-0322). Since T-0340 the scanner has three printed boards, one per kind of rough
+// (the user, 2026-10-13): grey/black for dark rough, white/grey for light rough and white/black for
+// intermediate rough, their spec files in ./boards/ (format houseki.board.v1). They share ONE layout
+// -- OpenCV's ChArUco 23 x 17, 10 mm squares, 7 mm DICT_4X4_1000 markers, a grey spiral in every
+// square without a marker -- and differ in their colours and in their markers: each prints its own
+// run of 195 dictionary ids (`first_marker_id`), so a marker read says which board is in view
+// (src/vision board.rs). Two markers are never read (`unreadable_marker_ids`): the white/grey
+// board's 187 and 191, DICT_4X4_1000 ids 437 and 441, are codes the spiral in the dark squares
+// reads as once the picture is blurred, so reading them would put markers in the dark squares of
+// all three boards (T-0340).
+// Everything geometric (corners, poses, the lens) is the same for all three,
+// and BOARD_SPEC stands for the layout; what depends on the colours (the rock outline's predicted
+// board, board_texture.js) takes the spec of the board in view.
 //
 // The frame is the scanner pipeline's (HousekiScanner src/houseki/pipeline/board.py), so a pose the
 // phone finds means the same thing as one the desktop pipeline finds:
 //
-//   origin at the printed top-left corner of the chessboard (the corner of the black square left of
-//   marker 0); X along increasing row index (down the printed page); Y along increasing column
-//   index (right on the page); Z up out of the paper; MILLIMETRES (board.py works in squares).
+//   origin at the printed top-left corner of the chessboard (the corner of the dark square left of
+//   the first marker); X along increasing row index (down the printed page); Y along increasing
+//   column index (right on the page); Z up out of the paper; MILLIMETRES (board.py works in squares).
 //
 // OpenCV's own ChArUco board frame is x right (columns), y down (rows), z into the paper. The map
 // between them is (x, y, z) -> (y, x, -z), a proper rotation (board.py's CV_TO_BOARD), never a
@@ -20,16 +26,24 @@
 // k % (squares_x - 1) and row floor(k / (squares_x - 1)), i.e. OpenCV position ((col + 1), (row + 1))
 // squares, which is (row + 1, col + 1) squares in this frame.
 
-import strip from './boards/charuco_23x17_10mm_strip.json' with { type: 'json' };
+import whiteGrey from './boards/charuco_23x17_10mm_white_grey_spiral.json' with { type: 'json' };
+import greyBlack from './boards/charuco_23x17_10mm_grey_black_spiral.json' with { type: 'json' };
+import whiteBlack from './boards/charuco_23x17_10mm_white_black_spiral.json' with { type: 'json' };
 
-/** The board's name (its file name without .json), as the vision message's `board.sheet` sends it. */
-export const BOARD_NAME = 'charuco_23x17_10mm_strip';
+/** The boards, in the order the detector is given them (its board index is a position here). */
+export const BOARD_LIST = Object.freeze([whiteGrey, greyBlack, whiteBlack]);
 
-/** The board's spec. */
-export const BOARD_SPEC = strip;
+/** The board specs by name (each file's name without .json, the vision message's `board.sheet`). */
+export const BOARD_SPECS = Object.freeze(Object.fromEntries(BOARD_LIST.map((spec) => [spec.name, spec])));
 
-/** The board specs this build ships, by name: the one board. */
-export const BOARD_SPECS = Object.freeze({ [BOARD_NAME]: strip });
+/** The board assumed before one has been seen: the intermediate (white/black) board. */
+export const BOARD_NAME = whiteBlack.name;
+
+/** The layout the three boards share (any of their specs; geometry only). */
+export const BOARD_SPEC = whiteBlack;
+
+/** Each board's first dictionary id, in BOARD_LIST's order: the detector's set_boards. */
+export const BOARD_FIRST_IDS = Object.freeze(BOARD_LIST.map((spec) => spec.first_marker_id));
 
 /** How many inner chessboard corners (ChArUco corner ids 0 .. n-1) a board has. */
 export function cornerCount(spec) {

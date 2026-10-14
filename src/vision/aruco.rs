@@ -1,4 +1,5 @@
-// ArUco marker detection for one dictionary (DICT_4X4_250) and one board: the candidate search,
+// ArUco marker detection for one dictionary (DICT_4X4_1000) and a board layout printed with one or
+// more runs of its ids (the scanner's three boards, T-0340): the candidate search,
 // the grouping of near-duplicate candidates, identification, and the board-guided recovery of
 // missed markers (refineDetectedMarkers), as the ChArUco detector runs them.
 //
@@ -82,7 +83,7 @@ impl Default for DetectorParams {
             min_distance_to_border: 3,
             min_marker_distance_rate: 0.125,
             min_group_distance: 0.21,
-            cells: CellParams { pixel_per_cell: 8, margin_rate: 0.3, min_otsu_std: 5.0 },
+            cells: CellParams::DESKTOP,
             max_erroneous_bits_in_border_rate: 0.35,
             error_correction_rate: 0.6,
             valid_bit_threshold: 0.49,
@@ -259,6 +260,11 @@ pub struct ArucoDetector {
     pub params: DetectorParams,
     pub refine: RefineParams,
     pub stats: DetectStats,
+    /// The dictionary id of index 0 of the board the refinement looks for (set_board).
+    pub refine_first_id: usize,
+    /// Dictionary ids never read (for_boards' `unreadable`): the refinement does not look for them
+    /// either.
+    unreadable: Vec<usize>,
     table: MarkerTable,
     integral: Integral,
     binaries: Vec<Vec<u8>>,
@@ -266,13 +272,22 @@ pub struct ArucoDetector {
 }
 
 impl ArucoDetector {
-    /// A detector for markers 0 .. marker_count - 1 (a ChArUco board's).
+    /// A detector for dictionary markers 0 .. marker_count - 1 (one ChArUco board's).
     pub fn new(marker_count: usize) -> ArucoDetector {
+        ArucoDetector::for_boards(&[0], marker_count, &[])
+    }
+
+    /// A detector for boards of `marker_count` markers, board b printing dictionary ids
+    /// first_ids[b] onwards, none of the dictionary ids in `unreadable` read. detect_markers' ids
+    /// are then slots, b x marker_count + index.
+    pub fn for_boards(first_ids: &[usize], marker_count: usize, unreadable: &[usize]) -> ArucoDetector {
         ArucoDetector {
             params: DetectorParams::default(),
             refine: RefineParams::default(),
             stats: DetectStats::default(),
-            table: MarkerTable::for_ids(marker_count),
+            refine_first_id: first_ids.first().copied().unwrap_or(0),
+            unreadable: unreadable.to_vec(),
+            table: MarkerTable::for_boards(first_ids, marker_count, unreadable),
             integral: Integral::default(),
             binaries: Vec::new(),
             scratch: Vec::new(),
@@ -476,8 +491,8 @@ impl ArucoDetector {
         identify(&inner_cells(&ratios), p.valid_bit_threshold, &self.table)
     }
 
-    /// detectMarkers: the board markers found in `grey` (in OpenCV's order), and the rejected
-    /// candidates (for refine_detected_markers).
+    /// detectMarkers: the board markers found in `grey` (in OpenCV's order; ids are table slots,
+    /// see for_boards), and the rejected candidates (for refine_detected_markers).
     pub fn detect_markers(&mut self, grey: &Gray) -> (Vec<Marker>, Vec<[Pt; 4]>) {
         let raw = self.initial_candidates(grey);
         self.stats = DetectStats { raw: raw.len(), ..DetectStats::default() };
@@ -565,8 +580,9 @@ impl ArucoDetector {
 
     /// refineDetectedMarkers with a global homography (no camera matrix): looks for each board
     /// marker not yet found among the rejected candidates near where the found markers put it.
-    /// `board_corners[id]` are marker `id`'s corners on the board (any planar unit). Appends what
-    /// it recovers to `markers` (and removes it from `rejected`).
+    /// `board_corners[id]` are marker `id`'s corners on the board (any planar unit), `markers`' ids
+    /// are indices on the board, and marker `id` reads as dictionary id refine_first_id + id.
+    /// Appends what it recovers to `markers` (and removes it from `rejected`).
     pub fn refine_detected_markers(&mut self, grey: &Gray, board_corners: &[[Pt; 4]], markers: &mut Vec<Marker>, rejected: &mut Vec<[Pt; 4]>) {
         if markers.is_empty() || rejected.is_empty() {
             return;
@@ -585,7 +601,8 @@ impl ArucoDetector {
                         img.push((m.corners[c].x as f64, m.corners[c].y as f64));
                     }
                 }
-                None => undetected.push(id),
+                None if !self.unreadable.contains(&(self.refine_first_id + id)) => undetected.push(id),
+                None => {}
             }
         }
 
@@ -679,7 +696,7 @@ impl ArucoDetector {
                 if refine.error_correction_rate >= 0.0 {
                     self.stats.refine_reads += 1;
                     let Some(ratios) = cell_ratios(grey, &rotated, &cells, &mut self.scratch) else { continue };
-                    code_distance = distance_to_id(&inner_cells(&ratios), id, threshold);
+                    code_distance = distance_to_id(&inner_cells(&ratios), self.refine_first_id + id, threshold);
                 }
 
                 if refine.error_correction_rate < 0.0 || code_distance < max_correction {

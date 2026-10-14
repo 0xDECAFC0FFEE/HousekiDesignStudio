@@ -28,7 +28,8 @@
 // hidden.
 //
 // OVERLAY. A canvas laid over the <video> (object-fit: cover), redrawn for every camera frame: the
-// board's chessboard grid and the X/Y/Z arrows at its centre, the rock's outline. Since T-0332 (the
+// found corners as red points and blue lines, the board's edge, the rock's outline (the X/Y/Z arrows
+// at the board's centre are off for now: SHOW_AXES, the user, 2026-10-13). Since T-0332 (the
 // user: "the overlay is lagging") the pose they are drawn with is not the latest result's: every
 // valid pose feeds a filter (vision/pose_filter.js) that averages it when the phone is still and
 // tracks its velocity when it moves, and each frame is drawn with that pose CARRIED FORWARD to the
@@ -37,16 +38,29 @@
 // (overlay.transferContour). The pose is drawn for POSE_HOLD_MS after its last measurement, faded
 // once older than the prediction reaches; results older than HIDE_MS take the guidance away too.
 //
+// ONE PICTURE (T-0340, the user: "the charuco board detection overlay is still somewhat laggy. Can
+// you use double buffering"). The <video> and a canvas over it are two layers the browser puts on
+// screen on its own schedules: the video's new frame often shows a display refresh or more before
+// the overlay drawn for it, so even an overlay exactly right for its frame was seen over the next
+// one, trailing the picture whenever the phone moved. So the canvas now shows the camera frame
+// too: in each video-frame callback the frame itself (drawImage of the <video> there is the frame
+// the callback is for) is drawn into the canvas, then the overlay for that frame's time over it,
+// and the canvas, picture and overlay together, is what reaches the screen. A 2D canvas is
+// presented only once the callback has finished drawing it -- it is the back buffer, the screen's
+// copy the front one -- so the person never sees a frame without its overlay, or an overlay over
+// another frame (COMPOSITED; the <video> under it shows only until the first frame is drawn).
+//
 // DIAGNOSTICS (T-0332). A long press on the status lines at the bottom shows (or hides again) a
 // line of numbers: poses a second, how far behind the picture the overlay's measurement is (median,
 // 90%), and each stage's milliseconds (vision/latency.js). The same numbers go to the computer in
 // the message's optional `speed`, which the studio shows as its Speed row.
 //
 // SCAN GUIDANCE (T-0331; vision/guidance.js, computed per frame in live.js as the result's `guide`).
-// Top right, a small map of where the rock has been filmed from (the sheet seen from above, its top
-// edge up; rings from low at the rim to straight down in the middle; a cell fills once a sharp,
-// steady view from there has been seen; a yellow dot for the camera now), the camera's angle around
-// the rock ("35° above the board, from 2 o'clock") and the next thing to do. In the middle of the
+// Top right, the next thing to do; with SHOW_MAP (off for now, the user, 2026-10-13), above it a
+// small map of where the rock has been filmed from (the sheet seen from above, its top edge up;
+// rings from low at the rim to straight down in the middle; a cell fills once a sharp, steady view
+// from there has been seen; a yellow dot for the camera now) and the camera's angle around the
+// rock ("35° above the board, from 2 o'clock"). In the middle of the
 // screen, one warning at a time ("Moving too fast", "Rock at the edge", "Rock not in focus",
 // "Glare on the rock"), on once its condition has held WARNING_ON_MS and off once clear for
 // WARNING_OFF_MS (guidance.createWarningFilter), so it does not flicker. The coverage starts afresh
@@ -95,6 +109,17 @@ export const TRACK_FACTOR = 0.5;
 
 /** The tracker's frame size for a processing size. */
 const trackSize = (work) => ({ width: Math.max(1, Math.round(work.width * TRACK_FACTOR)), height: Math.max(1, Math.round(work.height * TRACK_FACTOR)) });
+
+/** Draw the camera frame into the overlay's canvas with the overlay (T-0340): one buffer, so the
+ *  picture and what is drawn over it reach the screen together. */
+export const COMPOSITED = true;
+
+/** The X/Y/Z arrows at the board's centre (off for now: the user, 2026-10-13). */
+export const SHOW_AXES = false;
+
+/** The coverage map and the camera's angle in the guide (off for now: the user, 2026-10-13); the
+ *  next step's advice stays. */
+export const SHOW_MAP = false;
 
 /** How long the Worker may take to load OpenCV and warm up before the page gives up on it. */
 export const WORKER_START_MS = 60000;
@@ -162,21 +187,13 @@ function stats() {
   };
 }
 
-/** What the status line says when the markers in view are another board's (T-0335). */
-export const WRONG_BOARD_TEXT = 'This isn\'t the Houseki scanner board. Print charuco_23x17_10mm_strip.pdf at 100% (the bar must measure 100 mm).';
-
 /**
  * The status line's words for a result: { state, text }. `state` is the status line's
- * `data-state` (for the harness): 'searching', 'partial', 'wrong-board', 'unsteady' or 'pose'.
+ * `data-state` (for the harness): 'searching', 'partial', 'unsteady' or 'pose'.
  */
 export function visionStatusText(result) {
   const lines = [];
   let state;
-
-  // Another printed board (T-0335): nothing else is worth saying until the right one is in view.
-  if (result.board?.wrong) {
-    return { state: 'wrong-board', text: WRONG_BOARD_TEXT };
-  }
 
   if (!result.detection.recognised) {
     state = result.detection.markers.length ? 'partial' : 'searching';
@@ -265,9 +282,11 @@ const setText = (element, text) => {
   }
 };
 
+// Through the attribute, which every element has: an SVG element (the map) has no `hidden`
+// property, so setting it there did nothing (T-0340).
 const setHidden = (element, hidden) => {
-  if (element && element.hidden !== hidden) {
-    element.hidden = hidden;
+  if (element && element.hasAttribute('hidden') !== hidden) {
+    element.toggleAttribute('hidden', hidden);
   }
 };
 
@@ -299,14 +318,19 @@ function showGuide(ui, map, result, warning, filtered = null) {
   const view = posed && filtered ? viewAngles(filtered.center, guide.rockMm) : guide.view;
   const advice = coverageAdvice(guide.cover, view);
   setHidden(ui.guide, false);
-  setText(ui.angle, view ? angleText(view) : 'Point the camera at the board.');
+  setHidden(ui.map, !SHOW_MAP);
+  setHidden(ui.angle, !SHOW_MAP);
   setText(ui.advice, advice.text);
+
+  if (SHOW_MAP) {
+    setText(ui.angle, view ? angleText(view) : 'Point the camera at the board.');
+  }
 
   if (ui.guide) {
     ui.guide.dataset.advice = advice.id;
   }
 
-  if (map) {
+  if (map && SHOW_MAP) {
     for (const cell of map.cells) {
       const filled = Boolean((guide.cover[cell.band] >> cell.sector) & 1);
 
@@ -436,6 +460,12 @@ async function startWorker(setup, { slowdown = () => 1 } = {}) {
       return;
     }
 
+    // A detected frame's pose ahead of its result (T-0340): straight to the overlay.
+    if (data.type === 'pose') {
+      pending.onPose?.(data.pose);
+      return;
+    }
+
     const { resolve, reject } = pending;
     pending = null;
 
@@ -451,12 +481,12 @@ async function startWorker(setup, { slowdown = () => 1 } = {}) {
     duty: WORKER_DUTY,
     loadMs: ready.loadMs,
     warmMs: ready.warmMs,
-    async process({ video, work, track, frame, outline, predicted }) {
+    async process({ video, work, track, frame, outline, predicted, onPose = null }) {
       const started = now();
       const bitmap = await createImageBitmap(video);
       const bitmapMs = now() - started;
       return new Promise((resolve, reject) => {
-        pending = { resolve: (value) => resolve({ ...value, bitmapMs }), reject };
+        pending = { resolve: (value) => resolve({ ...value, bitmapMs }), reject, onPose };
         worker.postMessage({ type: 'frame', bitmap, work, track, frame, outline, predicted, slowdown: slowdown() }, [bitmap]);
       });
     },
@@ -500,7 +530,7 @@ async function startInPage(setup) {
     loadMs,
     warmMs,
     live,
-    async process({ video, work, frame, outline, predicted }) {
+    async process({ video, work, frame, outline, predicted, onPose = null }) {
       const started = now();
 
       if (grab.width !== work.width || grab.height !== work.height) {
@@ -511,7 +541,7 @@ async function startInPage(setup) {
       grabContext.drawImage(video, 0, 0, work.width, work.height);
       const image = grabContext.getImageData(0, 0, work.width, work.height);
       const grabMs = now() - started;
-      const result = live.processFrame({ image, scale: work.width / frame.width, frame, source: video, outline, predicted });
+      const result = live.processFrame({ image, scale: work.width / frame.width, frame, source: video, outline, predicted, onPose });
       return { result, grabMs, canTrack: live.canTrack };
     },
     // Not called (the page tracks only in a Worker), but kept equivalent: a tracked frame here
@@ -563,8 +593,10 @@ export async function startPhoneVision({ video, stream, overlay, status, send, s
     frames: 0,
     processed: 0,
     poses: 0,
-    // Processed frames taken to show another printed board (T-0335).
-    wrongBoards: 0,
+    // Frames drawn into the canvas with their overlay (COMPOSITED, T-0340), and detected poses that
+    // reached the overlay ahead of their frame's result.
+    composited: 0,
+    earlyPoses: 0,
     // Tracking between detections (T-0332): on (the harness may turn it off to compare), frames
     // tracked, valid poses from them, why not.
     tracking: TRACKING,
@@ -738,7 +770,19 @@ export async function startPhoneVision({ video, stream, overlay, status, send, s
     const started = now();
     const work = { width: Math.max(1, Math.round(W * state.scale)), height: Math.max(1, Math.round(H * state.scale)) };
     const expected = overlayFilter.predict(timeMs);
+    // The pose as soon as it is solved (T-0340): the overlay's filter takes it then, not after the
+    // frame's lens, outline and guidance; the result's own pose is then not fed again.
+    let poseFed = false;
+    const onPose = (pose) => {
+      if (pose?.valid) {
+        overlayFilter.update(pose);
+        state.foundIds = pose.inlierIds ?? null;
+        state.earlyPoses += 1;
+        poseFed = true;
+      }
+    };
     const { result, grabMs, bitmapMs, canTrack } = await processor.process({
+      onPose,
       video,
       work,
       track: trackSize(work),
@@ -775,14 +819,8 @@ export async function startPhoneVision({ video, stream, overlay, status, send, s
     state.regionDetections += result.region ? 1 : 0;
     latency.addResult(done, { kind: 'detect', posed: Boolean(result.pose?.valid), timings: { ...result.timings, frameMs: done - started } });
 
-    // The overlay's filter (T-0332): every valid pose feeds it; another board in view (T-0335)
-    // starts it afresh, so nothing is drawn from before it.
-    if (result.board?.wrong) {
-      state.wrongBoards += 1;
-      overlayFilter.reset();
-    }
-
-    if (result.pose?.valid) {
+    // The overlay's filter (T-0332): every valid pose feeds it, once.
+    if (result.pose?.valid && !poseFed) {
       overlayFilter.update(result.pose);
       state.foundIds = result.pose.inlierIds ?? null;
     }
@@ -813,7 +851,6 @@ export async function startPhoneVision({ video, stream, overlay, status, send, s
       intrinsics: result.intrinsics,
       outline: result.outline,
       sheet: result.sheet,
-      wrongBoard: Boolean(result.board?.wrong),
       guide: result.pose?.valid ? result.guide : null,
       warning: state.warning,
       speed: speedForMessage(latency.summary(done)),
@@ -889,6 +926,14 @@ export async function startPhoneVision({ video, stream, overlay, status, send, s
     const result = state.last;
     const age = timeMs - state.lastAt;
 
+    // The camera frame first, into the same canvas (COMPOSITED): in a video-frame callback this is
+    // the frame the callback is for, the one the overlay below is predicted to.
+    if (COMPOSITED && video.videoWidth > 0) {
+      const fit = fitTransform(video.videoWidth, video.videoHeight, width, height, 'cover');
+      ctx.drawImage(video, fit.dx, fit.dy, fit.scale * video.videoWidth, fit.scale * video.videoHeight);
+      state.composited += 1;
+    }
+
     if (!result || age > HIDE_MS) {
       // Nothing recent: no warning or guidance about a picture the phone no longer sees.
       if (state.shown) {
@@ -919,9 +964,8 @@ export async function startPhoneVision({ video, stream, overlay, status, send, s
     // board's edge stays). Raw detected corners trail the picture, so they are drawn only when there
     // is no pose to place the points through (T-0335 follow-up: a board found whose pose fails its
     // checks must still show as found, as the phone's first version showed it): the latest
-    // detection's corners where they were found, faded once older than STALE_MS; never another
-    // board's (its corner ids are meaningless there).
-    const detectedCorners = !shown && !result.board?.wrong && result.detection?.corners?.length ? result.detection.corners : null;
+    // detection's corners where they were found, faded once older than STALE_MS.
+    const detectedCorners = !shown && result.detection?.corners?.length ? result.detection.corners : null;
     const alpha = shown ? (timeMs - measuredAt > MAX_PREDICT_MS ? 0.4 : 1) : (age > STALE_MS ? 0.4 : 1);
     state.drawn = drawVisionOverlay(ctx, {
       pose: shown,
@@ -932,7 +976,7 @@ export async function startPhoneVision({ video, stream, overlay, status, send, s
       corners: null,
       foundCornerIds: state.foundIds,
       detectedCorners,
-    }, transform, { alpha, grid: false });
+    }, transform, { alpha, grid: false, axes: SHOW_AXES });
     // For the harness: the overlay's CSS size, to map its drawn points back to frame pixels.
     state.drawn.transform = transform;
     // How far the drawn pose's measurement trails the picture it is drawn on (latency.js), and how
@@ -1026,7 +1070,7 @@ function summarise(result) {
     recognised: result.detection.recognised,
     corners: result.detection.corners.length,
     markers: result.detection.markers.length,
-    board: result.board ?? null,
+    board: result.detection.board ?? null,
     pose: result.pose ? {
       valid: result.pose.valid,
       R: result.pose.R,

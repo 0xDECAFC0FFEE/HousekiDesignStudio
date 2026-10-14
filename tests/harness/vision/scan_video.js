@@ -8,13 +8,14 @@
 // rock's true silhouette as a PNG mask (white where at least half of the pixel is rock) and the
 // camera (R, t, centre, board -> camera, mm), all in the frame's own pixels (types.js convention).
 
-import { REFERENCE_22X22, TEST_BOARD_SPECS } from '../../../src/web/tests/vision_test_boards.js';
+import { BOARD_SPECS as SHIPPED } from '../../../src/web/src/lib/vision/board_frame.js';
 import { createSynth, lookAt, rockPlanes } from './synth.js';
 
-// The boards a video can show, by name: the phone's strip board, the tests' other 23 x 17 sheets,
-// and the scanner's older 22 x 22 reference board (T-0335: a video of ANOTHER board, which the phone
-// must refuse).
-const BOARD_SPECS = { ...TEST_BOARD_SPECS, reference_22x22: REFERENCE_22X22 };
+// The boards a video can show, by name: the scanner's three spiral boards (T-0340), and the same
+// layout printed with the older boards' markers (DICT_4X4_250 ids 0-194, black and white, no
+// spirals), which the phone no longer reads at all.
+const OLDER = { ...SHIPPED.charuco_23x17_10mm_white_black_spiral, name: 'older_layout', dictionary: 'DICT_4X4_250', first_marker_id: 0, colours: undefined, spiral: undefined };
+const BOARD_SPECS = { ...SHIPPED, older_layout: OLDER };
 
 /** Where a video's camera aims and the rock stands: the board's target, or the middle of a board
  *  without one. */

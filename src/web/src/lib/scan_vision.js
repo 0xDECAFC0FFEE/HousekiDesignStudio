@@ -17,16 +17,17 @@
 //     board: { recognised,    enough of the board seen for a pose (types.js BoardDetection)
 //              corners,       how many chessboard corners were found (a count, not positions)
 //              markers,       how many square codes were read
-//              sheet,         the printed board's name: 'charuco_23x17_10mm_strip' since T-0335
-//                             (the one board the phone supports); before, one of four sheets the
-//                             phone recognised or was told, which an older phone still sends
+//              sheet,         the printed board's name: since T-0340 the board in view, one of
+//                             the three (board_frame.js BOARD_SPECS, e.g.
+//                             'charuco_23x17_10mm_white_black_spiral'); an older phone sends an
+//                             older board's name
 //              sheetFrom,     'default' since T-0335; before, also 'auto' (recognised from the
 //                             frames) or 'chosen' (picked on the phone)
 //              targetMm,      [X, Y] the sheet's target centre (where the axes stand), mm
 //              sizeMm,        [X, Y] the chessboard's extent, mm (board_frame.boardSizeMm)
-//              wrongBoard? }  OPTIONAL (T-0335): true when the markers in view are not laid out as
-//                             the scanner's board prints them (another ChArUco board; there is no
-//                             pose then). An older phone sends none; anything but true is dropped
+//              wrongBoard? }  OPTIONAL (T-0335, no longer sent since T-0340): true from an older
+//                             phone when the markers in view were not its board's; anything but
+//                             true is dropped
 //     pose: null | { R, t,    board -> camera, row-major 3x3 and mm (types.js CameraPose)
 //                    center,  the camera in the board frame, mm
 //                    azimuthDeg, elevationDeg, distanceMm,   from the sheet's target centre
@@ -220,13 +221,12 @@ export function simplifyContour(contour, maxPoints = MAX_SENT_POINTS) {
  * @param {object|null} [parts.intrinsics]  types.js Intrinsics
  * @param {object|null} [parts.outline]     types.js RockOutline
  * @param {{ name: string, targetMm?: number[], sizeMm?: number[] }} [parts.sheet]
- * @param {boolean} [parts.wrongBoard]  the markers in view are not our board's (T-0335)
  * @param {{ view: object|null, rockMm, rockFrom, cover }|null} [parts.guide]  the frame's scan guide
  *        (guidance.js observe), sent only when it has a view
  * @param {string|null} [parts.warning]  the warning the phone shows now
  * @param {object|null} [parts.speed]  the phone's speed (vision/latency.js speedForMessage)
  */
-export function makeVisionMessage({ frame, detection = null, pose = null, intrinsics = null, outline = null, sheet = null, wrongBoard = false, guide = null, warning = null, speed = null }) {
+export function makeVisionMessage({ frame, detection = null, pose = null, intrinsics = null, outline = null, sheet = null, guide = null, warning = null, speed = null }) {
   const message = {
     v: VISION_VERSION,
     timeMs: round(frame.timeMs ?? 0, 1),
@@ -244,10 +244,6 @@ export function makeVisionMessage({ frame, detection = null, pose = null, intrin
     intrinsics: null,
     outline: null,
   };
-
-  if (wrongBoard) {
-    message.board.wrongBoard = true;
-  }
 
   if (pose) {
     message.pose = {

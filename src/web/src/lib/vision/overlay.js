@@ -1,5 +1,7 @@
 // Drawing the phone's vision over a camera picture (T-0326, T-0331): the board's chessboard grid,
-// X/Y/Z arrows at the board's centre and the rock's outline, on a 2D canvas laid over a <video>.
+// X/Y/Z arrows at the board's centre (off unless asked for: the user, 2026-10-13, "we can also
+// remove the visual xyz axes ... for now") and the rock's outline, on a 2D canvas laid over a
+// <video> (on the phone since T-0340, the canvas holds the camera frame too: scanner/vision.js).
 // Used by the phone page over its own camera and by the studio over the phone's video
 // (ScanView.svelte), so both show the same thing. Plain JS: it imports only camera_model.js's
 // projection, never OpenCV.
@@ -460,10 +462,10 @@ export function transferContour(contour, from, fromLens, to, toLens, planeMm = 0
  *               ignored when there is a pose
  * `drawn.cornersFrom` says which drew the red points: 'pose', 'detection' or null.
  * @param {{ scale: number, dx: number, dy: number }} transform  fitTransform's
- * @param {{ alpha?: number, frame?: [number, number], grid?: boolean }} [style]  alpha fades the
- *        whole overlay (stale data); frame, the camera frame's [width, height] in pixels, clips the
- *        drawing to where the picture is shown (not over a letterbox's bars); grid false draws only
- *        the board's edge
+ * @param {{ alpha?: number, frame?: [number, number], grid?: boolean, axes?: boolean }} [style]
+ *        alpha fades the whole overlay (stale data); frame, the camera frame's [width, height] in
+ *        pixels, clips the drawing to where the picture is shown (not over a letterbox's bars); grid
+ *        false draws only the board's edge; axes true draws the X/Y/Z arrows (default false)
  * @returns {{ gridLines: number, edgeLines: number, foundCorners: number, foundLines: number,
  *          axes: object|null, rock: boolean }} what was drawn, in CSS pixels (axes: { origin, x, y,
  *          z } each [x, y]), for the harness
@@ -641,7 +643,7 @@ export function drawVisionOverlay(ctx, view, transform, style = {}) {
     drawn.rock = true;
   }
 
-  if (posed) {
+  if (posed && style.axes === true) {
     const axes = axesPoints(view.pose, view.intrinsics, view.axesMm ?? boardCentreMm(view.sizeMm));
 
     if (axes) {

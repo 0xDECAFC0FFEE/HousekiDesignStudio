@@ -28,7 +28,8 @@ body {
   background: #000;
 }
 
-/* The vision's drawing (vision.js): the board, its axes and the rock, over the camera. */
+/* The vision's drawing (vision.js): the camera frame itself with the found corners, the board's
+   edge and the rock drawn over it, in one canvas over the <video> (T-0340). */
 #scanner-overlay {
   position: fixed;
   inset: 0;
@@ -66,12 +67,6 @@ body {
   background: color-mix(in srgb, var(--panel) 82%, transparent);
 }
 
-/* Another printed board in view (T-0335): the line that says so is outlined in the warnings'
-   yellow, since nothing works until the right board is printed. */
-#scanner-vision[data-state='wrong-board'] {
-  border: 2px solid #ebcb8b;
-}
-
 /* The speed diagnostics (T-0332), hidden until the status lines are long-pressed: small and
    monospaced, so the numbers stay put as they change. Long-pressing must not select the text or
    open the phone's callout menu. */
@@ -93,10 +88,34 @@ body {
   font: 12px/1.35 ui-monospace, 'SF Mono', Menlo, monospace;
 }
 
+/* The connection picture (T-0342, connection_diagram.js) above the status line while the phone
+   connects; once connected it folds away after CONNECTED_FOLD_MS (main.js), leaving the picture
+   to the camera, and comes back if the connection goes. */
+#scanner-connection {
+  padding: 8px 12px 4px;
+  border: 1px solid var(--panel-edge);
+  border-radius: 10px;
+  background: color-mix(in srgb, var(--panel) 88%, transparent);
+  max-height: 120px;
+  overflow: hidden;
+  transition: max-height 0.5s, opacity 0.5s, padding 0.5s, border-width 0.5s;
+}
+
+#scanner-connection.folded {
+  max-height: 0;
+  opacity: 0;
+  padding-top: 0;
+  padding-bottom: 0;
+  border-width: 0;
+}
+
 #scanner-vision[hidden],
+#scanner-connection[hidden],
 #scanner-diag[hidden],
 #scanner-warning[hidden],
-#scanner-guide[hidden] {
+#scanner-guide[hidden],
+#scanner-map[hidden],
+#scanner-angle[hidden] {
   display: none;
 }
 
@@ -177,6 +196,9 @@ body {
 }
 
 #scanner-advice {
-  margin-top: 4px;
   color: #ebcb8b;
+}
+
+#scanner-angle:not([hidden]) + #scanner-advice {
+  margin-top: 4px;
 }

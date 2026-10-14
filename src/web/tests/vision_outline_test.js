@@ -11,7 +11,7 @@
  * HOW TO RUN (from src/web/): deno test --allow-read --allow-env tests/   (also `deno task test`)
  */
 
-import { TEST_BOARD_SPECS } from './vision_test_boards.js';
+import { BOARD_SPECS } from '../src/lib/vision/board_frame.js';
 import {
   markerBits,
   markerSquares,
@@ -60,82 +60,84 @@ function assertClose(actual, expected, tolerance, message) {
   );
 }
 
-// Two test-only sheets (vision_test_boards.js): the texture code still draws any spec's removed
-// markers, rings and dots, though the one board the phone ships (the strip) has none of them.
-const centre3x3 = TEST_BOARD_SPECS.charuco_23x17_10mm_centre3x3;
-const centre1 = TEST_BOARD_SPECS.charuco_23x17_10mm_centre1;
+// Two of the scanner's boards (T-0340): the white/black one, and the grey/black one, whose light
+// squares are a mid grey.
+const whiteBlack = BOARD_SPECS.charuco_23x17_10mm_white_black_spiral;
+const greyBlack = BOARD_SPECS.charuco_23x17_10mm_grey_black_spiral;
 
 // --------------------------------------------------------------------------- board texture
 
-Deno.test('marker 0 of DICT_4X4_250 has the bits OpenCV draws', () => {
-  // Setup: the dictionary JSON extracted from OpenCV (aruco_4x4_250.json).
-  // Test: decode marker 0's 4 x 4 inner bits.
+Deno.test('the dictionary\'s markers have the bits OpenCV draws', () => {
+  // Setup: the dictionary JSON extracted from OpenCV (aruco_4x4_1000.json).
+  // Test: decode markers 0 and 750 (the white/black board's first)'s 4 x 4 inner bits.
   // Verifies: the hex encoding is read row by row, most significant bit first, 1 = white. The
-  // expected rows were read off cv2.aruco.generateImageMarker(DICT_4X4_250, 0, 6) when the JSON
-  // was extracted: [1 0 1 1], [0 1 0 1], [0 0 1 1], [0 0 1 0].
-  const bits = markerBits(0);
-  assert(JSON.stringify(bits) === JSON.stringify([[1, 0, 1, 1], [0, 1, 0, 1], [0, 0, 1, 1], [0, 0, 1, 0]]),
-    `marker 0 bits ${JSON.stringify(bits)}`);
+  // expected rows were read off cv2.aruco.generateImageMarker(DICT_4X4_1000, id, 6): marker 0
+  // [1 0 1 1], [0 1 0 1], [0 0 1 1], [0 0 1 0]; marker 750 [1 0 0 1], [0 1 0 0], [1 1 1 1],
+  // [1 0 0 0].
+  const bits0 = markerBits(0);
+  const bits750 = markerBits(750);
+  assert(JSON.stringify(bits0) === JSON.stringify([[1, 0, 1, 1], [0, 1, 0, 1], [0, 0, 1, 1], [0, 0, 1, 0]]),
+    `marker 0 bits ${JSON.stringify(bits0)}`);
+  assert(JSON.stringify(bits750) === JSON.stringify([[1, 0, 0, 1], [0, 1, 0, 0], [1, 1, 1, 1], [1, 0, 0, 0]]),
+    `marker 750 bits ${JSON.stringify(bits750)}`);
 });
 
-Deno.test('markers are numbered row-major over the white squares, starting next to square (0, 0)', () => {
-  // Setup: the 23 x 17 board in OpenCV's current pattern: square (0, 0) black, so white squares
+Deno.test('markers are numbered row-major over the light squares, starting next to square (0, 0)', () => {
+  // Setup: the 23 x 17 board in OpenCV's current pattern: square (0, 0) dark, so light squares
   // have row + col odd.
   // Test: list the marker squares.
-  // Verifies: 195 markers (23 x 17 = 391 squares, 196 black); marker 0 sits in row 0, column 1,
-  // marker 11 is the first of row 1 (in column 0), and the centre1 target's removed marker (97,
-  // per the spec written by the scanner's board maker) is the one in the blanked cell (8, 11).
-  const squares = markerSquares(centre1);
+  // Verifies: 195 markers (23 x 17 = 391 squares, 196 dark); marker 0 sits in row 0, column 1,
+  // marker 11 is the first of row 1 (in column 0), and the board's middle square (8, 11), where
+  // the stone goes, carries marker 97.
+  const squares = markerSquares(whiteBlack);
   assert(squares.length === 195, `markers: ${squares.length}`);
   assert(squares[0].row === 0 && squares[0].col === 1, 'marker 0 position');
   assert(squares[11].row === 1 && squares[11].col === 0, 'marker 11 position');
-  const removed = squares.find((s) => s.id === centre1.removed_marker_ids[0]);
-  assert(removed.row === centre1.target.cells_row_col[0][0] && removed.col === centre1.target.cells_row_col[0][1],
-    `removed marker sits at ${removed.row}, ${removed.col}`);
+  const middle = squares.find((s) => s.row === 8 && s.col === 11);
+  assert(middle?.id === 97, `the middle square's marker: ${middle?.id}`);
 });
 
-Deno.test('the texture has paper, ink, a marker border, a blanked target cell and a grey ring where the spec puts them', () => {
-  // Setup: the centre3x3 board drawn at 10 texels per mm (the finder's default), in print grey
-  // levels and in linear reflectance.
+Deno.test('the texture has the board\'s two greys, its markers and its spirals where the spec puts them', () => {
+  // Setup: the grey/black board (dark 0, light 110 of 255) drawn at 10 texels per mm (the
+  // finder's default), in print grey levels and in linear reflectance; and the white/black board.
   // Test: sample board points (mm, board frame: X down the page, Y right) chosen by hand.
   // Verifies:
-  // - (5, 5) mm is the middle of square (0, 0): black ink (0);
-  // - (5, 15) is square (0, 1), marker 0's middle: its top-left inner bit is 1 (white), and the
-  //   marker spans 1.5 .. 8.5 mm with cells of 7/6 mm, so the inner bit (0, 0) covers
-  //   X, Y in [row 0 + 1.5 + 7/6, + 7/6] = [2.67, 3.83] and Y in [11.5 + 1.17, ...];
-  // - (2, 12) lies in that marker's black border (between 1.5 and 2.67 mm from the square's edge);
-  // - (0.75, 10.75) is the white margin around the marker (inside the square, outside the marker);
-  // - (72, 112) is in the blanked target cell (7, 11), which would otherwise be black (and clear
-  //   of the rings at 5 and 10 mm from the centre and of the side ticks);
-  // - a point on the 20 mm ring (10 mm from the centre) reads the ring's grey 150 / 255 in print
-  //   levels, and linear(150 / 255) = 0.305 in the linear texture;
-  // - outside the 5 mm paper pad the texture ends: its width is (230 + 10) mm x 10.
-  const tex = renderBoardTexture(centre3x3, { ppm: 10 });
-  const lin = renderBoardTexture(centre3x3, { ppm: 10, linear: true });
+  // - (1, 1) mm is square (0, 0) outside its spiral: the dark grey (0);
+  // - (3.25, 4.4) is that square's spiral cell (0, 1) (X 2.67 .. 3.83, Y 3.83 .. 5.00): its own
+  //   grey, 18 of 255 on this board;
+  // - (0.75, 10.75) is the light margin around marker 0 (inside square (0, 1), outside the marker):
+  //   110 / 255 in print levels, linear(110 / 255) = 0.156 in the linear texture;
+  // - (2, 12) lies in marker 0's border (1.5 .. 2.67 mm into the square): dark;
+  // - (2.67 + 0.58, 12.67 + 0.58) is marker 0's inner bit (0, 0): on the grey/black board marker 0
+  //   is dictionary id 500, whose bit (0, 0) is 0 (dark); on the white/black board id 750, bit 1
+  //   (light, 255);
+  // - beyond the chessboard, the 5 mm pad is paper (255) and the texture ends: (230 + 10) mm x 10.
+  const tex = renderBoardTexture(greyBlack, { ppm: 10 });
+  const lin = renderBoardTexture(greyBlack, { ppm: 10, linear: true });
   assert(tex.width === 2400 && tex.height === 1800, `size ${tex.width} x ${tex.height}`);
-  assertClose(sampleBoardTexture(tex, 5, 5), 0, 0.01, 'square (0, 0) is black');
-  assertClose(sampleBoardTexture(tex, 2.67 + 0.58, 12.67 + 0.58), 1, 0.01, 'marker 0 bit (0, 0) is white');
-  assertClose(sampleBoardTexture(tex, 2, 12), 0, 0.01, 'marker border is black');
-  assertClose(sampleBoardTexture(tex, 0.75, 10.75), 1, 0.01, 'margin around the marker is paper');
-  assertClose(sampleBoardTexture(tex, 72, 112), 1, 0.01, 'blanked target cell is paper');
-  const [cx, cy] = centre3x3.target.centre_mm;
-  assertClose(sampleBoardTexture(tex, cx + 10, cy), 150 / 255, 0.06, 'ring in print levels');
-  assertClose(sampleBoardTexture(lin, cx + 10, cy), srgbToLinear(150 / 255), 0.06, 'ring in linear reflectance');
+  assertClose(sampleBoardTexture(tex, 1, 1), 0, 0.01, 'dark square');
+  assertClose(sampleBoardTexture(tex, 3.25, 4.4), 18 / 255, 0.01, 'spiral cell (0, 1)');
+  assertClose(sampleBoardTexture(tex, 0.75, 10.75), 110 / 255, 0.01, 'light square in print levels');
+  assertClose(sampleBoardTexture(lin, 0.75, 10.75), srgbToLinear(110 / 255), 0.01, 'light square in reflectance');
+  assertClose(sampleBoardTexture(tex, 2, 12), 0, 0.01, 'marker border');
+  assertClose(sampleBoardTexture(tex, 2.67 + 0.58, 12.67 + 0.58), 0, 0.01, 'marker 500 bit (0, 0)');
+  assertClose(sampleBoardTexture(renderBoardTexture(whiteBlack, { ppm: 10 }), 2.67 + 0.58, 12.67 + 0.58), 1, 0.01, 'marker 750 bit (0, 0)');
+  assertClose(sampleBoardTexture(tex, -2, 50), 1, 0.01, 'the paper pad');
 });
 
 Deno.test('edge texels hold their exact area coverage', () => {
-  // Setup: the centre1 board at 4 texels per mm with no pad, so texel u covers Y = u / 4 ..
+  // Setup: the white/black board at 4 texels per mm with no pad, so texel u covers Y = u / 4 ..
   // (u + 1) / 4 mm. Marker 0 (square row 0, column 1) starts 1.5 mm into its square, at Y = 11.5.
   // Test: the texels either side of that edge: texel 46 covers Y 11.5 .. 11.75, all inside the
-  // black border; texel 45 covers 11.25 .. 11.5, all paper. Then draw at 3 texels per mm, where
+  // dark border; texel 45 covers 11.25 .. 11.5, all light. Then draw at 3 texels per mm, where
   // Y = 11.5 mm falls in the middle of texel 34 (11.33 .. 11.67).
   // Verifies: the box-filtered rendering, with no supersampling error: texel 34 at 3 texels per
-  // mm is half ink, half paper (127 or 128 of 255).
-  const t4 = renderBoardTexture(centre1, { ppm: 4, padMm: 0 });
+  // mm is half dark, half light (127 or 128 of 255).
+  const t4 = renderBoardTexture(whiteBlack, { ppm: 4, padMm: 0 });
   const row = 16; // X = 4.0 .. 4.25 mm: inside marker 0 (X 1.5 .. 8.5), where its left border column runs
   assert(t4.data[row * t4.width + 46] === 0, `texel 46: ${t4.data[row * t4.width + 46]}`);
   assert(t4.data[row * t4.width + 45] === 255, `texel 45: ${t4.data[row * t4.width + 45]}`);
-  const t3 = renderBoardTexture(centre1, { ppm: 3, padMm: 0 });
+  const t3 = renderBoardTexture(whiteBlack, { ppm: 3, padMm: 0 });
   const v = t3.data[12 * t3.width + 34];
   assert(v === 127 || v === 128, `texel 34 at 3 texels per mm: ${v}`);
 });

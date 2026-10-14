@@ -14,19 +14,27 @@ Writes overview.webp and panel.webp (waiting for a phone), phone.webp (the phone
 live.webp (the studio with the phone's picture and what it found) and readout.webp (the What the
 phone sees card) into src/site/docs/images/rough-scan/. Look at each before committing.
 
-Since T-0331 the phone plays the scan guidance's video (make_scan_video.GUIDE_CONFIG: the strip
-sheet, the one board the phone supports; a slow orbit, a fast swing, a defocused hold), so the pictures show the
-grid, the arrows, the coverage map filling and the angle; it also writes phone-guide.webp (the map
-and advice, cropped), phone-fast.webp ("Moving too fast") and phone-focus.webp ("Rock not in
-focus"), each taken when the phone itself shows that state.
+Since T-0331 the phone plays the scan guidance's video (make_scan_video.GUIDE_CONFIG: the
+white/black spiral board since T-0340; a slow orbit, a fast swing, a defocused hold), so the
+pictures show the found corners, the rock and the next step; it also writes phone-fast.webp ("Moving
+too fast") and phone-focus.webp ("Rock not in focus"), each taken when the phone itself shows that
+state.
 
 Since T-0332 it also writes phone-speed.webp: the phone's speed line, opened as a person opens it
 (a long press on the status lines at the bottom), cropped to the lines. Names given on the command
 line (e.g. `readout live phone-speed`) retake only those pictures.
 
-Since T-0335 it also writes phone-wrong-board.webp: a second phone, its camera playing a video of
-the scanner's older reference board (make_scan_video.WRONG_BOARD_CONFIG), saying that it is not the
-scanner board.
+Since T-0337 the scanner is a page in an iframe over the studio, and from file:// that page was the
+published site's (cross-origin, and the deployed version; since T-0344 it is the build's own, but
+still on another origin than the studio and with a link to the public phone page, which a session
+in these pictures cannot use). So every picture comes from one session
+served locally under the name houseki.app: both Chromes map houseki.app to a local HTTPS server
+(--host-resolver-rules; .app names are HSTS-preloaded, so it must be HTTPS, here with a throwaway
+self-signed certificate made by openssl that the Chromes are told to accept), so the scanner's
+title says houseki.app and the link under the code reads as the site's. The scanner's elements are read through scanner_frame.ScannerFrame (T-0340).
+
+(T-0335's phone-wrong-board.webp is no longer taken: since T-0340 the older boards' markers are
+not read at all, and the phone says nothing about another board.)
 """
 
 import json
@@ -44,9 +52,37 @@ sys.path.insert(0, HERE)
 
 import cdp  # noqa: E402
 from docs_screenshot import Studio  # noqa: E402
-from make_scan_video import ensure_guide_video, ensure_wrong_board_video  # noqa: E402
+from make_scan_video import ensure_guide_video  # noqa: E402
 from test_scan_link import CHROME_ARGS, Relay, Server  # noqa: E402
 from test_vision_detect import native_chrome  # noqa: E402
+from scanner_frame import ScannerFrame  # noqa: E402
+
+# The name the local build is served under in both Chromes (see the module's docstring).
+HOST = "houseki.app"
+
+
+def https_server():
+    """test_scan_link's Server (build/www), wrapped in TLS with a fresh self-signed certificate
+    for HOST (made with openssl in a temporary directory)."""
+    import ssl
+    import subprocess
+    import tempfile
+
+    server = Server()
+    folder = tempfile.mkdtemp()
+    key, cert = os.path.join(folder, "key.pem"), os.path.join(folder, "cert.pem")
+    subprocess.run(["openssl", "req", "-x509", "-newkey", "rsa:2048", "-nodes", "-days", "2", "-subj", "/CN=" + HOST,
+                    "-keyout", key, "-out", cert], check=True, capture_output=True)
+    context = ssl.SSLContext(ssl.PROTOCOL_TLS_SERVER)
+    context.load_cert_chain(cert, key)
+    server.httpd.socket = context.wrap_socket(server.httpd.socket, server_side=True)
+    return server
+
+
+def host_args(server):
+    """Chrome flags mapping HOST to the local server and accepting its certificate."""
+    port = server.origin.rsplit(":", 1)[1]
+    return ["--host-resolver-rules=MAP %s 127.0.0.1:%s" % (HOST, port), "--ignore-certificate-errors"]
 
 # A phone held sideways (an iPhone's landscape CSS size), at 2x.
 PHONE = {"width": 844, "height": 390, "deviceScaleFactor": 2, "mobile": True}
@@ -80,44 +116,73 @@ def attach(chrome, width, height, scale):
     return studio
 
 
-def waiting_shots():
-    """overview.webp and panel.webp: the studio opened from file:// as people open it, so the link
-    under the code is the public one (no test server or relay in it)."""
-    with Studio() as studio:
-        studio.click("#menu-button-tools")
-        studio.click("#menu-item-rough-scan")
-        studio.chrome.wait_for_expression("!!document.getElementById('scan-qr')", timeout=20)
-        studio.settle(frames=10)
-        take(studio, "overview")
-        take(studio, "panel", selector="#scan-panel", padding=0)
+def phone_shot_for(phone):
+    """A docs_screenshot.Studio driving the phone's Chrome (its shot)."""
+    shooter = Studio.__new__(Studio)
+    shooter.chrome = phone
+    return shooter
+
+
+def scanner_shot(studio, scanner, name, selector, padding=6):
+    """take() of one element of the scan page, clipped by its box in the tab."""
+    box = scanner.box(selector)
+    take(studio, name, clip={"x": max(0, box["x"] - padding), "y": max(0, box["y"] - padding),
+                             "width": box["width"] + 2 * padding, "height": box["height"] + 2 * padding})
 
 
 def main():
-    if not ONLY or ONLY & {"overview", "panel"}:
-        waiting_shots()
     video = ensure_guide_video()
-    server = Server()
+    server = https_server()
     relay = Relay()
-    studio_chrome = cdp.Chrome(gl_backend="metal", extra_args=CHROME_ARGS, timeout=60)
+    origin = "https://%s" % HOST
+    studio_chrome = cdp.Chrome(gl_backend="metal", extra_args=tuple(list(CHROME_ARGS) + host_args(server)), timeout=60)
     phone = None
 
     try:
         studio = attach(studio_chrome, 1440, 900, 2)
-        studio_chrome.navigate(server.origin + "/studio.html", timeout=120)
+        scanner = ScannerFrame(studio_chrome)
+
+        # Waiting for a phone, before the test relay is set (it would show in the link): the whole
+        # window, and the scanner's left-hand side.
+        if not ONLY or ONLY & {"overview", "panel"}:
+            studio_chrome.navigate(origin + "/studio.html", timeout=120)
+            studio_chrome.wait_for_expression("!!window.gemApp", timeout=120)
+            studio.settle(frames=20)
+            studio.click("#menu-button-tools")
+            studio.click("#menu-item-rough-scan")
+            scanner.wait_for_expression("!!document.getElementById('scan-qr')", timeout=30)
+            studio.settle(frames=10)
+            take(studio, "overview")
+            scanner_shot(studio, scanner, "panel", "#scan-panel", padding=0)
+
+        studio_chrome.navigate(origin + "/studio.html", timeout=120)
         studio_chrome.evaluate("localStorage.setItem('gems.scanRelayUrls', %s), true" % json.dumps(json.dumps([relay.url])))
         studio_chrome.navigate("about:blank")
-        studio_chrome.navigate(server.origin + "/studio.html", timeout=120)
+        studio_chrome.navigate(origin + "/studio.html", timeout=120)
         studio_chrome.wait_for_expression("!!window.gemApp", timeout=120)
         studio.settle(frames=20)
-
         studio.click("#menu-button-tools")
         studio.click("#menu-item-rough-scan")
-        studio_chrome.wait_for_expression("!!document.getElementById('scan-qr')", timeout=20)
-        link = studio_chrome.evaluate("document.getElementById('scan-url').textContent.trim()")
+        scanner.wait_for_expression("!!document.getElementById('scan-qr')", timeout=30)
+        link = scanner.evaluate("document.getElementById('scan-url').textContent.trim()")
 
-        phone = native_chrome(gl_backend="metal", extra_args=tuple(list(CHROME_ARGS) + [
+        phone = native_chrome(gl_backend="metal", extra_args=tuple(list(CHROME_ARGS) + host_args(server) + [
             "--use-file-for-fake-video-capture=%s" % video["mjpeg"]]), timeout=60)
         phone.send("Emulation.setDeviceMetricsOverride", PHONE)
+        # The connection picture while the phone looks for its computer (T-0342): the link with
+        # another room id, which no computer hosts, so the phone stays at "Looking for your
+        # computer…" with the servers up.
+        if not ONLY or "phone-connecting" in ONLY:
+            import random
+            import re
+            alphabet = "ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz0123456789-_"
+            nobody = re.sub(r"r=[^&]+", "r=" + "".join(random.choice(alphabet) for _ in range(22)), link, count=1)
+            phone.navigate(nobody)
+            phone.wait_for_expression("document.getElementById('scanner-status')?.dataset.phase === 'waiting'", timeout=60)
+            time.sleep(1.2)
+            take(phone_shot_for(phone), "phone-connecting")
+            phone.navigate("about:blank")
+
         phone.navigate(link)
         phone.wait_for_expression("document.getElementById('scanner-status')?.dataset.status === 'connected'", timeout=60)
         phone_shot = Studio.__new__(Studio)
@@ -126,25 +191,15 @@ def main():
         # The fast swing, then the defocused hold, each as the phone shows its warning.
         phone.wait_for_expression("%s?.warning === 'fast'" % state, timeout=120)
         take(phone_shot, "phone-fast")
-        phone.evaluate("""(() => { window.__seen = []; setInterval(() => { const g = housekiScanVision.state.last?.guide;
-          if (g) window.__seen.push([housekiScanVision.state.warning, g.blurMm, g.blurWindowPx, g.speedMmS, g.view?.azimuthDeg, g.view?.elevationDeg, g.conditions]); }, 200); })(), true""")
-
-        try:
-            phone.wait_for_expression("%s?.warning === 'focus'" % state, timeout=90)
-        except TimeoutError:
-            print(json.dumps(phone.evaluate("window.__seen.slice(-150)")))
-            raise
+        phone.wait_for_expression("%s?.warning === 'focus'" % state, timeout=90)
         take(phone_shot, "phone-focus")
-        # Then the slow orbit of the next loop, some way round: the rock found from the views, the
-        # map filling, no warning, the rock outlined.
+        # Then the slow orbit of the next loop: a pose, no warning, the rock outlined, the camera
+        # 25-50 degrees up.
         phone.wait_for_expression(
-            "%s?.phase === 'pose' && !%s.warning && %s.last?.guide?.rockFrom === 'views'"
-            " && Math.abs((housekiScanVision.state.last.guide.view?.elevationDeg ?? 0) - 30) < 3"
-            " && %s.last.guide.cover[1].toString(2).split('1').length - 1 >= 3"
-            " && %s.last.guide.cover[1].toString(2).split('1').length - 1 <= 6"
-            " && document.getElementById('scanner-vision').textContent.includes('Rock outlined')" % ((state,) * 5), timeout=120)
+            "%s?.phase === 'pose' && !%s.warning"
+            " && Math.abs((housekiScanVision.state.last?.guide?.view?.elevationDeg ?? 0) - 37) < 12"
+            " && document.getElementById('scanner-vision').textContent.includes('Rock outlined')" % ((state,) * 2), timeout=180)
         take(phone_shot, "phone")
-        take(phone_shot, "phone-guide", selector="#scanner-guide", padding=4)
         # The speed line (T-0332): a long press on the status lines shows it; its numbers are
         # rewritten twice a second, so give it a moment to fill.
         long_press(phone, "#scanner-status")
@@ -154,34 +209,15 @@ def main():
         take(phone_shot, "phone-speed", selector="#scanner-panel", padding=4)
 
         studio_chrome.send("Page.bringToFront")
-        studio_chrome.wait_for_expression("document.getElementById('scan-overlay')?.dataset.drawn === 'pose+outline'", timeout=30)
-        studio_chrome.wait_for_expression("!!document.getElementById('scan-vision-map') && document.getElementById('scan-vision-readout').textContent.includes('Found')"
-                                          " && document.getElementById('scan-vision-readout').textContent.includes('Speed')", timeout=30)
+        scanner.wait_for_expression("document.getElementById('scan-overlay')?.dataset.drawn === 'pose+outline'", timeout=30)
+        scanner.wait_for_expression("!!document.getElementById('scan-vision-map') && document.getElementById('scan-vision-readout').textContent.includes('Found')"
+                                    " && document.getElementById('scan-vision-readout').textContent.includes('Speed')", timeout=30)
         time.sleep(0.3)
         take(studio, "live")
         # The card's foot (its coverage map) scrolled into view in the left pane.
-        studio_chrome.evaluate("document.getElementById('scan-vision-map').scrollIntoView({ block: 'center' }), true")
+        scanner.evaluate("document.getElementById('scan-vision-map').scrollIntoView({ block: 'center' }), true")
         time.sleep(0.3)
-        take(studio, "readout", selector="#scan-vision-section", padding=6)
-
-        # T-0335: a phone pointed at ANOTHER printed board (the scanner's older reference board,
-        # make_scan_video.WRONG_BOARD_CONFIG) says so. The same code connects a second phone once
-        # the first has gone.
-        if not ONLY or "phone-wrong-board" in ONLY:
-            phone.close()
-            phone = None
-            studio_chrome.wait_for_expression("document.getElementById('scan-view')?.dataset.streaming !== 'true'", timeout=60)
-            wrong = ensure_wrong_board_video()
-            phone = native_chrome(gl_backend="metal", extra_args=tuple(list(CHROME_ARGS) + [
-                "--use-file-for-fake-video-capture=%s" % wrong["mjpeg"]]), timeout=60)
-            phone.send("Emulation.setDeviceMetricsOverride", PHONE)
-            phone.navigate(link)
-            phone.wait_for_expression("document.getElementById('scanner-status')?.dataset.status === 'connected'", timeout=60)
-            phone.wait_for_expression("document.getElementById('scanner-vision')?.dataset.state === 'wrong-board'", timeout=90)
-            time.sleep(1.0)
-            wrong_shot = Studio.__new__(Studio)
-            wrong_shot.chrome = phone
-            take(wrong_shot, "phone-wrong-board")
+        scanner_shot(studio, scanner, "readout", "#scan-vision-section")
 
         print("wrote %s into %s" % (", ".join(sorted(ONLY)) or "every picture", IMAGES))
     finally:

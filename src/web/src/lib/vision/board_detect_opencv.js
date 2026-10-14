@@ -101,7 +101,44 @@ export function createBoardDetector(cv, spec, options = {}) {
   const markerRatio = spec.marker_mm && spec.square_mm ? spec.marker_mm / spec.square_mm : spec.marker_ratio;
 
   // --- OpenCV objects, made once (board.py make_board / make_detector) ---------------------------
-  const dictionary = cv.getPredefinedDictionary(dictionaryId);
+  // The dictionary: ONLY the board's own markers, as the Rust detector's look-up table holds them
+  // (T-0340). The board prints DICT_4X4_1000 ids first_marker_id onwards; a dictionary of just
+  // those 195 codes numbers them 0, 1, 2 ... as the board does. With all 1000, OpenCV also accepts
+  // candidates that read as markers no board prints (the spirals and marker fragments do, on
+  // blurred frames), which then hide the board markers containing them from identification and
+  // from the refinement: measured, the two detectors then disagreed on 25 of 45 synthetic frames.
+  // maxCorrectionBits 1, DICT_4X4_250's (src/vision dictionary.rs MAX_CORRECTION_BITS): the
+  // refinement's allowance; identification still allows no error (0.6 x 1).
+  const first = spec.first_marker_id ?? 0;
+  const markerCount = Math.floor((spec.squares_x * spec.squares_y) / 2);
+  const predefined = cv.getPredefinedDictionary(dictionaryId);
+  const markerSize = predefined.markerSize;
+  // The board's rows of the dictionary's byte list, copied out as plain numbers (8 bytes a marker:
+  // 2 x CV_8UC4), and a new Mat made from them. Never a view: a write through a row header of the
+  // predefined dictionary's list once overwrote OpenCV's own DICT_4X4_1000 for the rest of the page
+  // (T-0340: row 437 became row 0's code after a large frame had grown the heap).
+  const list = predefined.bytesList;
+  const rowBytes = (r) => {
+    const row = list.row(r);
+    const bytes = Array.from(row.data);
+    row.delete();
+    return bytes;
+  };
+  const unreadable = new Set(spec.unreadable_marker_ids ?? []);
+  // A marker the spec calls unreadable (T-0340: the code the spirals read as) gets the code of
+  // dictionary id 0 instead, which none of these boards prints, so OpenCV never reads it either.
+  const zero = rowBytes(0);
+  const bytes = [];
+
+  for (let k = 0; k < markerCount; k += 1) {
+    bytes.push(...(unreadable.has(k) ? zero : rowBytes(first + k)));
+  }
+
+  list.delete();
+  predefined.delete();
+  const codes = cv.matFromArray(markerCount, 2, cv.CV_8UC4, bytes);
+  const dictionary = new cv.aruco_Dictionary(codes, markerSize, 1);
+  codes.delete();
   const noIds = new cv.Mat();
   // Square length 1: the detector works in squares, like board.py; only ratios matter here.
   const board = new cv.aruco_CharucoBoard(new cv.Size(spec.squares_x, spec.squares_y), 1, markerRatio, dictionary, noIds);

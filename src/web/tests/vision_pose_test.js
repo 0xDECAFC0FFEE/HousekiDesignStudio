@@ -19,8 +19,7 @@
  * HOW TO RUN (from src/web/): deno test --allow-read --allow-env tests/   (also `deno task test`)
  */
 
-import { cornerPoint } from '../src/lib/vision/board_frame.js';
-import { TEST_BOARD_SPECS } from './vision_test_boards.js';
+import { BOARD_SPEC, cornerPoint } from '../src/lib/vision/board_frame.js';
 import {
   matMul3, projectPoints, refinePose, rodrigues, rotationToVector, scaleIntrinsics, spansPlane,
 } from '../src/lib/vision/camera_model.js';
@@ -34,9 +33,8 @@ import {
 
 const cv = await loadStockOpenCv();
 const ignore = cv === null;
-// The single-square-target sheet (test-only since T-0335; vision_test_boards.js): the strip's
-// chessboard less marker 97, its target in the middle of the sheet.
-const spec = TEST_BOARD_SPECS.charuco_23x17_10mm_centre1;
+// The white/black board (T-0340), its target in the middle of the sheet.
+const spec = BOARD_SPEC;
 const TARGET = spec.target.centre_mm;      // (85, 115) mm: the middle of the sheet
 
 // A portrait 1080 x 1920 phone frame, f = 1.4 x the long side (a 2x-zoom-like field), barrel k1.

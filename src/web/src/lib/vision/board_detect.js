@@ -19,10 +19,12 @@
 // marker-size factor m, measured from the markers with some hysteresis, and the fallbacks walked
 // when frames find nothing -- and turns the module's numbers into a BoardDetection.
 //
-// THE BOARD. The module supports the current (non-legacy) ChArUco pattern with DICT_4X4_250
-// markers, which is the scanner's board (./boards/); its columns, rows and marker ratio are
-// parameters (the real-frame test fixtures use an older 22 x 22 board). Whether the markers found
-// are laid out as our board prints them is board_fit.js's question, asked by live.js.
+// THE BOARDS. The module supports the current (non-legacy) ChArUco pattern with DICT_4X4_1000
+// markers; its columns, rows and marker ratio are parameters. One detector reads several boards of
+// one layout that print different runs of marker ids (`options.boards`: the scanner's three,
+// board_frame.js, T-0340): each frame is read as the board most of its markers belong to, and the
+// detection names it (`board`). Marker ids in a detection are indices on the board (0 .. 194),
+// whichever board it is, so corners, poses and the lens never need to know.
 //
 // INPUT. `source` is an ImageData (canvas getImageData, RGBA), or anything shaped like one:
 // { data, width, height } with 4 bytes per pixel (RGBA) or 1 (grey).
@@ -61,9 +63,28 @@ export const REF_SHORT_SIDE = 1080;
  *                save ~2 ms but lost corners on blurred views: 33 -> 6 on a far view at 1.2 px blur,
  *                some misread, and 76 -> 71 of the real frames' corners);
  *   windows      fewer adaptive-threshold windows (null: the desktop's 6-7): NOT TAKEN (3 or 4 saved
- *                ~4-6 ms but lost most corners under a 2 px blur: 144 -> 5 or 71 on the whole board).
+ *                ~4-6 ms but lost most corners under a 2 px blur: 144 -> 5 or 71 on the whole board);
+ *   closedFormWarp  each candidate read through its square-to-quad map in closed form instead of
+ *                OpenCV's SVD perspective (T-0340): KEPT. On the 512 real frames of the three boards
+ *                (1 a second from the 8 reference videos, 960 x 540) the same markers and the same
+ *                36,018 corners to 0.0000 px; natively 12.6 -> 11.6 ms a frame;
+ *   smallWindows the windows 3, 19, 35, 51 (SMALL_WINDOWS) instead of the desktop's 3 .. 93 in
+ *                steps of 15, which were tuned on 1080p frames with 15-30 px marker borders; the
+ *                phone reads 960 x 540, where they are half that (T-0340). On the same 512 frames:
+ *                35,955 corners of 36,018, the same 510 frames with 8 or more, natively 11.5 -> 8.2
+ *                ms a frame. (Four windows spread over the whole 3 .. 93 lost 7% of the corners.)
+ *                On synthetic sharp, blurred, far and close views: 4,027 corners against 4,058;
+ *   layoutCheck  markers sitting where the rest of the board puts another marker are dropped
+ *                before the refinement and the corners (T-0340, src/vision board.rs
+ *                drop_misplaced_markers): the boards' spirals read as markers in blurred or far
+ *                views. KEPT: see the KB article on the spiral boards for the numbers.
  */
-export const FAST_PATH = Object.freeze({ retryClose: true, localRefine: true, windows: null });
+export const FAST_PATH = Object.freeze({
+  retryClose: true, localRefine: true, windows: null, closedFormWarp: true, smallWindows: true, layoutCheck: true,
+});
+
+/** The fast path's threshold windows at marker-size factor 1 (T-0340): 3 .. 51 in steps of 16. */
+export const SMALL_WINDOWS = Object.freeze({ windowMax: 51, windowStep: 16 });
 
 /** Laplacian variance (25 x 25 px, at the reference scale) below which a corner counts as blurred
  *  (calibrate.py MIN_CORNER_SHARPNESS). */
@@ -127,13 +148,16 @@ export function pyRound(value) {
  *   bleeds white bits into black ones and DICT_4X4 corrects no bit error;
  * - for m != 1 the windows scale with the marker size; for small markers so does the minimum
  *   perimeter (otherwise markers under ~15 px in a 1920 px frame are all lost).
+ *
+ * `windowMax` and `windowStep` replace the desktop's 93 and 15 (the phone's fast path, T-0340:
+ * FAST_PATH.smallWindows), scaling with m the same way.
  */
-export function detectorParamValues(m = 1, { windows = null } = {}) {
+export function detectorParamValues(m = 1, { windows = null, windowMax = 93, windowStep = 15 } = {}) {
   const exact = m === 1;
   const values = {
     adaptiveThreshWinSizeMin: 3,
-    adaptiveThreshWinSizeMax: exact ? 93 : Math.max(23, pyRound(93 * m)),
-    adaptiveThreshWinSizeStep: exact ? 15 : Math.max(4, pyRound(15 * m)),
+    adaptiveThreshWinSizeMax: exact ? windowMax : Math.max(23, pyRound(windowMax * m)),
+    adaptiveThreshWinSizeStep: exact ? windowStep : Math.max(4, pyRound(windowStep * m)),
     perspectiveRemovePixelPerCell: 8,
     perspectiveRemoveIgnoredMarginPerCell: 0.3,
   };
@@ -225,10 +249,11 @@ function framePixels(source) {
 }
 
 /**
- * A board detector for one board spec (houseki.board.v1, see ./boards/).
+ * A board detector for one board spec (houseki.board.v1, see ./boards/), or for several boards of
+ * its layout.
  *
  * @param {any} vision  the vision module, from vision_wasm.js loadVision()
- * @param {object} spec  the board's spec
+ * @param {object} spec  the board's spec (with options.boards: any of them, for the layout)
  * @param {object} [options]
  * @param {number} [options.processingScale=1]  detect on a copy downscaled by this (0 < s <= 1)
  * @param {number|'auto'} [options.markerScale='auto']  board.py's marker-size factor m: 'auto'
@@ -247,9 +272,12 @@ function framePixels(source) {
  * @param {boolean|object} [options.fast=false]  the phone's fast path (T-0332, FAST_PATH), which
  *        gives up exact agreement with opencv.js (and the desktop) for speed; measured no worse
  *        against the truth (tests/harness/test_vision_detect.py). Off by default, so the exact
- *        comparisons keep the exact path. An object { retryClose, localRefine, windows } sets the
- *        parts one by one, for measuring them
+ *        comparisons keep the exact path. An object { retryClose, localRefine, windows,
+ *        closedFormWarp, smallWindows, layoutCheck } sets the parts one by one, for measuring them
  * @param {number} [options.fastWindows]  with fast: true, the window count (FAST_PATH's otherwise)
+ * @param {object[]} [options.boards=[spec]]  the boards to tell apart (T-0340): specs of the same
+ *        layout, each printing marker ids from its `first_marker_id`; a detection's `board` is the
+ *        name of the one in view (null when no marker was found)
  * @returns {{ detect(source: any, frameInfo?: object, how?: { roi }): object, dispose(): void,
  *             readonly markerScale: number }}
  *   detect's `roi` ({ x, y, width, height } in the source's pixels): look only there (the fast
@@ -266,15 +294,24 @@ export function createBoardDetector(vision, spec, options = {}) {
   const parts = options.fast === true
     ? { ...FAST_PATH, windows: options.fastWindows ?? FAST_PATH.windows }
     : options.fast && typeof options.fast === 'object'
-      ? { retryClose: true, localRefine: false, windows: null, ...options.fast }
+      ? { retryClose: true, localRefine: false, windows: null, closedFormWarp: false, smallWindows: false, layoutCheck: false, ...options.fast }
       : null;
 
   if (!(processingScale > 0 && processingScale <= 1)) {
     throw new Error(`processingScale must be in (0, 1], got ${processingScale}`);
   }
 
-  if (spec.dictionary !== 'DICT_4X4_250') {
-    throw new Error(`the phone's detector reads DICT_4X4_250 boards only, not ${spec.dictionary}`);
+  const boards = options.boards ?? [spec];
+
+  for (const board of boards) {
+    // DICT_4X4_250 is the first 250 of DICT_4X4_1000, so its boards read the same.
+    if (board.dictionary !== 'DICT_4X4_1000' && board.dictionary !== 'DICT_4X4_250') {
+      throw new Error(`the phone's detector reads DICT_4X4_1000 boards only, not ${board.dictionary}`);
+    }
+
+    if (board.squares_x !== spec.squares_x || board.squares_y !== spec.squares_y || specMarkerRatio(board) !== specMarkerRatio(spec)) {
+      throw new Error(`board ${board.name} does not have the layout of ${spec.name}`);
+    }
   }
 
   if (spec.legacy && spec.squares_y % 2 === 0) {
@@ -283,11 +320,20 @@ export function createBoardDetector(vision, spec, options = {}) {
 
   const perRow = spec.squares_x - 1;
   const detector = new vision.CharucoDetector(spec.squares_x, spec.squares_y, specMarkerRatio(spec));
+  // Before any other setting: set_boards starts the detector afresh. A board's
+  // `unreadable_marker_ids` are never read on any board (as dictionary ids: T-0340, the code the
+  // spirals read as).
+  detector.set_boards(
+    Uint32Array.from(boards.map((board) => board.first_marker_id ?? 0)),
+    Uint32Array.from(boards.flatMap((board) => (board.unreadable_marker_ids ?? []).map((k) => (board.first_marker_id ?? 0) + k))),
+  );
   detector.set_removed(Uint32Array.from(spec.removed_marker_ids ?? []));
   detector.set_try_refine(options.tryRefineMarkers ?? true);
 
   if (parts) {
     detector.set_fast_parts(parts.retryClose, parts.localRefine);
+    detector.set_closed_form_warp(Boolean(parts.closedFormWarp));
+    detector.set_layout_check(Boolean(parts.layoutCheck));
   }
 
   let scaleInUse = null;
@@ -297,7 +343,7 @@ export function createBoardDetector(vision, spec, options = {}) {
       return;
     }
 
-    const values = detectorParamValues(m, { windows: parts?.windows ?? null });
+    const values = detectorParamValues(m, { windows: parts?.windows ?? null, ...(parts?.smallWindows ? SMALL_WINDOWS : {}) });
     const refine = refineParamValues(m);
     detector.configure(values.adaptiveThreshWinSizeMax, values.adaptiveThreshWinSizeStep,
       values.minMarkerPerimeterRate ?? 0.03, refine.minRepDistance);
@@ -354,7 +400,7 @@ export function createBoardDetector(vision, spec, options = {}) {
     const out = detector.detect(data, width, height, processingScale, singleMarkerCorners, refineBlurred, halfPixelShift, maxHalf);
 
     // [workW, workH, anyMarker, markerPx, markerCount, (id, 8 coords)..., cornerCount,
-    //  (id, x, y, markers, sharpness)...] (src/vision/lib.rs CharucoDetector::detect)
+    //  (id, x, y, markers, sharpness)..., board] (src/vision/lib.rs CharucoDetector::detect)
     const sx = width / out[0];
     const sy = height / out[1];
     const toOut = (x, y) => [(x + 0.5) * sx, (y + 0.5) * sy];
@@ -428,9 +474,12 @@ export function createBoardDetector(vision, spec, options = {}) {
     }
 
     const boardPoints = corners.map(({ id }) => [(id % perRow) + 1, Math.floor(id / perRow) + 1]);
+    const boardIndex = out[k];
 
     return {
       frame,
+      // Which board this is (T-0340): the name of one of options.boards.
+      board: boards[boardIndex]?.name ?? null,
       markers,
       corners,
       recognised: corners.length >= MIN_RECOGNISED_CORNERS && spansPlane(boardPoints),
@@ -438,14 +487,15 @@ export function createBoardDetector(vision, spec, options = {}) {
       markerPx: markerPx * (sx + sy) / 2,
       markerScale: m,
       // Whether only a region was searched (T-0332), and the module's candidate counts (lib.rs
-      // last_stats: raw, grouped, identification reads, refinement reads), for the diagnostics.
+      // last_stats: raw, grouped, identification reads, refinement reads, markers dropped as
+      // misplaced), for the diagnostics.
       region: Boolean(roi),
       stats: Array.from(detector.last_stats()),
     };
   }
 
   function emptyDetection(frame, started) {
-    return { frame, markers: [], corners: [], recognised: false, elapsedMs: performance.now() - started, markerPx: null, markerScale: scaleInUse };
+    return { frame, board: null, markers: [], corners: [], recognised: false, elapsedMs: performance.now() - started, markerPx: null, markerScale: scaleInUse };
   }
 
   function dispose() {

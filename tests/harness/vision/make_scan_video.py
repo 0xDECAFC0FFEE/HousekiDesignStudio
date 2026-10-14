@@ -20,12 +20,14 @@ directly with what the phone sends.
 Run directly to (re)make it:  ~/.pyenv/versions/anaconda3-2019.07/bin/python3 tests/harness/vision/make_scan_video.py
 
 The scan guidance's video (T-0331, GUIDE_CONFIG below: a moving camera, a fast motion-blurred swing
-and a defocused hold, on the strip sheet) is ensure_guide_video(), cached in
+and a defocused hold, on the white/black board) is ensure_guide_video(), cached in
 tests/output/scan_guide_video/; `make_scan_video.py --guide` makes it.
 
-A video of ANOTHER board (T-0335, WRONG_BOARD_CONFIG: the scanner's older 22 x 22 reference board,
-which the phone must refuse) is ensure_wrong_board_video(), in tests/output/scan_wrong_board_video/;
-`make_scan_video.py --wrong-board` makes it.
+The same views of the other two boards (T-0340: grey/black, white/grey) are
+ensure_board_video(name), in tests/output/scan_video_<name>/; `make_scan_video.py --board <name>`.
+A video of the board's layout printed with the OLDER boards' markers (DICT_4X4_250 ids 0-194, which
+the phone no longer reads at all) is ensure_older_board_video(), in tests/output/scan_older_board_video/;
+`make_scan_video.py --older-board` makes it.
 """
 
 import base64
@@ -50,15 +52,15 @@ sys.path.insert(0, HARNESS)
 
 # The video. A phone held sideways (1280 x 720, its main camera's focal length 1000 px: a 1x lens,
 # 8% narrower than the phone page's first guess, so the live calibration has something to do),
-# 165-185 mm from a rock on the target of the strip sheet, the one board the phone supports (T-0335;
-# until then the large target sheet without dots, to see the phone recognise the sheet). Three
-# views, each held HOLD_S seconds.
+# 165-185 mm from a rock in the middle of the white/black spiral board (T-0340; the phone reads the
+# three boards, and the end-to-end test also runs the other two). Three views, each held HOLD_S
+# seconds.
 #
 # Landscape because the phone page asks for 1280 x 720: a phone reads that in its sensor's own
 # (landscape) orientation and turns the frames upright itself, but Chrome's fake camera does not,
 # and CROPS a portrait file to fit (measured: a 720 x 1280 file arrived as its middle 720 x 720).
 CONFIG = {
-    "sheet": "charuco_23x17_10mm_strip",
+    "sheet": "charuco_23x17_10mm_white_black_spiral",
     "width": 1280,
     "height": 720,
     "f": 1000,
@@ -77,18 +79,16 @@ CONFIG = {
     "fps": 30,
 }
 
-# A video of ANOTHER board (T-0335): the scanner's older 22 x 22 reference board (the one its
-# reference videos show; src/web/tests/vision_test_boards.js REFERENCE_22X22), whose markers the
-# phone reads but which is not the strip board: the phone must say so and never pose from it. The
-# same camera and rock as CONFIG, the rock on the board's middle. ensure_wrong_board_video().
-WRONG_BOARD_CONFIG = dict(CONFIG, sheet="reference_22x22", holdS=3, views=[
-    {"azimuth": 200, "elevation": 55, "distanceMm": 210, "roll": 0},
-    {"azimuth": 320, "elevation": 42, "distanceMm": 230, "roll": 6},
-    {"azimuth": 80, "elevation": 66, "distanceMm": 200, "roll": -5},
-])
-OUTPUT_WRONG = os.path.join(PROJECT_ROOT, "tests", "output", "scan_wrong_board_video")
+# The board's layout printed with the older boards' markers (T-0340; scan_video.js older_layout),
+# which the phone no longer reads: it must find nothing and never pose. The same camera and rock as
+# CONFIG. ensure_older_board_video().
+OLDER_BOARD_CONFIG = dict(CONFIG, sheet="older_layout", holdS=3)
+OUTPUT_OLDER = os.path.join(PROJECT_ROOT, "tests", "output", "scan_older_board_video")
 
-# The scan guidance's video (T-0331): the camera MOVING, on the strip sheet (the one in use), with a
+# The other two boards (T-0340): CONFIG's views of the grey/black and white/grey boards.
+OTHER_BOARDS = ["charuco_23x17_10mm_grey_black_spiral", "charuco_23x17_10mm_white_grey_spiral"]
+
+# The scan guidance's video (T-0331): the camera MOVING, on the white/black board, with a
 # known pose for every distinct frame. Segments (azimuths in synth.js lookAt's convention: the camera
 # looks from azimuth + 180 in pose.js's, so 20 here is 200 there):
 #   settle   3 s held, 30 degrees up where the orbit starts (a jump would read as motion): the phone
@@ -107,7 +107,7 @@ OUTPUT_WRONG = os.path.join(PROJECT_ROOT, "tests", "output", "scan_wrong_board_v
 # Moving segments are rendered at `renderFps` distinct frames a second (the phone processes ~8),
 # each repeated to the video's 30.
 GUIDE_CONFIG = {
-    "sheet": "charuco_23x17_10mm_strip",
+    "sheet": "charuco_23x17_10mm_white_black_spiral",
     "width": 1280,
     "height": 720,
     "f": 1000,
@@ -135,7 +135,7 @@ CAMERA_KEYS = ("azimuth", "elevation", "distanceMm", "aimX", "aimY")
 # The overlay-lag video (T-0332): the camera moving at realistic scanning speeds with EVERY frame
 # distinct (renderFps = fps, so what is on screen is known for each frame the phone shows), and each
 # frame stamped with its index (stamp_frame: a row of black/white blocks at the bottom left that the
-# harness reads back from the phone's <video>). Segments, on the strip sheet, 35 degrees up, 180 mm:
+# harness reads back from the phone's <video>). Segments, on the white/black board, 35 degrees up, 180 mm:
 #   still   4 s held: the overlay's shimmer when the phone is still;
 #   orbit   10 s round the rock at 12 degrees a second (the guidance's slow orbit; the board moves
 #           10-20 mm/s on screen);
@@ -143,7 +143,7 @@ CAMERA_KEYS = ("azimuth", "elevation", "distanceMm", "aimX", "aimY")
 #   swing   1.5 s round the rock at 40 degrees a second (a quick swing, 10 ms of motion blur);
 #   rest    4 s held: shimmer again, after a swing.
 LAG_CONFIG = {
-    "sheet": "charuco_23x17_10mm_strip",
+    "sheet": "charuco_23x17_10mm_white_black_spiral",
     "width": 1280,
     "height": 720,
     "f": 1000,
@@ -249,10 +249,11 @@ def rock_centre(config):
     return [tx, ty, config["rock"]["zc"]]
 
 
-# The sheet's target centre (board_frame / the spec's target.centre_mm), where the angles are
-# measured from. The strip sheet is the only board the phone supports (T-0335); the older reference
-# board has no target, and its videos aim at its middle (scan_video.js aimOf).
-TARGET_MM = {"charuco_23x17_10mm_strip": [80.0, 110.0], "reference_22x22": [110.0, 110.0]}
+# The board's target centre (board_frame / the spec's target.centre_mm), where the angles are
+# measured from: the middle of the board, where the stone goes, on every board (T-0340).
+TARGET_MM = {name: [85.0, 115.0] for name in [
+    "charuco_23x17_10mm_white_black_spiral", "charuco_23x17_10mm_grey_black_spiral", "charuco_23x17_10mm_white_grey_spiral",
+    "older_layout"]}
 
 
 def config_hash(config):
@@ -369,10 +370,16 @@ def ensure_video(config=CONFIG, out_dir=OUTPUT):
     return _paths(truth, out_dir)
 
 
-def ensure_wrong_board_video():
-    """The video of the older reference board (WRONG_BOARD_CONFIG), made if not already made; as
+def ensure_older_board_video():
+    """The video of the layout with the older boards' markers (OLDER_BOARD_CONFIG), made if not
+    already made; as ensure_video's."""
+    return ensure_video(OLDER_BOARD_CONFIG, OUTPUT_OLDER)
+
+
+def ensure_board_video(name):
+    """CONFIG's video of another of the three boards (OTHER_BOARDS), made if not already made; as
     ensure_video's."""
-    return ensure_video(WRONG_BOARD_CONFIG, OUTPUT_WRONG)
+    return ensure_video(dict(CONFIG, sheet=name), os.path.join(PROJECT_ROOT, "tests", "output", "scan_video_" + name))
 
 
 def angles_from(center, point):
@@ -539,8 +546,11 @@ if __name__ == "__main__":
     elif "--guide" in sys.argv:
         made = ensure_guide_video()
         print(json.dumps({k: v for k, v in made["truth"].items() if k not in ("config", "frames")}, indent=1))
-    elif "--wrong-board" in sys.argv:
-        made = ensure_wrong_board_video()
+    elif "--older-board" in sys.argv:
+        made = ensure_older_board_video()
+        print(json.dumps({k: v for k, v in made["truth"].items() if k != "config"}, indent=1)[:3000])
+    elif "--board" in sys.argv:
+        made = ensure_board_video(sys.argv[sys.argv.index("--board") + 1])
         print(json.dumps({k: v for k, v in made["truth"].items() if k != "config"}, indent=1)[:3000])
     else:
         made = ensure_video()

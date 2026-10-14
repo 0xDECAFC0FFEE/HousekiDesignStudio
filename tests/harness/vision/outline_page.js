@@ -3,9 +3,8 @@
 // repository root by tests/harness/test_vision_outline.py, which calls window.visionTest.*.
 
 import { createOutlineFinder } from '../../../src/web/src/lib/vision/outline.js';
-// The shipped strip board and the tests' own sheets with a blank centre target (T-0335: the phone
-// ships only the strip; the outline code still follows any spec, and these cases test that).
-import { TEST_BOARD_SPECS as BOARD_SPECS } from '../../../src/web/tests/vision_test_boards.js';
+// The scanner's three spiral boards (T-0340).
+import { BOARD_SPECS } from '../../../src/web/src/lib/vision/board_frame.js';
 import { createSynth, lookAt, rockPlanes } from './synth.js';
 
 /** Rocks of the synthetic cases: colour is linear albedo (opaque) or transmittance per 10 mm. */

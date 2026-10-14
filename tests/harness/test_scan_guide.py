@@ -8,16 +8,17 @@ screen."
 
 These tests run the BUILT pages as test_scan_vision.py does (studio and phone page in two headless
 Chromes, a local Nostr relay; the phone's vision starts once it has connected), with the phone's fake
-camera playing the scan guidance's video (make_scan_video.GUIDE_CONFIG, on the strip sheet): a held
+camera playing the scan guidance's video (make_scan_video.GUIDE_CONFIG, on the white/black board): a held
 view, a slow orbit through half a circle, a fast motion-blurred swing, a calm hold, a hold with the
 rock out of focus, and one in focus. Every distinct frame's camera is known. The phone page's own
 debug hook (window.housekiScanVision) is polled in the page every 40 ms and each processed frame's
 guide, warning and drawn overlay geometry is logged. Each logged frame is matched to the video's
 frame with the nearest camera (its segment says what should be seen). They check:
 
-  * the overlay draws the chessboard grid (at least 20 inner lines and the board's edge) and the
-    axes at the board's CENTRE (85, 115) -- the drawn origin, mapped back to frame pixels, is the
-    projection of (85, 115, 0) within AXES_PX on held views;
+  * the overlay draws the found corners (at least 20 red points and blue lines) and the board's
+    edge, and -- since T-0340, the user: "we can also remove the visual xyz axes and the circle with
+    angles for now" -- no axes, and the phone's coverage map and angle line are hidden while the
+    next step's advice shows;
   * the rock's position is found from the outlined views within ROCK_MM of the true rock's middle;
   * the tracked angle (azimuth, elevation from the rock) matches the video's true camera within
     ANGLE_DEG on held and slowly moving views;
@@ -63,26 +64,17 @@ except ImportError as error:  # websocket-client, numpy or PIL missing
     cdp = None
     IMPORT_ERROR = str(error)
 
-# The board the video shows: the strip sheet, the one board the phone supports (T-0335).
-SHEET = "charuco_23x17_10mm_strip"
+# The board the video shows: the white/black spiral board (T-0340).
+SHEET = "charuco_23x17_10mm_white_black_spiral"
 
 # How long the phone's frames are logged: two loops of the 27.5 s video, so the second loop runs
 # with the rock found and the lens estimated.
 COLLECT_S = 58
 
 # Tolerances, each with its reason.
-AXES_PX = 3.0       # the drawn axes use the FILTERED pose carried to the frame shown; on held views the frame's pose
 ROCK_MM = 3.0       # the outline's centroid is the silhouette's, not the ellipsoid's centre
 ANGLE_DEG = 2.0     # the pose is within 0.1 degree; the rest is the rock point's error at 170-180 mm
 WARNING_OFF_S = 0.6  # a warning goes 0.5 s after its condition clears, plus a frame
-
-
-def project(point, R, t, f, cx, cy, k1):
-    """The phone's camera model (camera_model.projectPoints) for one board point."""
-    X = [sum(R[3 * i + j] * point[j] for j in range(3)) + t[i] for i in range(3)]
-    u, v = X[0] / X[2], X[1] / X[2]
-    d = 1 + k1 * (u * u + v * v)
-    return f * u * d + cx, f * v * d + cy
 
 
 @unittest.skipIf(cdp is None, "needs websocket-client, numpy and PIL: %s" % (IMPORT_ERROR if cdp is None else ""))
@@ -130,10 +122,10 @@ class ScanGuideTest(unittest.TestCase):
         return min(((f, dist(center, f["center"])) for f in self.truth["frames"]), key=lambda pair: pair[1])
 
     def test_guidance_on_a_moving_video(self):
-        """Grid, axes at the centre, the rock's position, the angle, coverage and the two warnings.
+        """Found corners, no axes, the rock's position, the angle, coverage and the two warnings.
 
         Setup: the studio with Rough scan open; a phone browser whose camera plays the guidance video
-        on the strip sheet, connected. Test: log every frame the phone processes for COLLECT_S seconds (in the page,
+        on the white/black board, connected. Test: log every frame the phone processes for COLLECT_S seconds (in the page,
         every 40 ms), then match each to the video. Verifies: see the module's docstring.
         """
         phone = native_chrome(gl_backend="metal", extra_args=tuple(list(CHROME_ARGS) + [
@@ -162,7 +154,7 @@ class ScanGuideTest(unittest.TestCase):
                 log.push({ at: performance.now(), valid: !!r.pose?.valid, R: r.pose?.R, t: r.pose?.t, center: r.pose?.center,
                   lens: r.pose?.intrinsics ? { f: r.pose.intrinsics.f, cx: r.pose.intrinsics.cx,
                   cy: r.pose.intrinsics.cy, k1: r.pose.intrinsics.k1, source: r.pose.intrinsics.source } : null,
-                  sheet: r.sheet.name, wrongBoard: !!r.board?.wrong, view: g?.view, rockMm: g?.rockMm, rockFrom: g?.rockFrom, rockViews: g?.rockViews,
+                  sheet: r.sheet.name, view: g?.view, rockMm: g?.rockMm, rockFrom: g?.rockFrom, rockViews: g?.rockViews,
                   cover: g?.cover, conditions: g?.conditions, speed: g?.speedMmS, blurMm: g?.blurMm, blurWindowPx: g?.blurWindowPx,
                   usable: g?.usable, reasons: g?.reasons, warning: s.warning, advice: s.shown?.advice ?? null,
                   gridLines: d?.gridLines ?? 0, edgeLines: d?.edgeLines ?? 0, axes,
@@ -174,7 +166,11 @@ class ScanGuideTest(unittest.TestCase):
             time.sleep(COLLECT_S)
             log = phone.evaluate("(() => { clearInterval(window.__guideTimer); return window.__guideLog; })()")
             timings = phone.evaluate("housekiScanVision.timings()")
-            angle_text = phone.evaluate("document.getElementById('scanner-angle').textContent")
+            # Whether each is laid out at all (an SVG element has no `hidden` property: the map's
+            # attribute and the stylesheet's [hidden] rule are what hide it).
+            angle_text = phone.evaluate("JSON.stringify({ map: getComputedStyle(document.getElementById('scanner-map')).display === 'none',"
+                                        " angle: getComputedStyle(document.getElementById('scanner-angle')).display === 'none',"
+                                        " advice: document.getElementById('scanner-advice').textContent })")
             self.studio.send("Page.bringToFront")
             self.scanner.wait_for_expression("!!window.gemScanVision()?.message?.guide", timeout=20)
             studio_guide = self.scanner.evaluate("window.gemScanVision().message.guide")
@@ -190,8 +186,7 @@ class ScanGuideTest(unittest.TestCase):
         say("%d frames logged; guideMs %s; frameMs %s; detectMs %s" % (
             len(log), timings.get("guideMs"), timings.get("frameMs"), timings.get("detectMs")))
         self.assertGreater(len(log), 150, "too few frames processed")
-        self.assertTrue(all(entry["sheet"] == SHEET for entry in log), "the strip board is used")
-        self.assertFalse(any(entry["wrongBoard"] for entry in log), "the strip board taken for another (T-0335)")
+        self.assertTrue(all(entry["sheet"] == SHEET for entry in log), "the white/black board is named")
 
         # Each frame's segment: by the nearest camera for posed frames; a frame without a pose takes
         # the segment of the last posed one.
@@ -219,19 +214,12 @@ class ScanGuideTest(unittest.TestCase):
         counts = {s["name"]: len(by(s["name"])) for s in self.truth["segments"]}
         say("frames per segment", counts)
 
-        # 1. The grid and the axes at the board's centre.
-        held = [e for e in log if e["valid"] and e["segment"] in ("settle", "calm", "focus") and e["axes"] and e["lens"]]
-        self.assertTrue(held, "no held, posed frame with axes")
-        errors = []
-
-        for e in held:
-            u, v = project([85, 115, 0], e["R"], e["t"], e["lens"]["f"], e["lens"]["cx"], e["lens"]["cy"], e["lens"]["k1"])
-            errors.append(math.hypot(e["axes"][0] - u, e["axes"][1] - v))
-
-        errors.sort()
-        say("axes origin vs projection of (85, 115): median %.2f px, worst %.2f px over %d held frames" % (
-            errors[len(errors) // 2], errors[-1], len(errors)))
-        self.assertLess(errors[len(errors) // 2], AXES_PX, "the axes are not at the board's centre")
+        # 1. No axes (SHOW_AXES off, T-0340); the map and the angle line hidden, the advice shown.
+        self.assertFalse(any(e["axes"] for e in log), "the axes are drawn")
+        shown = json.loads(angle_text)
+        say("guide panel %s" % shown)
+        self.assertTrue(shown["map"] and shown["angle"], "the coverage map or the angle line is shown")
+        self.assertTrue(shown["advice"], "no advice shown")
         # Since T-0333 the phone draws red points on the corners its pose was solved from and blue
         # lines between neighbours, instead of the faint full-board grid.
         self.assertEqual(max(e["gridLines"] for e in log), 0, "the faint grid is still drawn on the phone")

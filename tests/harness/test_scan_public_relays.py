@@ -16,9 +16,10 @@ user found that it did not connect. These tests take that path, with nothing loc
 Since T-0337 the studio's half of the scanner is the scan page, which the studio opens in a modal
 iframe: over http://localhost it is the scan page beside the studio, same-origin, so the tests read
 it (its video, and the relay sockets it opened) through scanner_frame.py; the instrumentation below
-runs in every frame of the tab, the iframe's included. From file:// the studio opens the PUBLISHED
-scan page, https://houseki.app/scanner/embed.html (a file has no site of its own to serve it), so
-that test checks it does and skips the pairing until the published site has the page.
+runs in every frame of the tab, the iframe's included. From file:// the studio opens the scan page
+beside it in the same build (since T-0344; the published one until then), in a frame that is
+another origin than the studio's (every file page's is 'null'), so that test checks it does and
+skips the pairing, which needs that frame driven from outside (T-0338).
 
 Each test records, in both tabs, every relay websocket (instrumented before the page's scripts run):
 when it opened, what it refused, and how many events it delivered. It prints how long pairing took
@@ -177,7 +178,7 @@ class PublicRelayPairingTest(unittest.TestCase):
         self.click("#menu-item-rough-scan")
         self.studio.wait_for_expression("!!document.querySelector('#houseki-scanner iframe')", timeout=20)
 
-        # From a file, the scan page is the published one, in another site's frame (see the header).
+        # From a file, the scan page is in a frame of another origin (see the header).
         if not self.studio.evaluate("location.protocol").startswith("http"):
             return None
 
@@ -273,17 +274,16 @@ class PublicRelayPairingTest(unittest.TestCase):
     def test_pairs_over_public_relays_from_file_pages(self):
         """The user's own setup: studio and phone page both opened from file://.
 
-        Setup: the studio opened from build/www/studio.html as a file. Since T-0337 its scanner is
-        the published scan page, https://houseki.app/scanner/embed.html, in the modal (a file has
-        no site to serve one). Test: Tools > Rough scan. Verifies the modal opens that page.
-        Until the published site has it, the test stops there (skipped, saying so); pairing
-        through it needs the scanner's iframe driven as another site's (test_scanner_embed.py
-        does that for a partner page) and is left to T-0338.
+        Setup: the studio opened from build/www/studio.html as a file. Since T-0344 its scanner is
+        the scan page beside it, build/www/scanner/embed.html (the published one until then), in
+        a frame of another origin. Test: Tools > Rough scan. Verifies the modal opens that page.
+        The test stops there (skipped, saying so): pairing through it needs the scanner's frame
+        driven from outside, and is left to T-0338 (test_scan_mode.py checks the session starts).
         """
         self.assertIsNone(self.open_rough_scan(pathlib.Path(STUDIO_PAGE).as_uri()))
         self.assertEqual(self.studio.evaluate("document.querySelector('#houseki-scanner iframe').src"),
-                         "https://houseki.app/scanner/embed.html")
-        self.skipTest("pairing from file:// goes through the published scan page: T-0338")
+                         pathlib.Path(STUDIO_PAGE).parent.joinpath("scanner", "embed.html").as_uri())
+        self.skipTest("pairing from file:// goes through a scan page in another origin's frame: T-0338")
 
 
 @unittest.skipUnless(ENABLED, "opt-in: set GEM_TEST_PUBLIC_RELAYS=1 to test against the real public relays")

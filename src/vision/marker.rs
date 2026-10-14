@@ -37,16 +37,62 @@ pub struct CellParams {
     pub margin_rate: f64,
     /// minOtsuStdDev (5.0).
     pub min_otsu_std: f64,
+    /// The phone's fast path (T-0340): the square-to-candidate map in closed form (square_to_quad)
+    /// instead of OpenCV's getPerspectiveTransform (an 8 x 9 SVD, as opencv.js runs it) and its
+    /// inverse. The same map to rounding, ~50x cheaper; a sample landing within rounding of a
+    /// pixel boundary can pick the neighbouring pixel, so the readings are not opencv.js's bit
+    /// for bit. False: OpenCV's exact arithmetic.
+    pub closed_form: bool,
+}
+
+impl CellParams {
+    /// The desktop's tuning (8 px per cell, 30% margin, Otsu from a std of 5), OpenCV's arithmetic.
+    pub const DESKTOP: CellParams = CellParams { pixel_per_cell: 8, margin_rate: 0.3, min_otsu_std: 5.0, closed_form: false };
+}
+
+/// The projective map from the square [0, last]^2 onto `corners` (square corner k to corners[k],
+/// clockwise from the top-left), in closed form (Heckbert's square-to-quadrilateral mapping), as
+/// a row-major 3 x 3 matrix taking square pixels to frame pixels; None for a degenerate quad.
+pub fn square_to_quad(corners: &[Pt; 4], last: f64) -> Option<[f64; 9]> {
+    let [x0, x1, x2, x3] = corners.map(|p| p.x as f64);
+    let [y0, y1, y2, y3] = corners.map(|p| p.y as f64);
+    let sx = x0 - x1 + x2 - x3;
+    let sy = y0 - y1 + y2 - y3;
+    let (g, h) = if sx == 0.0 && sy == 0.0 {
+        (0.0, 0.0)
+    } else {
+        let (dx1, dx2, dy1, dy2) = (x1 - x2, x3 - x2, y1 - y2, y3 - y2);
+        let den = dx1 * dy2 - dx2 * dy1;
+
+        if den == 0.0 {
+            return None;
+        }
+
+        ((sx * dy2 - dx2 * sy) / den, (dx1 * sy - sx * dy1) / den)
+    };
+    let (a, b, d, e) = (x1 - x0 + g * x1, x3 - x0 + h * x3, y1 - y0 + g * y1, y3 - y0 + h * y3);
+
+    if (a * e - b * d).abs() < 1e-12 {
+        return None;
+    }
+
+    Some([a / last, b / last, x0, d / last, e / last, y0, g / last, h / last, 1.0])
 }
 
 /// warpPerspective(grey, dst, M, (size, size), INTER_NEAREST, BORDER_CONSTANT 0) where M maps the
 /// candidate's corners to the square's: every square pixel looks up the frame pixel M⁻¹ puts it
 /// on.
-fn warp_nearest(grey: &Gray, corners: &[Pt; 4], size: usize, out: &mut Vec<u8>) -> bool {
+fn warp_nearest(grey: &Gray, corners: &[Pt; 4], size: usize, closed_form: bool, out: &mut Vec<u8>) -> bool {
     let last = (size - 1) as f32;
-    let square = [Pt::new(0.0, 0.0), Pt::new(last, 0.0), Pt::new(last, last), Pt::new(0.0, last)];
-    let Some(m) = perspective_from_quads(corners, &square) else { return false };
-    let Some(m) = invert3(&m) else { return false };
+    let m = if closed_form {
+        let Some(m) = square_to_quad(corners, last as f64) else { return false };
+        m
+    } else {
+        let square = [Pt::new(0.0, 0.0), Pt::new(last, 0.0), Pt::new(last, last), Pt::new(0.0, last)];
+        let Some(m) = perspective_from_quads(corners, &square) else { return false };
+        let Some(m) = invert3(&m) else { return false };
+        m
+    };
     out.clear();
     out.resize(size * size, 0);
     let (w, h) = (grey.width as i64, grey.height as i64);
@@ -140,7 +186,7 @@ pub fn cell_ratios(grey: &Gray, corners: &[Pt; 4], params: &CellParams, scratch:
     let cell = params.pixel_per_cell;
     let size = CELLS * cell;
 
-    if !warp_nearest(grey, corners, size, scratch) {
+    if !warp_nearest(grey, corners, size, params.closed_form, scratch) {
         return None;
     }
 
@@ -228,12 +274,12 @@ pub fn inner_cells(ratios: &[f32; CELLS * CELLS]) -> [f32; 16] {
 #[cfg(test)]
 pub(crate) mod tests {
     use super::*;
-    use crate::dictionary::{identify, MarkerTable, DICT_4X4_250};
+    use crate::dictionary::{identify, MarkerTable, DICT_4X4_1000};
 
     // A marker drawn axis-aligned: `cell` px per cell, ink 30, paper 220, at (x0, y0), on paper.
     pub(crate) fn draw_marker(width: usize, height: usize, id: usize, x0: usize, y0: usize, cell: usize) -> Gray {
         let mut img = Gray::filled(width, height, 220);
-        let code = DICT_4X4_250[id];
+        let code = DICT_4X4_1000[id];
 
         for cy in 0..6 {
             for cx in 0..6 {
@@ -276,7 +322,7 @@ pub(crate) mod tests {
         // and the warp's corner convention (corner k to the square's corner k).
         let img = draw_marker(100, 100, 97, 20, 20, 10);
         let c = [Pt::new(20.0, 20.0), Pt::new(79.0, 20.0), Pt::new(79.0, 79.0), Pt::new(20.0, 79.0)];
-        let params = CellParams { pixel_per_cell: 8, margin_rate: 0.3, min_otsu_std: 5.0 };
+        let params = CellParams::DESKTOP;
         let table = MarkerTable::for_ids(195);
         let mut scratch = Vec::new();
         let mut rotations = Vec::new();
@@ -295,12 +341,48 @@ pub(crate) mod tests {
     }
 
     #[test]
+    fn the_closed_form_square_map_is_opencvs_perspective_inverted() {
+        // Setup: four candidate quads -- a square, a rotated one, one in strong perspective, and a
+        // sliver of a far marker -- and the 47 px square a candidate is read through.
+        // Test: the closed-form map (square_to_quad, the fast path's) against OpenCV's
+        // getPerspectiveTransform from the quad to the square, inverted (the exact path's), both
+        // scaled to m[8] = 1; and each map applied to the square's corners.
+        // Verifies: the two agree to 1e-9 relative in every coefficient, and the closed form takes
+        // square corner k to quad corner k: the same warp, without the SVD.
+        let quads = [
+            [Pt::new(10.0, 10.0), Pt::new(60.0, 10.0), Pt::new(60.0, 60.0), Pt::new(10.0, 60.0)],
+            [Pt::new(40.0, 5.0), Pt::new(75.0, 40.0), Pt::new(40.0, 75.0), Pt::new(5.0, 40.0)],
+            [Pt::new(100.0, 50.0), Pt::new(180.0, 62.0), Pt::new(170.0, 101.0), Pt::new(95.0, 88.0)],
+            [Pt::new(300.5, 200.25), Pt::new(311.75, 200.5), Pt::new(311.0, 204.0), Pt::new(300.0, 203.5)],
+        ];
+        let last = 47.0f32;
+        let square = [Pt::new(0.0, 0.0), Pt::new(last, 0.0), Pt::new(last, last), Pt::new(0.0, last)];
+
+        for q in &quads {
+            let fast = square_to_quad(q, last as f64).unwrap();
+            let exact = invert3(&perspective_from_quads(q, &square).unwrap()).unwrap();
+
+            for k in 0..9 {
+                let e = exact[k] / exact[8];
+                assert!((fast[k] - e).abs() <= 1e-9 * (1.0 + e.abs()), "coefficient {k}: {} vs {e}", fast[k]);
+            }
+
+            for (c, p) in square.iter().zip(q) {
+                let w = fast[6] * c.x as f64 + fast[7] * c.y as f64 + fast[8];
+                let x = (fast[0] * c.x as f64 + fast[1] * c.y as f64 + fast[2]) / w;
+                let y = (fast[3] * c.x as f64 + fast[4] * c.y as f64 + fast[5]) / w;
+                assert!((x - p.x as f64).abs() < 1e-9 && (y - p.y as f64).abs() < 1e-9);
+            }
+        }
+    }
+
+    #[test]
     fn a_uniform_patch_reads_as_all_black_or_all_white() {
         // Setup: a plain paper image and a plain ink image, and a candidate square on each.
         // Test: cell_ratios.
         // Verifies: below minOtsuStdDev every cell is 1 (bright) or 0 (dark), as OpenCV does,
         // so a blank square fails on its border (36 x white) and a black square on its bits.
-        let params = CellParams { pixel_per_cell: 8, margin_rate: 0.3, min_otsu_std: 5.0 };
+        let params = CellParams::DESKTOP;
         let corners = [Pt::new(10.0, 10.0), Pt::new(50.0, 10.0), Pt::new(50.0, 50.0), Pt::new(10.0, 50.0)];
         let mut scratch = Vec::new();
         let paper = cell_ratios(&Gray::filled(64, 64, 220), &corners, &params, &mut scratch).unwrap();

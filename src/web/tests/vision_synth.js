@@ -5,8 +5,8 @@
  *
  * HOW A FRAME IS MADE
  *   1. boardImage(): the board as printed, from OpenCV's own CharucoBoard.generateImage, with a
- *      white paper margin, the spec's removed markers blanked and its centre target drawn (the
- *      target's cells painted white, its grey rings and its dots), at `pps` pixels per square.
+ *      white paper margin, in the board's colours with its grey spirals (T-0340), at `pps` pixels
+ *      per square.
  *   2. makeFrame(): that image warped by a homography into a camera frame (a perspective view of
  *      the board, given as where the chessboard's four outer corners land), rendered at twice the
  *      size and reduced with INTER_AREA so edges are anti-aliased, on a dark "table". Optional
@@ -65,8 +65,8 @@ function homographyFrom(cv, from, to) {
   return values;
 }
 
-/** Marker id -> its square [row, col], for the current (non-legacy) pattern: markers sit on the
- *  white squares, (row + col) odd, numbered row-major. */
+/** Marker index -> its square [row, col], for the current (non-legacy) pattern: markers sit on the
+ *  light squares, (row + col) odd, numbered row-major. */
 export function markerSquares(spec) {
   const squares = [];
 
@@ -85,53 +85,63 @@ export function markerSquares(spec) {
 
 /**
  * The printed board as a grey image: { image (CV_8UC1, caller deletes), pps, margin } with `margin`
- * squares of white paper round the chessboard. Ink 25, paper 235.
+ * squares of white paper round the chessboard. The chessboard is OpenCV's own CharucoBoard image,
+ * with the board's marker ids (its `first_marker_id` onwards, T-0340), in its colours (`colours`:
+ * dark squares and ink, light squares) and with its grey spirals in the dark squares (`spiral`);
+ * removed markers are blanked. Then as a camera sees a print, not pure black and white: every
+ * level v becomes 25 + v x 210 / 255 (black ink 25, white paper 235).
  */
 export function boardImage(cv, spec, { pps = 40, margin = 1 } = {}) {
   const ratio = spec.marker_mm && spec.square_mm ? spec.marker_mm / spec.square_mm : spec.marker_ratio;
   const dictionary = cv.getPredefinedDictionary(cv[spec.dictionary]);
-  const noIds = new cv.Mat();
-  const board = new cv.aruco_CharucoBoard(new cv.Size(spec.squares_x, spec.squares_y), 1, ratio, dictionary, noIds);
+  const count = Math.floor((spec.squares_x * spec.squares_y) / 2);
+  const first = spec.first_marker_id ?? 0;
+  const ids = first ? cv.matFromArray(count, 1, cv.CV_32S, Array.from({ length: count }, (_, k) => first + k)) : new cv.Mat();
+  const board = new cv.aruco_CharucoBoard(new cv.Size(spec.squares_x, spec.squares_y), 1, ratio, dictionary, ids);
   board.setLegacyPattern(Boolean(spec.legacy));
   const chess = new cv.Mat();
   board.generateImage(new cv.Size(spec.squares_x * pps, spec.squares_y * pps), chess, 0, 1);
   board.delete();
   dictionary.delete();
-  noIds.delete();
+  ids.delete();
 
-  const white = new cv.Scalar(255);
-  const black = new cv.Scalar(0);
   const squares = markerSquares(spec);
 
-  // Removed markers: their white square stays, the marker is not printed.
+  // Removed markers: their light square stays, the marker is not printed.
   for (const id of spec.removed_marker_ids ?? []) {
     const [row, col] = squares[id];
-    cv.rectangle(chess, new cv.Point(col * pps, row * pps), new cv.Point((col + 1) * pps - 1, (row + 1) * pps - 1), white, -1);
+    cv.rectangle(chess, new cv.Point(col * pps, row * pps), new cv.Point((col + 1) * pps - 1, (row + 1) * pps - 1), new cv.Scalar(255), -1);
   }
 
-  // The centre target, as board.py's sheet maker describes it in the spec (mm, X down, Y right).
-  const target = spec.target;
+  // The colours: OpenCV's black is the board's dark, its white the light.
+  const dark = spec.colours?.dark_srgb ?? 0;
+  const light = spec.colours?.light_srgb ?? 255;
+  chess.convertTo(chess, -1, (light - dark) / 255, dark);
+
+  // The spirals: each dark square's 4 x 4 grid of grey cells (mm, X down the rows, Y right).
+  const spiral = spec.spiral;
   const mm = pps / spec.square_mm;
 
-  if (target && target.cells_row_col?.length) {
-    const [x0, x1] = target.x_range_mm;
-    const [y0, y1] = target.y_range_mm;
-    cv.rectangle(chess, new cv.Point(Math.round(y0 * mm), Math.round(x0 * mm)), new cv.Point(Math.round(y1 * mm) - 1, Math.round(x1 * mm) - 1), white, -1);
-    const [cxMm, cyMm] = target.centre_mm;
-    const centre = new cv.Point(Math.round(cyMm * mm), Math.round(cxMm * mm));
+  if (spiral) {
+    for (let row = 0; row < spec.squares_y; row += 1) {
+      for (let col = 0; col < spec.squares_x; col += 1) {
+        if ((row + col) % 2 !== 0) {
+          continue;
+        }
 
-    for (const diameter of target.rings_diameter_mm ?? []) {
-      cv.circle(chess, centre, Math.round((diameter / 2) * mm), new cv.Scalar(target.ring_grey ?? 150), Math.max(1, Math.round(0.6 * mm)));
-    }
-
-    for (const [x, y] of target.dots_mm ?? []) {
-      cv.circle(chess, new cv.Point(Math.round(y * mm), Math.round(x * mm)), Math.max(1, Math.round(((target.dot_diameter_mm ?? 0.6) / 2) * mm)), black, -1);
+        spiral.levels_srgb.forEach((cells, i) => cells.forEach((grey, j) => {
+          const x0 = row * spec.square_mm + spiral.origin_mm + i * spiral.cell_mm;
+          const y0 = col * spec.square_mm + spiral.origin_mm + j * spiral.cell_mm;
+          cv.rectangle(chess, new cv.Point(Math.round(y0 * mm), Math.round(x0 * mm)),
+            new cv.Point(Math.round((y0 + spiral.cell_mm) * mm) - 1, Math.round((x0 + spiral.cell_mm) * mm) - 1), new cv.Scalar(grey), -1);
+        }));
+      }
     }
   }
 
   const image = new cv.Mat();
   const border = margin * pps;
-  cv.copyMakeBorder(chess, image, border, border, border, border, cv.BORDER_CONSTANT, white);
+  cv.copyMakeBorder(chess, image, border, border, border, border, cv.BORDER_CONSTANT, new cv.Scalar(255));
   chess.delete();
   // Ink and paper as a camera sees them, not pure black and white.
   image.convertTo(image, -1, (235 - 25) / 255, 25);

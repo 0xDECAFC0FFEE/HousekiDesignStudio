@@ -11,7 +11,7 @@
 //   polygon.rs    approxPolyDP, isContourConvex, pointPolygonTest
 //   linalg.rs     LU solve, getPerspectiveTransform, invert, perspectiveTransform, homography fits
 //   marker.rs     a candidate's bits (warp, Otsu, cell ratios, border errors)
-//   dictionary.rs DICT_4X4_250, with the board's markers in a look-up table
+//   dictionary.rs DICT_4X4_1000, with the boards' markers in a look-up table
 //   aruco.rs      marker detection and refineDetectedMarkers
 //   subpix.rs     cornerSubPix and getRectSubPix
 //   charuco.rs    the ChArUco board, corner interpolation and refinement
@@ -49,19 +49,22 @@ use wasm_bindgen::prelude::*;
 use board::{BoardDetector, FrameOptions};
 use gray::Gray;
 
-/// The ChArUco detector for one board (current pattern, DICT_4X4_250), kept across frames.
+/// The ChArUco detector for one board layout (current pattern, DICT_4X4_1000), printed with one or
+/// more runs of marker ids (set_boards), kept across frames.
 #[wasm_bindgen]
 pub struct CharucoDetector {
     inner: BoardDetector,
     /// The region the next detect() looks in (set_roi), then cleared.
     roi: Option<(usize, usize, usize, usize)>,
+    /// The marker side as a share of a square (for set_boards).
+    ratio: f32,
 }
 
 #[wasm_bindgen]
 impl CharucoDetector {
     /// A detector for a `squares_x` x `squares_y` board whose markers are `marker_ratio` of a
-    /// square. The board's markers must all be in DICT_4X4_250 (at most 250); larger boards are
-    /// refused.
+    /// square, printing dictionary ids from 0 (set_boards changes which). The board's markers must
+    /// all be in DICT_4X4_1000 (at most 1000); larger boards are refused.
     #[wasm_bindgen(constructor)]
     pub fn new(squares_x: u32, squares_y: u32, marker_ratio: f32) -> Result<CharucoDetector, JsError> {
         let (sx, sy) = (squares_x as usize, squares_y as usize);
@@ -70,11 +73,29 @@ impl CharucoDetector {
             return Err(JsError::new("a ChArUco board needs at least 2 x 2 squares and a marker ratio between 0 and 1"));
         }
 
-        if (sx * sy) / 2 > dictionary::DICT_4X4_250.len() {
-            return Err(JsError::new("this board has more markers than DICT_4X4_250"));
+        if (sx * sy) / 2 > dictionary::DICT_4X4_1000.len() {
+            return Err(JsError::new("this board has more markers than DICT_4X4_1000"));
         }
 
-        Ok(CharucoDetector { inner: BoardDetector::new(sx, sy, marker_ratio), roi: None })
+        Ok(CharucoDetector { inner: BoardDetector::new(sx, sy, marker_ratio), roi: None, ratio: marker_ratio })
+    }
+
+    /// The boards this layout is printed as (T-0340): board b's marker k is dictionary id
+    /// first_ids[b] + k; dictionary ids in `unreadable` are never read (printed markers whose code
+    /// something else on the boards reads as too). Each frame is read as the board most of its
+    /// markers belong to, and detect() says which. Resets the other settings to their defaults
+    /// (configure, set_fast, set_try_refine and set_removed come after).
+    pub fn set_boards(&mut self, first_ids: &[u32], unreadable: &[u32]) -> Result<(), JsError> {
+        let count = self.inner.board.marker_count();
+        let ids: Vec<usize> = first_ids.iter().map(|&i| i as usize).collect();
+
+        if ids.is_empty() || ids.iter().any(|&f| f + count > dictionary::DICT_4X4_1000.len()) {
+            return Err(JsError::new("each board's markers must be within DICT_4X4_1000"));
+        }
+
+        let unreadable: Vec<usize> = unreadable.iter().map(|&i| i as usize).collect();
+        self.inner = BoardDetector::for_boards(self.inner.board.squares_x, self.inner.board.squares_y, self.ratio, &ids, &unreadable);
+        Ok(())
     }
 
     /// The phone's fast path (T-0332), or OpenCV's exact behaviour (false, the default): when on,
@@ -83,6 +104,23 @@ impl CharucoDetector {
     /// many corners or more, as accurate; board_detect.js FAST_PATH).
     pub fn set_fast(&mut self, enabled: bool) {
         self.set_fast_parts(true, enabled);
+        self.set_closed_form_warp(enabled);
+        self.set_layout_check(enabled);
+    }
+
+    /// Drop markers that sit where the rest of the board says another marker is, before the
+    /// refinement and the corners (T-0340, board.rs drop_misplaced_markers): the phone's fast path
+    /// (false: OpenCV's, which has no such step).
+    pub fn set_layout_check(&mut self, enabled: bool) {
+        self.inner.layout_check = enabled;
+    }
+
+    /// Read each candidate through its square-to-quad map in closed form (T-0340, marker.rs
+    /// square_to_quad) instead of OpenCV's SVD perspective: the phone's fast path (false: OpenCV's).
+    /// Measured on the 512 real frames of the three boards: the same markers and corners to
+    /// 0.0000 px, 8% less time.
+    pub fn set_closed_form_warp(&mut self, enabled: bool) {
+        self.inner.aruco.params.cells.closed_form = enabled;
     }
 
     /// The fast path's parts one by one (for measuring them): `retry_close` (OpenCV: true; false
@@ -100,10 +138,10 @@ impl CharucoDetector {
     }
 
     /// What the last detect() did: [raw candidates, after filterTooClose, cell readings to
-    /// identify, readings in the refinement].
+    /// identify, readings in the refinement, markers dropped by the layout check].
     pub fn last_stats(&self) -> Vec<u32> {
         let s = self.inner.aruco.stats;
-        vec![s.raw as u32, s.selected as u32, s.identify_reads as u32, s.refine_reads as u32]
+        vec![s.raw as u32, s.selected as u32, s.identify_reads as u32, s.refine_reads as u32, self.inner.misplaced as u32]
     }
 
     /// The parameters for the desktop's marker-size factor m (board_detect.js
@@ -136,7 +174,10 @@ impl CharucoDetector {
     ///
     ///   [workWidth, workHeight, anyMarker (0/1), markerPx (NaN: none),
     ///    markerCount, then per marker: id, x0, y0, x1, y1, x2, y2, x3, y3,
-    ///    cornerCount, then per corner: id, x, y, markers (1 or 2), sharpness (NaN: not measured)]
+    ///    cornerCount, then per corner: id, x, y, markers (1 or 2), sharpness (NaN: not measured),
+    ///    board (the index into set_boards' list the markers are of; -1: no marker)]
+    ///
+    /// Marker ids are indices on the board (0 .. count - 1), whichever board it is.
     #[allow(clippy::too_many_arguments)]
     pub fn detect(
         &mut self,
@@ -244,6 +285,7 @@ pub fn pack(r: &board::FrameResult) -> Vec<f64> {
         out.extend([c.id as f64, c.x, c.y, c.markers as f64, c.sharpness]);
     }
 
+    out.push(r.board.map_or(-1.0, |b| b as f64));
     out
 }
 

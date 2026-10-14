@@ -5,8 +5,7 @@
 //
 //   frame --board_detect.js--> BoardDetection --pose.js--> CameraPose --outline.js--> RockOutline
 //                                    |                         |
-//                 |                  +--intrinsics.js (live K)-+
-//                 +--board_fit.js (is it our board?)
+//                                    +--intrinsics.js (live K)-+
 //
 // and holds what they need between frames: the live intrinsics, the last outline
 // (with the pose of the frame it was found on, so the page can carry it along with the board). The
@@ -24,19 +23,15 @@
 // (types.js's convention), whatever the processing size. The outline reads the frame itself from
 // `source` (the <video>), at full resolution, on the GPU.
 //
-// THE BOARD. The phone supports one printed board, board_frame.BOARD_NAME (the strip sheet; the
-// user, 2026-10-07, T-0335: "we don't need to support any board other than" it). Another ChArUco
-// board with the same markers is read all the same, but its markers sit elsewhere, and taking it
-// for ours garbles its corners, fails every pose and drags the lens estimate far off. So every
-// detection is checked against our board's layout (board_fit.js) first. A frame whose markers do
-// not fit it is a WRONG BOARD frame: no pose, no lens view, no outline, nothing tracked from it, and
-// the result says so (`board.wrong`) for the page to tell the person. A board found not to fit
-// stays so for WRONG_BOARD_HOLD_MS over frames too few or too unclear to judge (few markers in
-// view, or a patch where the two layouts happen to agree), or until a frame clearly fits.
+// THE BOARDS (T-0340). The scanner has three printed boards, one per kind of rough, of one layout
+// (board_frame.js). The detector reads all three and names the one in view; the geometry (pose,
+// lens, tracking, guidance) is the same for each, and only the rock's outline, which predicts what
+// the bare board looks like, needs its colours: its finder is made for the board in view, and made
+// again when another board comes into view. The board named last is the result's `sheet.name`.
+// Markers from the older boards (DICT_4X4_250 ids 0-249) are not read at all.
 
-import { BOARD_NAME, BOARD_SPEC, boardSizeMm } from './board_frame.js';
+import { BOARD_LIST, BOARD_NAME, BOARD_SPEC, BOARD_SPECS, boardSizeMm } from './board_frame.js';
 import { createBoardDetector } from './board_detect.js';
-import { boardFit } from './board_fit.js';
 import { renderBoardTexture } from './board_texture.js';
 import { createIntrinsicsEstimator, guessIntrinsics } from './intrinsics.js';
 import { createOutlineFinder } from './outline.js';
@@ -49,18 +44,6 @@ import { createFocusMeter } from './focus.js';
 
 /** An outline older than this (ms of frame time) is not drawn or sent. */
 export const OUTLINE_MAX_AGE_MS = 1000;
-
-/**
- * After a frame whose markers do not fit our board, how long (ms of frame time) frames that cannot
- * be judged are taken to show the same wrong board; a frame that clearly fits ends it at once.
- * Long, because a close-up of another board can go many seconds with too few markers to judge, or
- * with only a patch where its layout and ours agree up to a shift (then even a pose is found, at the
- * wrong place on the board): on the scanner's 2x-zoom reference clip, a 3 s hold left 37% of the
- * frames saying "hold the phone steady" and 7 posed. Our board never gives a wrong verdict
- * (T-0335: its share of agreeing markers stayed >= 0.86 against the 0.6 a wrong verdict needs), so
- * the hold never touches it.
- */
-export const WRONG_BOARD_HOLD_MS = 15000;
 
 /**
  * @param {any} cv  OpenCV (vision/opencv.js loadOpenCv), for the pose and the intrinsics
@@ -80,7 +63,7 @@ export function createLiveVision(cv, options) {
   // The phone's fast detection path (T-0332; board_detect.js FAST_PATH) and a region round the rock
   // (region.js), unless asked for the exact one (`fastDetection: false`).
   const fastDetection = options.fastDetection ?? true;
-  const detector = createBoardDetector(options.vision, spec, { processingScale: 1, fast: fastDetection });
+  const detector = createBoardDetector(options.vision, spec, { processingScale: 1, fast: fastDetection, boards: BOARD_LIST });
   const intrinsics = createIntrinsicsEstimator(cv, spec, options.frameSize, {
     camera: options.camera ?? null,
     device: options.device ?? null,
@@ -89,8 +72,12 @@ export function createLiveVision(cv, options) {
   // `poseMaxRmsPx`: for the harness only (T-0335 follow-up), a residual limit tighter than any pose
   // meets, so it can see what the phone shows of a board whose every pose fails.
   const solver = createPoseSolver(cv, spec, options.poseMaxRmsPx ? { maxRmsPx: options.poseMaxRmsPx } : {});
+  // The outline's finder, for the board `finderBoard` (its colours are in the predicted board).
   let finder = null;
+  let finderBoard = null;
   let finderFailed = null;
+  // The board in view: the name the last detection with markers gave (BOARD_NAME before any).
+  let boardName = BOARD_NAME;
   let lastOutline = null;
   // The pose of the frame the last outline was found on: { R, t, intrinsics }.
   let lastOutlinePose = null;
@@ -103,8 +90,6 @@ export function createLiveVision(cv, options) {
   let latestPose = null;
   let lastFullAt = -Infinity;
   let lastFound = false;
-  // Until when (frame time) unclear frames are taken to show the wrong board (WRONG_BOARD_HOLD_MS).
-  let wrongUntil = -Infinity;
   let disposed = false;
   // The scan guidance (T-0331, guidance.js): the rock's position, the camera's angle around it,
   // coverage, and the per-frame conditions behind the phone's warnings, with the focus and glare at
@@ -113,17 +98,22 @@ export function createLiveVision(cv, options) {
   const scanGuide = createScanGuide({ targetMm, sizeMm: boardSizeMm(spec) });
   const focusMeter = createFocusMeter();
 
-  function outlineFinder() {
+  function outlineFinder(name = boardName) {
     if (!options.glCanvas || finderFailed) {
       return null;
     }
 
-    if (finder) {
+    if (finder && finderBoard === name) {
       return finder;
     }
 
+    // Another board in view: its own predicted board (rare: one board is used per scan).
+    finder?.dispose();
+    finder = null;
+
     try {
-      finder = createOutlineFinder(options.glCanvas, spec, options.outline ?? {});
+      finder = createOutlineFinder(options.glCanvas, BOARD_SPECS[name] ?? spec, options.outline ?? {});
+      finderBoard = name;
     } catch (error) {
       // No WebGL2 or no half-float targets: the board and pose still work.
       finderFailed = String(error?.message ?? error);
@@ -162,8 +152,9 @@ export function createLiveVision(cv, options) {
   }
 
   /** The board as the message and the overlay describe it (the vision message's `board.sheet`,
-   *  `targetMm` and `sizeMm`). */
-  const sheet = Object.freeze({ name: BOARD_NAME, targetMm, sizeMm: boardSizeMm(spec) });
+   *  `targetMm` and `sizeMm`), for the board in view. */
+  const sheets = Object.fromEntries(BOARD_LIST.map((board) => [board.name, Object.freeze({ name: board.name, targetMm, sizeMm: boardSizeMm(board) })]));
+  const sheetNow = () => sheets[boardName] ?? sheets[BOARD_NAME];
 
   /**
    * Runs one frame.
@@ -179,13 +170,15 @@ export function createLiveVision(cv, options) {
    *        size, `trackScale` x the frame (T-0332); without it the tracker uses `image`
    * @param {{ R, t }|null} [input.predicted]  the overlay's predicted pose for this frame (T-0332):
    *        where the board's region is looked for
-   * @returns {object} { frame, detection, board ({ fit, wrong, markers, agreeing, share }: how the
-   *          markers fit our board, board_fit.js, and whether this frame is taken to show another
-   *          board), pose, intrinsics, calibration, outline, outlinePose (the pose of the outline's own
-   *          frame: { R, t, intrinsics }), outlineFresh, sheet, guide (guidance.js createScanGuide's
-   *          observe), region (frame px, or null: the whole frame), timings }
+   * @param {(pose: object) => void} [input.onPose]  called with the frame's pose (a CameraPose, valid
+   *        or not) as soon as it is solved, before the lens, the outline and the guidance (T-0340):
+   *        the overlay needs only the pose, so the page can draw with it that much sooner
+   * @returns {object} { frame, detection, pose, intrinsics, calibration, outline, outlinePose (the
+   *          pose of the outline's own frame: { R, t, intrinsics }), outlineFresh, sheet (the board
+   *          in view), guide (guidance.js createScanGuide's observe), region (frame px, or null: the
+   *          whole frame), timings }
    */
-  function processFrame({ image, scale, frame, source = null, outline: wantOutline = false, trackImage = null, trackScale = null, predicted = null }) {
+  function processFrame({ image, scale, frame, source = null, outline: wantOutline = false, trackImage = null, trackScale = null, predicted = null, onPose = null }) {
     if (disposed) {
       throw new Error('live vision used after dispose()');
     }
@@ -214,30 +207,26 @@ export function createLiveVision(cv, options) {
     };
     const t1 = performance.now();
 
-    // Do the markers fit our board? A wrong verdict starts (or renews) the hold; a clear fit ends it.
-    const fit = boardFit(detection, spec);
-
-    if (fit.verdict === 'wrong') {
-      wrongUntil = frame.timeMs + WRONG_BOARD_HOLD_MS;
-    } else if (fit.verdict === 'fits') {
-      wrongUntil = -Infinity;
+    // The board in view (T-0340), kept over frames that find no marker.
+    if (detection.board && BOARD_SPECS[detection.board]) {
+      boardName = detection.board;
     }
 
-    const wrong = fit.verdict === 'wrong' || (fit.verdict === 'unsure' && detection.markers.length > 0 && frame.timeMs < wrongUntil);
-    const board = { fit: fit.verdict, wrong, markers: fit.markers, agreeing: fit.agreeing, share: fit.share };
     const tf = performance.now();
     const K = intrinsics.current();
-    const pose = detection.recognised && !wrong ? solver.solve(detection, K) : null;
+    const pose = detection.recognised ? solver.solve(detection, K) : null;
     const t2 = performance.now();
+
+    if (pose && onPose) {
+      onPose(pose);
+    }
+
 
     // Every detection feeds the lens's calibration, a region's too: with detections spaced out
     // while tracking and most of them regions, whole frames alone gathered its views several times
     // slower (an end-to-end run read "1 of 30 views" after 30 s). The whole frame each second still
-    // brings corners from the picture's edges, where the distortion shows. Never another board's:
-    // its garbled corners seeded focal lengths several times too short (T-0335).
-    if (!wrong) {
-      intrinsics.addDetection(detection, pose?.valid ? pose : null);
-    }
+    // brings corners from the picture's edges, where the distortion shows.
+    intrinsics.addDetection(detection, pose?.valid ? pose : null);
 
     if (!region) {
       lastFullAt = frame.timeMs;
@@ -283,7 +272,6 @@ export function createLiveVision(cv, options) {
     return {
       frame: detection.frame,
       detection,
-      board,
       pose,
       intrinsics: intrinsics.current(),
       calibration: intrinsics.status(),
@@ -291,7 +279,7 @@ export function createLiveVision(cv, options) {
       outlinePose: outlineShown ? lastOutlinePose : null,
       outlineFresh,
       outlineError: finderFailed,
-      sheet,
+      sheet: sheetNow(),
       guide,
       kind: 'detect',
       // The region searched (frame px), or null for the whole frame (T-0332).
@@ -337,7 +325,7 @@ export function createLiveVision(cv, options) {
       kind: 'track',
       frame: { width: frame.width, height: frame.height, timeMs: frame.timeMs },
       pose: out.pose,
-      sheet,
+      sheet: sheetNow(),
       track: { tracked: out.tracked, kept: out.kept, reason: out.reason },
       timings: { trackMs: out.trackMs, poseMs: out.poseMs, totalMs: performance.now() - t0 },
     };
@@ -370,7 +358,6 @@ export function createLiveVision(cv, options) {
     try {
       for (let round = 0; round < 3; round += 1) {
         const detection = warmDetector.detect(image, { ...size, timeMs: round * 300 });
-        boardFit(detection, spec);
         await pause();
         const pose = detection.recognised ? warmSolver.solve(detection, K) : null;
         warmIntrinsics.addDetection(detection, null);
@@ -416,7 +403,7 @@ export function createLiveVision(cv, options) {
     },
     warmUp,
     get sheet() {
-      return sheet;
+      return sheetNow();
     },
     /** A change of camera (zoom, lens, resolution): intrinsics.setCamera. */
     setCamera(camera, device) {

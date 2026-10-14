@@ -136,8 +136,8 @@ Deno.test('the pixel scale is the short side over 1080, and collinear corners do
 const cv = await loadOpenCv({ source: await Deno.readTextFile(OPENCV_JS) });
 
 Deno.test('every 23 x 17 board is found in a perspective view, to a tenth of a pixel, without its invalid corners', () => {
-  // Setup: for the shipped strip board and the three test-only sheets with a blank centre target
-  // (vision_test_boards.js), one sharp perspective frame of the whole board
+  // Setup: for each of the scanner's three boards (white/grey, grey/black, white/black: their own
+  // colours, spirals and marker ids), one sharp perspective frame of the whole board
   // (markers about 25-30 px) with mild sensor noise (sigma 2 grey levels).
   // Test: detect once.
   // Verifies: (1) at least 95% of the board's valid corners that lie well inside the frame are
@@ -172,7 +172,7 @@ Deno.test('every 23 x 17 board is found in a perspective view, to a tenth of a p
 });
 
 Deno.test('a blurred close-up keeps its corners, and blurred corners are re-refined without a half-pixel bias', () => {
-  // Setup: the 3 x 3-target board seen close (markers ~50-65 px, the board running off every edge)
+  // Setup: the grey/black board seen close (markers ~50-65 px, the board running off every edge)
   // and defocused (Gaussian sigma 2.5 px) with noise, as the phone's 2x zoom does to the board.
   // Test: detect three frames with the default detector (the first frame tunes the marker-size
   // factor for the next), and once with desktopHalfPixelShift (detect.py refine_blurred's
@@ -182,7 +182,7 @@ Deno.test('a blurred close-up keeps its corners, and blurred corners are re-refi
   // ran; (3) with the desktop's shift, every re-refined corner moves by about (+0.5, +0.5) px and
   // their error grows -- the measurement behind leaving the shift out (see the KB article
   // opencv-js-for-the-phone-scanner-build-charuco-po).
-  const spec = TEST_BOARD_SPECS.charuco_23x17_10mm_centre3x3;
+  const spec = TEST_BOARD_SPECS.charuco_23x17_10mm_grey_black_spiral;
   const printed = boardImage(cv, spec, { pps: 48 });
   const { frame, truth } = makeFrame(cv, spec, printed, { width: WIDTH, height: HEIGHT, quad: CLOSE_UP, blur: 2.5, noise: 2, seed: 5 });
   const detector = createBoardDetector(cv, spec);
@@ -221,7 +221,7 @@ Deno.test('a blurred close-up keeps its corners, and blurred corners are re-refi
 });
 
 Deno.test('a partial view returns only corners inside the frame, and too few corners are not recognised', () => {
-  // Setup: the strip board (no target) (a) seen so close that only part of it is in the frame
+  // Setup: the white/black board (a) seen so close that only part of it is in the frame
   // (CLOSE_UP), sharp; (b) seen very small in one corner of the frame, a few squares of it
   // cropped away by the frame edge, so only a handful of corners are visible; (c) a frame of
   // plain table.
@@ -229,7 +229,7 @@ Deno.test('a partial view returns only corners inside the frame, and too few cor
   // Verifies: (a) every returned corner lies inside the frame and is accurate (2-marker median
   // < 0.15 px), and the view is recognised; (b) fewer than 8 corners means not recognised, even
   // though corners were found; (c) nothing found, not recognised, empty lists, and no exception.
-  const spec = BOARD_SPECS.charuco_23x17_10mm_strip;
+  const spec = BOARD_SPECS.charuco_23x17_10mm_white_black_spiral;
   const printed = boardImage(cv, spec, { pps: 48 });
 
   const close = makeFrame(cv, spec, printed, { width: WIDTH, height: HEIGHT, quad: CLOSE_UP, noise: 2 });
@@ -256,14 +256,14 @@ Deno.test('a partial view returns only corners inside the frame, and too few cor
 });
 
 Deno.test('a processing scale of 0.5 reports full-resolution coordinates, and ImageData input matches Mat input', () => {
-  // Setup: the centre1 board in the overview frame, plus the same frame as an RGBA ImageData-like
+  // Setup: the white/grey board in the overview frame, plus the same frame as an RGBA ImageData-like
   // object (what a canvas getImageData gives the phone page).
   // Test: detect at processing scale 0.5 (on a 640 x 360 copy) and at 1 from the ImageData.
   // Verifies: at scale 0.5 the corners still come back in the FULL frame's pixels, accurate to
   // 0.35 px median on 2-marker corners (twice the pixel size costs some accuracy, but no
   // half-pixel or scale slip, which would show as >= 0.5 px everywhere); the RGBA path gives the
   // same corners as the grey Mat path to within 0.01 px.
-  const spec = TEST_BOARD_SPECS.charuco_23x17_10mm_centre1;
+  const spec = TEST_BOARD_SPECS.charuco_23x17_10mm_white_grey_spiral;
   const printed = boardImage(cv, spec, { pps: 48 });
   const close = makeFrame(cv, spec, printed, { width: WIDTH, height: HEIGHT, quad: CLOSE_UP, noise: 2 });
 
@@ -302,7 +302,7 @@ Deno.test('detecting frame after frame leaks no memory, and dispose frees the de
   // frame -- a MatVector, an output Mat, an roi view -- would add at least its header); and
   // after dispose() it is back within a few KB of where it started (OpenCV keeps some
   // process-wide caches, so not to the byte).
-  const spec = TEST_BOARD_SPECS.charuco_23x17_10mm_centre3x3_dots;
+  const spec = TEST_BOARD_SPECS.charuco_23x17_10mm_white_black_spiral;
   const printed = boardImage(cv, spec, { pps: 32 });
   const view = makeFrame(cv, spec, printed, { width: 960, height: 540, quad: [[170, 80], [800, 60], [880, 490], [110, 460]], blur: 1.5, noise: 2 });
   const empty = new cv.Mat(540, 960, cv.CV_8UC1, new cv.Scalar(70));

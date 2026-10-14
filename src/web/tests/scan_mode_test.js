@@ -35,6 +35,7 @@ const tiers = await import("../src/lib/tier_controller.js");
 const { enterEditMode, exitEditMode, editing } = await import("../src/lib/edit_mode.js");
 const record = await import("../src/lib/record_mode.js");
 const mode = await import("../src/lib/scan_mode.js");
+const { PUBLIC_EMBED_URL } = await import("../src/lib/scanner_protocol.js");
 
 const STARTUP_URL = new URL("../../resources/hex_cut_v2.gcs", import.meta.url);
 const EMBED_URL = "http://127.0.0.1:8000/scanner/embed.html";
@@ -139,12 +140,36 @@ Deno.test("Rough scan opens the scanner page through the SDK and holds the desig
   const { options } = scanner.opened[0];
 
   assertEqual(options.embedUrl, EMBED_URL, "at the scan page's address");
+  assertEqual(options.fallbackUrl, undefined, "with no fallback: a served scan page is there");
   assert(typeof options.onResult === "function" && typeof options.onCancel === "function", "with both callbacks");
   assertEqual(get(mode.scanning).open, true, "the mode is open");
   assert(tiers.designLocked(), "the design is held");
   assertEqual(get(canUndo), false, "nothing to undo while it is open");
   assertEqual(mode.enterScan(), false, "a second open is refused");
   assertEqual(scanner.opened.length, 1, "and opens no second scanner");
+  mode.exitScan();
+});
+
+Deno.test("a studio opened from a file falls back to the published scan page", STUDIO_TEST, async () => {
+  // Setup: the startup stone, and the mode's scan page address a file beside the studio, as
+  // studioEmbedUrl gives a studio opened from a file.
+  // Test: open the mode.
+  // Verifies: the scanner is opened at that file, with the published scan page as its fallback --
+  // a saved copy of the studio is one file with no scan page beside it, and must still scan.
+  const { scanner } = await page();
+  const beside = "file:///Users/me/gems/build/www/scanner/embed.html";
+
+  mode.setScanBackend({
+    embedUrl: () => beside,
+    open(options) {
+      scanner.opened.push({ options, closed: false });
+      return { close() {} };
+    },
+  });
+
+  assert(mode.enterScan(), "the mode opens");
+  assertEqual(scanner.opened[0].options.embedUrl, beside, "at the scan page beside the studio");
+  assertEqual(scanner.opened[0].options.fallbackUrl, PUBLIC_EMBED_URL, "falling back to the published one");
   mode.exitScan();
 });
 

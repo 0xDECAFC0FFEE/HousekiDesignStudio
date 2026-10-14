@@ -6,8 +6,8 @@
 // Prints "<width> <height>". The texture has no paper pad, so its texel (0, 0) is the
 // chessboard's top-left corner.
 
-// The shipped strip board and the tests' own copies of the scanner's other sheets (T-0335).
-import { TEST_BOARD_SPECS as BOARD_SPECS } from '../../../src/web/tests/vision_test_boards.js';
+// The scanner's three spiral boards (T-0340).
+import { BOARD_SPECS } from '../../../src/web/src/lib/vision/board_frame.js';
 import { renderBoardTexture } from '../../../src/web/src/lib/vision/board_texture.js';
 
 const [name, ppm, out] = Deno.args;

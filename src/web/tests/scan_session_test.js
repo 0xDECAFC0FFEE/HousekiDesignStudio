@@ -380,8 +380,8 @@ function visionMessage(overrides = {}) {
     timeMs: 1000,
     frame: { w: 1280, h: 720 },
     board: {
-      recognised: true, corners: 120, markers: 60, sheet: "charuco_23x17_10mm_strip", sheetFrom: "default",
-      targetMm: [80, 110], sizeMm: [170, 230],
+      recognised: true, corners: 120, markers: 60, sheet: "charuco_23x17_10mm_white_black_spiral", sheetFrom: "default",
+      targetMm: [85, 115], sizeMm: [170, 230],
     },
     pose: {
       R: [1, 0, 0, 0, -1, 0, 0, 0, -1], t: [-85, 115, 300], center: [85, 115, 300],
@@ -467,20 +467,26 @@ Deno.test("a session or phone without vision leaves the mode as it was", async (
 Deno.test("scanVisionText reads out the board, the camera, the lens and the rock in words", () => {
   // Setup: vision values as the store holds them, received at t = 1000 ms.
   // Test: read each out, now and later.
-  // Verifies: a posed frame reads "Found", the camera's distance in cm and its height in degrees,
-  // the lens's state and "Outlined"; a frame without a board reads "Not in view" and dashes; an
-  // older phone's message naming the sheet it recognised still reads plain "Found" (the studio
-  // names no sheet since T-0335); a frame of another printed board (wrongBoard, T-0335) reads "Not
-  // the scanner board" with no camera advice; each intrinsics source reads as its own words; and a
+  // Verifies: a posed frame reads "Found" with the board in view in words ("white/black", T-0340),
+  // the camera's distance in cm and its height in degrees, the lens's state and "Outlined"; each
+  // of the three boards is named by its colours; a frame without a board reads "Not in view" and
+  // dashes; an older phone's message naming an older sheet reads plain "Found"; an older phone's
+  // frame of another printed board (wrongBoard, T-0335) reads "Not the scanner board" with no
+  // camera advice; each intrinsics source reads as its own words; and a
   // value more than VISION_GONE_MS old adds a note that the phone has gone quiet.
   const posed = mode.scanVisionText({ message: visionMessage(), receivedAt: 1000 }, 1200);
   assertEqual(posed.rows, [
-    { label: "Board", value: "Found" },
+    { label: "Board", value: "Found (white/black)" },
     { label: "Camera", value: "31 cm from the target, 62° above the board" },
     { label: "Lens", value: "First estimate, still measuring" },
     { label: "Rock", value: "Outlined" },
   ], "a posed frame");
   assertEqual(posed.note, "", "no note while fresh");
+
+  for (const [sheet, words] of [["charuco_23x17_10mm_white_grey_spiral", "white/grey"], ["charuco_23x17_10mm_grey_black_spiral", "grey/black"]]) {
+    const named = mode.scanVisionText({ message: visionMessage({ board: { ...visionMessage().board, sheet } }), receivedAt: 1000 }, 1200);
+    assertEqual(named.rows[0].value, `Found (${words})`, sheet);
+  }
 
   const empty = mode.scanVisionText({
     message: visionMessage({
@@ -602,7 +608,7 @@ Deno.test("scanResult reads the phone's last vision message, and keeps it after 
   const expected = {
     version: 1,
     phoneConnected: true,
-    board: { found: true, sizeMm: [170, 230], targetMm: [80, 110] },
+    board: { found: true, sizeMm: [170, 230], targetMm: [85, 115] },
     rock: { outlined: true, positionMm: [80, 110, 5] },
     coverage: { low: 0, middle: 6, top: false, masks: [0, 0b111111, 0, 0] },
   };
@@ -620,4 +626,23 @@ Deno.test("scanResult reads the phone's last vision message, and keeps it after 
   assertEqual([mode.scanResult().rock, mode.scanResult().coverage], [{ outlined: false, positionMm: null }, null],
     "no pose: no rock, no coverage");
   mode.stopScan();
+});
+
+Deno.test("after the phone left, another phone on its way in is shown by its steps, not as disconnected", () => {
+  // Setup: the scanner's state 'disconnected' (the last phone left), with the connection's
+  // latest step at 'waiting' (nobody new yet), then at 'direct' (a new phone found and connecting).
+  // Test: scanReconnecting and scanStatusText for each.
+  // Verifies (the user's report, 2026-10-13: the computer seemed not to reconnect a new phone with
+  // the same code, while it was in fact reconnecting): with nobody new the words still say "Phone
+  // disconnected"; once the new phone is heard, they say the step it is at ("Setting up a direct
+  // connection to your phone…") and what it means, so nothing on the screen says it failed.
+  const state = { status: "disconnected", error: "" };
+  const waiting = { step: "waiting", text: "Waiting for your phone… (8 of 8)", failure: null };
+  const direct = { step: "direct", text: "Setting up a direct connection to your phone…", failure: null };
+  assert(!mode.scanReconnecting(state, waiting), "nobody new yet");
+  assertEqual(mode.scanStatusText(state, false, waiting).title, "Phone disconnected", "still disconnected");
+  assert(mode.scanReconnecting(state, direct), "a new phone on its way");
+  assertEqual(mode.scanStatusText(state, false, direct), {
+    title: "Setting up a direct connection to your phone…", detail: mode.STEP_DETAILS.direct,
+  }, "the new phone's step");
 });

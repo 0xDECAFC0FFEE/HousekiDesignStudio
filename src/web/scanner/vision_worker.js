@@ -22,6 +22,8 @@
 //   { type: 'camera', camera, device }
 // worker -> page:
 //   { type: 'ready', loadMs, warmMs }        { type: 'failed', message }  (init failed: fall back)
+//   { type: 'pose', pose }   (T-0340: a detected frame's pose, sent as soon as it is solved, before
+//     the frame's lens, outline and guidance; its 'result' follows)
 //   { type: 'result', result, grabMs, canTrack }   { type: 'error', message }   (one frame failed)
 //   canTrack: whether the next frame could be tracked (a valid pose's corners are held)
 //
@@ -82,6 +84,7 @@ function processFrame({ bitmap, work, track, frame, outline, predicted = null })
     const result = live.processFrame({
       image, scale: work.width / frame.width, frame, source: bitmap, outline,
       trackImage, trackScale: track ? track.width / frame.width : null, predicted,
+      onPose: (pose) => self.postMessage({ type: 'pose', pose }),
     });
     return { result, grabMs };
   } finally {

@@ -1,8 +1,10 @@
 """How far the phone's overlay trails its camera picture while the phone moves (T-0332).
 
-The user, 2026-10-06: "its still too slow" ... "the overlay is lagging". The overlay (the board's
-grid, the X/Y/Z arrows at the board's centre, the rock's outline) is drawn on every camera frame the
-phone shows, from the latest vision result, whose pose was measured on an earlier frame.
+The user, 2026-10-06: "its still too slow" ... "the overlay is lagging"; 2026-10-13: "still somewhat
+laggy. Can you use double buffering". The overlay (the found corners, the board's edge, the rock's
+outline) is drawn on every camera frame the phone shows, from the latest vision result, whose pose
+was measured on an earlier frame; since T-0340 the camera frame itself is drawn into the same canvas
+first (COMPOSITED), so the picture and its overlay reach the screen together.
 
 This runs the BUILT pages as test_scan_guide.py does (studio and phone page in two headless
 Chromes, a local Nostr relay, the phone's vision starting once it has connected), with the phone's
@@ -12,9 +14,10 @@ at 20 mm/s and back, swinging at 40 degrees a second, and held again; every fram
 index at its bottom-left edge.
 
 In the phone page, a hook (housekiScanVision.onDraw) runs right after each overlay is drawn, in the
-same video-frame callback: it reads the stamp of the frame on screen from the <video> and logs where
-the axes' origin (the board's centre, 85 / 115 mm) was drawn, in camera-frame pixels, and the age of
-the pose drawn. Each logged frame is then compared with the TRUE projection of the board's centre in
+same video-frame callback: it reads the stamp of the frame on screen from the <video> (the frame the
+canvas has just drawn) and logs the pose and lens the overlay was drawn with -- from which the
+board's centre (85 / 115 mm) is projected, in camera-frame pixels, as the axes' origin was before
+T-0340 turned the axes off -- and the age of the pose drawn. Each logged frame is then compared with the TRUE projection of the board's centre in
 the frame that was on screen (the video's known camera, f 1000 px, k1 0.02), giving per segment:
 
   * misplacement: drawn origin vs true origin, px of the 1280 x 720 camera frame;
@@ -65,7 +68,7 @@ except ImportError as error:  # websocket-client, numpy or PIL missing
     cdp = None
     IMPORT_ERROR = str(error)
 
-SHEET = "charuco_23x17_10mm_strip"
+SHEET = "charuco_23x17_10mm_white_black_spiral"
 BOARD_CENTRE_MM = [85.0, 115.0, 0.0]
 # Board points every 20 mm over the 170 x 230 mm chessboard, for the whole grid's misplacement.
 GRID_MM = [[float(x), float(y), 0.0] for x in range(5, 170, 20) for y in range(5, 230, 20)]
@@ -198,6 +201,13 @@ def analyse(log, truth):
 
         f = frames[stamp]
         entry = dict(e, segment=f["segment"])
+
+        if e["origin"] is None and e["pose"]:
+            # Where the overlay put the board's centre: its drawn pose and lens (the axes, which
+            # were drawn there, are off since T-0340).
+            p = e["pose"]
+            e = dict(e, origin=list(project(BOARD_CENTRE_MM, p["R"], p["t"], p["f"], p["cx"], p["cy"], p["k1"])))
+            entry["origin"] = e["origin"]
 
         if e["origin"] is not None and e["frame"]:
             # Chrome's fake camera crops a file to the page's request around its middle.
@@ -349,7 +359,7 @@ class ScanLagTest(unittest.TestCase):
         """The overlay's misplacement and age while the phone moves, and its shimmer when still.
 
         Setup: the studio with Rough scan open; a phone browser whose camera plays the lag video on
-        the strip sheet (the one board the phone supports), connected. Test: log every drawn
+        the white/black board, connected. Test: log every drawn
         overlay for COLLECT_S seconds with the stamp of the frame on screen, then compare it with
         the truth. Verifies: the stamps are read; the overlay is drawn on most frames; the
         misplacement while moving, the pose age and the shimmer when still are within the targets

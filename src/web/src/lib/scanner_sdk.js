@@ -10,6 +10,9 @@
 //     onStatus(status) { ... },   optional: 'waiting', 'connecting', 'streaming', 'disconnected',
 //                                 'error', as the scan goes
 //     embedUrl,                   optional: another copy of the scan page (a test server)
+//     fallbackUrl,                optional: the scan page to open instead if the one at embedUrl
+//                                 loads but never says hello (it is not there: the studio opened
+//                                 from a saved single file tries the scan page beside it first)
 //   });
 //   scanner.close();              closes it from the site's side; no callback fires
 //
@@ -31,6 +34,13 @@ import {
 
 /** How long the scan page has to say 'ready' before the modal says it could not be reached. */
 export const READY_TIMEOUT_MS = 20000;
+
+/**
+ * With a `fallbackUrl`: how long after the first page's `load` its hello may still come before the
+ * fallback is opened instead. A scan page says hello before its `load` (as its scripts run), so a
+ * page that has loaded without one is not a scan page: a missing file's error page.
+ */
+export const FALLBACK_AFTER_LOAD_MS = 2000;
 
 /** The id of the modal's outermost element, one per page. */
 export const OVERLAY_ID = 'houseki-scanner';
@@ -65,7 +75,7 @@ let active = null;
  * Opens the scanner over the page (see the header). Returns `{ close }`. Throws if one is already
  * open, or if `onResult` is not a function.
  */
-export function openScanner({ onResult, onCancel, onStatus, embedUrl, document = globalThis.document } = {}) {
+export function openScanner({ onResult, onCancel, onStatus, embedUrl, fallbackUrl, document = globalThis.document } = {}) {
   if (active !== null) {
     throw new Error('The Houseki scanner is already open.');
   }
@@ -75,7 +85,9 @@ export function openScanner({ onResult, onCancel, onStatus, embedUrl, document =
   }
 
   const url = new URL(embedUrl ?? defaultEmbedUrl(document.defaultView?.location), document.baseURI).href;
-  const targetOrigin = embedTargetOrigin(url);
+  let targetOrigin = embedTargetOrigin(url);
+  let fallback = fallbackUrl ? new URL(fallbackUrl, document.baseURI).href : null;
+  let fallbackTimer = null;
   const view = document.defaultView;
 
   const overlay = document.createElement('div');
@@ -100,16 +112,30 @@ export function openScanner({ onResult, onCancel, onStatus, embedUrl, document =
 
   const returnFocus = document.activeElement;
   const overflow = document.documentElement.style.overflow;
+  // `port`: the channel the scan page answered on ('ready'). `offered`: channels sent with an init
+  // and not answered yet (see handshake()).
   let port = null;
+  const offered = new Set();
   let ready = false;
   let done = false;
+
+  // To the scan page, on whichever channel it took: before it answers, that may be any one offered.
+  const post = message => {
+    for (const each of [port, ...offered]) {
+      each?.postMessage(message);
+    }
+  };
 
   const teardown = () => {
     done = true;
     active = null;
     view?.clearTimeout(readyTimer);
+    view?.clearTimeout(fallbackTimer);
     document.removeEventListener('keydown', onKeyDown, true);
+    view?.removeEventListener('message', onWindowMessage);
     port?.close();
+    offered.forEach(each => each.close());
+    offered.clear();
     overlay.remove();
     document.documentElement.style.overflow = overflow;
     returnFocus?.focus?.();
@@ -131,7 +157,7 @@ export function openScanner({ onResult, onCancel, onStatus, embedUrl, document =
   };
 
   const cancel = () => {
-    port?.postMessage(scanMessage('close'));
+    post(scanMessage('close'));
     finish(onCancel);
   };
 
@@ -144,18 +170,57 @@ export function openScanner({ onResult, onCancel, onStatus, embedUrl, document =
     }
   };
 
-  // A new channel on every load: a scan page that reloads has lost the old one.
+  // A handshake for every scan page that greets us ('hello', each time it loads), and, until one
+  // has, on every `load` (a scan page older than 'hello'). The frame's `load` and the page's hello
+  // arrive in either order, so one page may be offered two channels: both stay open until it
+  // answers on one, which is kept, and the rest are closed. A page that reloads has lost its
+  // channel, and answers on a new one.
+  let greeted = false;
+
+  const onWindowMessage = event => {
+    if (event.source === iframe.contentWindow && readScanMessage(event.data, 'scanner')?.type === 'hello') {
+      greeted = true;
+      fallback = null;
+      view?.clearTimeout(fallbackTimer);
+      handshake();
+    }
+  };
+
   iframe.addEventListener('load', () => {
+    if (greeted) {
+      return;
+    }
+
+    handshake();
+
+    // The first page loaded and has not said hello: give it a moment, then open the fallback.
+    if (fallback !== null && fallbackTimer === null) {
+      fallbackTimer = view?.setTimeout(() => {
+        if (greeted || done || fallback === null) {
+          return;
+        }
+
+        console.warn(`[houseki scan] no scanner at ${iframe.src}; opening ${fallback}`);
+        targetOrigin = embedTargetOrigin(fallback);
+        iframe.src = fallback;
+        fallback = null;
+        offered.forEach(each => each.close());
+        offered.clear();
+        startReadyTimer();
+      }, FALLBACK_AFTER_LOAD_MS) ?? null;
+    }
+  });
+
+  function handshake() {
     if (done) {
       return;
     }
 
-    port?.close();
-
     const channel = new MessageChannel();
+    const mine = channel.port1;
 
-    port = channel.port1;
-    port.onmessage = event => {
+    offered.add(mine);
+    mine.onmessage = event => {
       const message = readScanMessage(event.data, 'scanner');
 
       if (done || !message) {
@@ -163,8 +228,17 @@ export function openScanner({ onResult, onCancel, onStatus, embedUrl, document =
       }
 
       if (message.type === 'ready') {
+        if (port !== mine) {
+          port?.close();
+          offered.forEach(each => each !== mine && each.close());
+          offered.clear();
+          port = mine;
+        }
+
         ready = true;
         iframe.focus();
+      } else if (mine !== port && message.type !== 'cancel') {
+        // Only 'ready', or a refusal ('cancel'), comes on a channel the page has not answered on.
       } else if (message.type === 'status') {
         try {
           onStatus?.(String(message.status));
@@ -179,11 +253,17 @@ export function openScanner({ onResult, onCancel, onStatus, embedUrl, document =
     };
 
     iframe.contentWindow.postMessage(scanMessage('init', { version: SCAN_PROTOCOL_VERSION }), targetOrigin, [channel.port2]);
-  });
+  }
 
   // The scan page could not be reached (offline, blocked by the site's own rules): say so, with a
-  // way out, rather than leaving an empty frame.
-  const readyTimer = view?.setTimeout(() => {
+  // way out, rather than leaving an empty frame. Started again when the fallback is opened.
+  let readyTimer = null;
+  const startReadyTimer = () => {
+    view?.clearTimeout(readyTimer);
+    readyTimer = view?.setTimeout(showUnreachable, READY_TIMEOUT_MS);
+  };
+
+  function showUnreachable() {
     if (ready || done) {
       return;
     }
@@ -205,9 +285,12 @@ export function openScanner({ onResult, onCancel, onStatus, embedUrl, document =
     notice.append(text, button);
     frame.append(notice);
     button.focus();
-  }, READY_TIMEOUT_MS);
+  }
+
+  startReadyTimer();
 
   document.addEventListener('keydown', onKeyDown, true);
+  view?.addEventListener('message', onWindowMessage);
   document.documentElement.style.overflow = 'hidden';
   document.body.append(overlay);
 
@@ -217,7 +300,7 @@ export function openScanner({ onResult, onCancel, onStatus, embedUrl, document =
         return;
       }
 
-      port?.postMessage(scanMessage('close'));
+      post(scanMessage('close'));
       teardown();
     },
   };

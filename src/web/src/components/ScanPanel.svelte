@@ -7,8 +7,9 @@
   import { Button } from '$lib/components/ui/button/index.js';
   import RefreshIcon from '@lucide/svelte/icons/refresh-cw';
   import PanelSection from './PanelSection.svelte';
+
   import {
-    scanning, scanStream, scanVision, newScanCode, scanStatusText, scanVisionText,
+    scanning, scanStream, scanVision, scanTrace, newScanCode, scanStatusText, scanVisionText,
   } from '../lib/scan_session.js';
   import { coverageMapCells, mapPoint } from '../lib/vision/guidance.js';
 
@@ -22,7 +23,7 @@
   let { ondone } = $props();
 
   const scan = $derived($scanning);
-  const status = $derived(scanStatusText(scan, $scanStream !== null));
+  const status = $derived(scanStatusText(scan, $scanStream !== null, $scanTrace));
 
   // What the phone sees (T-0326), read out from its latest vision message. A clock ticking twice a
   // second while the phone streams lets the readout say when the messages have stopped.
@@ -49,12 +50,13 @@
       <li>Put your phone on the same network as this computer, for example the same Wi-Fi.</li>
       <li>Scan the code on the right with the phone's camera and open the link, or send the link to the phone.</li>
       <li>Allow the camera when the phone asks. Its picture appears here.</li>
-      <li>Lay the printed board flat, put the rock on its target, and point the phone at it. The board's grid and axes and the rock's outline are drawn over the picture, and the phone shows where to film from next.</li>
+      <li>Lay one of the printed boards flat, put the rock in its middle, and point the phone at it. The board's grid and the rock's outline are drawn over the picture, and the phone shows where to film from next.</li>
     </ol>
   </PanelSection>
 
   <PanelSection title="Connection" id="scan-connection-section">
-    <p class="scan-panel-status" id="scan-panel-status" data-status={scan.status}>
+
+    <p class="scan-panel-status" id="scan-panel-status" data-status={scan.status} data-phase={$scanTrace?.step ?? ''}>
       <strong>{status.title}</strong><br />{status.detail}
     </p>
     <Button variant="outline" size="sm" id="scan-new-code" class="{ACTION} w-full gap-1.5"

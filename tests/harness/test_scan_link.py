@@ -300,6 +300,69 @@ class ScanLinkTest(unittest.TestCase):
         finally:
             self.close_host()
 
+    def test_both_ends_go_through_each_connection_step_and_log_it(self):
+        """(T-0342) What the connection is doing, on both ends: the console log and the steps.
+
+        Setup: both tabs record their console from before the page loads (a script added with
+        Page.addScriptToEvaluateOnNewDocument wraps console.info/warn/debug/log into
+        window.__console). A host session in one tab, its link opened in the other.
+        Test: wait until both are connected; read both consoles.
+        Verifies: each end logs, in this order, every step of scan_trace.js -- servers, waiting,
+        introducing, direct, verifying, connected -- as "step: <name>" lines (the log calls them as
+        they happen, so none is missed however fast); and the lines along the way that make a
+        connection problem readable: a relay subscription confirmed, the other device heard,
+        offer or answer sent and received, the direct connection tried and up (with its address
+        types), the password check passed. The phone page shows the connection picture, with the
+        computer no longer greyed and the step 'connected', and its status line's data-phase says
+        'connected'.
+        """
+        capture = """(() => {
+          const lines = window.__console = [];
+          for (const level of ['log', 'info', 'warn', 'debug']) {
+            const original = console[level].bind(console);
+            console[level] = (...args) => { lines.push(args.map(String).join(' ')); original(...args); };
+          }
+        })();"""
+        scripts = []
+
+        for tab in (self.host, self.phone):
+            tab.send("Page.enable")
+            scripts.append((tab, tab.send("Page.addScriptToEvaluateOnNewDocument", {"source": capture})["identifier"]))
+
+        try:
+            link = self.start_host(scanner_base_url=self.scanner_url)
+            self.assert_connects(link)
+            host_lines = self.host.evaluate("window.__console.filter(l => l.startsWith('[houseki scan'))")
+            phone_lines = self.phone.evaluate("window.__console.filter(l => l.startsWith('[houseki scan'))")
+            picture = self.phone.evaluate(
+                "(() => { const svg = document.querySelector('#scanner-connection svg');"
+                " return svg && { step: svg.dataset.step, otherGreyed: !!svg.querySelector('.cd-other.cd-greyed') }; })()")
+            phase = self.phone.evaluate("document.getElementById('scanner-status').dataset.phase")
+        finally:
+            self.close_host()
+
+            for tab, identifier in scripts:
+                tab.send("Page.removeScriptToEvaluateOnNewDocument", {"identifier": identifier})
+
+        print("\n[scan_link] host log:\n  " + "\n  ".join(host_lines), file=sys.stderr)
+        print("[scan_link] phone log:\n  " + "\n  ".join(phone_lines), file=sys.stderr)
+        expected = ["servers", "waiting", "introducing", "direct", "verifying", "connected"]
+
+        for name, lines in (("host", host_lines), ("phone", phone_lines)):
+            steps = [l.split("step: ")[1].split(" ")[0] for l in lines if "] step: " in l]
+            self.assertEqual(steps, expected, "%s steps" % name)
+            text = "\n".join(lines)
+
+            for needle in ["subscription live on", "heard the", "trying a direct connection", "direct connection up:",
+                           "the password check passed"]:
+                self.assertIn(needle, text, "%s log lacks %r" % (name, needle))
+
+            self.assertTrue(any(w in text for w in ["sent offer", "sent answer"]), "%s sent no offer or answer" % name)
+            self.assertTrue(any(w in text for w in ["received offer", "received answer"]), "%s received no offer or answer" % name)
+
+        self.assertEqual(picture, {"step": "connected", "otherGreyed": False})
+        self.assertEqual(phase, "connected")
+
     def test_a_wrong_password_never_connects(self):
         """(b) A link to the right room with the wrong password never connects.
 

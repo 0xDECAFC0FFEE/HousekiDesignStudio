@@ -21,8 +21,11 @@
  *
  * @typedef {object} BoardDetection
  * @property {FrameInfo} frame
+ * @property {string|null} [board]  the name of the printed board the markers are (board_frame.js
+ *           BOARD_SPECS; T-0340), null when none was found
  * @property {{ id: number, corners: [number, number][] }[]} markers  decoded ArUco markers, each
- *           with its 4 image corners in OpenCV's order (clockwise from the marker's top-left)
+ *           with its 4 image corners in OpenCV's order (clockwise from the marker's top-left); ids
+ *           are indices on the board (0 .. 194), whichever board it is
  * @property {{ id: number, x: number, y: number, markers?: 1|2, sharpness?: number }[]} corners
  *           ChArUco chessboard corners (ids as in board_frame.js), sub-pixel refined; only ids
  *           board_frame.cornerPoint accepts. OpenCV returns corners with pixel CENTRES on

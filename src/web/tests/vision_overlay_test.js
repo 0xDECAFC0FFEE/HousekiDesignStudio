@@ -106,16 +106,18 @@ function recordingContext() {
   return { ctx, strokes };
 }
 
-Deno.test('drawVisionOverlay: draws the board, the rock and the axes where the transform puts them', () => {
+Deno.test('drawVisionOverlay: draws the board, the rock and (when asked) the axes where the transform puts them', () => {
   // Setup: a posed view with a triangular rock outline, drawn through a contain transform into an
-  // 800 x 450 box, at the faded alpha.
+  // 800 x 450 box, at the faded alpha, with the axes asked for (style.axes; off by default since
+  // T-0340); then the same view with the default style.
   // Verifies: the board's outline, the rock's outline and the three axes are stroked in their
   // colours (each over a dark halo); the rock's points are its frame points through the
-  // transform; the alpha is applied; and a view with no pose draws only the rock.
+  // transform; the alpha is applied; by default no axis is drawn (none of the X, Y, Z colours,
+  // `axes` null in the summary); and a view with no pose draws only the rock.
   const transform = fitTransform(1280, 720, 800, 450, 'contain');
   const contour = [[600, 300], [700, 300], [650, 400]];
   const { ctx, strokes } = recordingContext();
-  drawVisionOverlay(ctx, { pose: POSE, intrinsics: INTRINSICS, targetMm: [85, 115], sizeMm: [170, 230], contour }, transform, { alpha: 0.35 });
+  drawVisionOverlay(ctx, { pose: POSE, intrinsics: INTRINSICS, targetMm: [85, 115], sizeMm: [170, 230], contour }, transform, { alpha: 0.35, axes: true });
 
   const colours = strokes.map((s) => s.colour);
   for (const colour of [OVERLAY_COLOURS.board, OVERLAY_COLOURS.rock, OVERLAY_COLOURS.x, OVERLAY_COLOURS.y, OVERLAY_COLOURS.z]) {
@@ -128,6 +130,11 @@ Deno.test('drawVisionOverlay: draws the board, the rock and the axes where the t
     assertClose(x, transform.dx + transform.scale * contour[i][0], 1e-9, `rock point ${i} x`);
     assertClose(y, transform.dy + transform.scale * contour[i][1], 1e-9, `rock point ${i} y`);
   });
+
+  const plain = recordingContext();
+  const drawnPlain = drawVisionOverlay(plain.ctx, { pose: POSE, intrinsics: INTRINSICS, targetMm: [85, 115], sizeMm: [170, 230], contour }, transform);
+  assert(drawnPlain.axes === null, 'no axes by default');
+  assert(!plain.strokes.some((s) => [OVERLAY_COLOURS.x, OVERLAY_COLOURS.y, OVERLAY_COLOURS.z].includes(s.colour)), 'no axis colours by default');
 
   const bare = recordingContext();
   drawVisionOverlay(bare.ctx, { pose: null, intrinsics: null, targetMm: [85, 115], sizeMm: [170, 230], contour }, transform);
@@ -252,8 +259,7 @@ Deno.test('boardGridLines: at a low elevation the lines towards the horizon stop
 });
 
 Deno.test('axesPoints: at the board centre, 40 mm long; an axis leaving the view is clipped where it leaves', () => {
-  // Setup: the default axes at the 23 x 17 board's centre, (85, 115) -- not the strip sheet's
-  // target, which is the corner point (80, 110) -- seen from a usual view; then a camera 30 mm
+  // Setup: the default axes at the 23 x 17 board's centre, (85, 115), seen from a usual view; then a camera 30 mm
   // straight above the centre, so the Z axis's end (40 mm up) is behind it.
   // Verifies: boardCentreMm gives (85, 115); the axes' ends are projectPoints' of points 40 mm along
   // X, Y and Z from it; for the close camera the axes are still drawn, all finite (the Z axis cut
@@ -275,7 +281,7 @@ Deno.test('axesPoints: at the board centre, 40 mm long; an axis leaving the view
 });
 
 Deno.test('drawVisionOverlay: draws the grid faint, the edge strong, and reports the axes at the centre', () => {
-  // Setup: a posed view with the whole board in view, drawn through a contain transform.
+  // Setup: a posed view with the whole board in view, drawn through a contain transform, axes asked for.
   // Verifies: the summary says 38 inner grid lines (22 + 16) and 4 edge lines were drawn, and where
   // the axes' origin landed -- the board's centre (85, 115) through the pose and the transform;
   // the inner lines are stroked in the faint grid colour, the edge in the board's colour; and with
@@ -283,7 +289,7 @@ Deno.test('drawVisionOverlay: draws the grid faint, the edge strong, and reports
   const transform = fitTransform(1280, 720, 800, 450, 'contain');
   const { ctx, strokes } = recordingContext();
   const view = { pose: lookAtPose([85, 115, 0], 210, 70, 450), intrinsics: INTRINSICS, sizeMm: [170, 230], contour: null };
-  const drawn = drawVisionOverlay(ctx, view, transform);
+  const drawn = drawVisionOverlay(ctx, view, transform, { axes: true });
   assert(drawn.gridLines === 38 && drawn.edgeLines === 4, `${drawn.gridLines} grid, ${drawn.edgeLines} edge`);
   const centre = projectPoints([[85, 115, 0]], view.pose.R, view.pose.t, INTRINSICS);
   assertClose(drawn.axes.origin[0], transform.dx + transform.scale * centre[0], 1e-9, 'axes origin x');

@@ -3,8 +3,12 @@
 // (board.py, detect.py, calibrate.py), now done in one call into the wasm module.
 //
 //   1. optional downscale (processingScale, INTER_AREA);
-//   2. ArUco markers, then the board-guided recovery of missed ones (tryRefineMarkers);
-//   3. markers the sheet does not print (removed ids) dropped;
+//   2. ArUco markers; with several boards (the scanner's three, T-0340: one layout, each printing its
+//      own run of dictionary ids), the board most of them belong to is the one in view, and the
+//      others' markers are dropped; then the board-guided recovery of missed ones (tryRefineMarkers);
+//   3. markers the sheet does not print (removed ids) dropped; on the phone's fast path, markers
+//      that sit where the others say a different marker is (layout_check: the spirals read as
+//      markers, T-0340) dropped too, before the refinement and the corners use them;
 //   4. the ChArUco corners next to one or two found markers, refined (charuco.rs; the desktop's
 //      two passes, minMarkers 2 then 1, in one);
 //   5. each corner's sharpness, and corners below MIN_CORNER_SHARPNESS re-refined in a window of
@@ -19,7 +23,8 @@
 use crate::aruco::{ArucoDetector, Marker};
 use crate::charuco::{interpolate_corners, CharucoBoard, Corner, CornerRefiner};
 use crate::gray::Gray;
-use crate::linalg::{fit_homography_ransac, transform_f64, Pt};
+use crate::linalg::{fit_homography, fit_homography_ransac, invert3, mul3, transform_f64, Mat3, Pt};
+use crate::marker::square_to_quad;
 use crate::resize::resize_area;
 use crate::sharpness::{corner_sharpness, js_round, py_round};
 use crate::subpix::{Criteria, SubPix};
@@ -78,23 +83,46 @@ pub struct FrameResult {
     pub corners: Vec<OutCorner>,
     /// Median marker side (work px), NaN when no marker is kept.
     pub marker_px: f64,
+    /// Which of the detector's boards the markers are (an index into its first ids), None when
+    /// no marker was found.
+    pub board: Option<usize>,
 }
 
 pub struct BoardDetector {
     pub board: CharucoBoard,
     pub aruco: ArucoDetector,
+    /// Each board's first dictionary id: board b's marker k is dictionary id first_ids[b] + k.
+    first_ids: Vec<usize>,
     removed: Vec<bool>,
     refiner: CornerRefiner,
     /// OpenCV's tryRefineMarkers (on by default, as the desktop runs it).
     pub try_refine: bool,
+    /// Drop markers inconsistent with the board's layout (T-0340, the phone's fast path; OpenCV
+    /// has no such step, so off by default): see drop_misplaced_markers.
+    pub layout_check: bool,
+    /// Markers the last detect() dropped for sitting in the wrong place.
+    pub misplaced: usize,
+    /// The board the last frame with markers was read as: it wins a tied vote.
+    last_board: usize,
 }
 
 impl BoardDetector {
+    /// A detector for one board printing dictionary ids from 0.
     pub fn new(squares_x: usize, squares_y: usize, marker_length: f32) -> BoardDetector {
+        BoardDetector::for_boards(squares_x, squares_y, marker_length, &[0], &[])
+    }
+
+    /// A detector for boards of one layout, board b printing dictionary ids from first_ids[b]
+    /// (T-0340), none of the dictionary ids in `unreadable` read. Each frame is read as the board
+    /// most of its markers belong to.
+    pub fn for_boards(squares_x: usize, squares_y: usize, marker_length: f32, first_ids: &[usize], unreadable: &[usize]) -> BoardDetector {
         let board = CharucoBoard::new(squares_x, squares_y, marker_length);
-        let aruco = ArucoDetector::new(board.marker_count());
+        let aruco = ArucoDetector::for_boards(first_ids, board.marker_count(), unreadable);
         let removed = vec![false; board.marker_count()];
-        BoardDetector { board, aruco, removed, refiner: CornerRefiner::default(), try_refine: true }
+        BoardDetector {
+            board, aruco, first_ids: first_ids.to_vec(), removed, refiner: CornerRefiner::default(), try_refine: true,
+            layout_check: false, misplaced: 0, last_board: 0,
+        }
     }
 
     /// Marks markers the sheet does not print; any detection of them is dropped.
@@ -136,6 +164,37 @@ impl BoardDetector {
         if markers.is_empty() {
             return result;
         }
+
+        // The board in view: the one most DIFFERENT markers belong to (ties: the board of the last
+        // frame with markers, so a stray read cannot flip a sparse view). A spiral
+        // read as a marker repeats one id in many dark squares (T-0340: id 441 seventeen times in
+        // one blurred view of the white/black board), so each id votes once. Markers are table
+        // slots (board x count + index) until here, indices on the board after.
+        let count = self.board.marker_count();
+        let mut votes = vec![0usize; self.first_ids.len()];
+        let mut slots: Vec<usize> = markers.iter().map(|m| m.id).collect();
+        slots.sort_unstable();
+        slots.dedup();
+
+        for slot in slots {
+            votes[slot / count] += 1;
+        }
+
+        let last = self.last_board.min(votes.len() - 1);
+        let chosen = (0..votes.len()).fold(last, |best, b| if votes[b] > votes[best] { b } else { best });
+        self.last_board = chosen;
+        markers.retain(|m| m.id / count == chosen);
+        markers.iter_mut().for_each(|m| m.id %= count);
+        result.board = Some(chosen);
+        self.aruco.refine_first_id = self.first_ids[chosen];
+        self.misplaced = 0;
+
+        if self.layout_check {
+            let before = markers.len();
+            drop_misplaced_markers(&self.board.marker_corners, &mut markers);
+            self.misplaced = before - markers.len();
+        }
+
 
         if self.try_refine {
             self.aruco.refine_detected_markers(work, &self.board.marker_corners, &mut markers, &mut rejected);
@@ -180,6 +239,111 @@ impl BoardDetector {
         }).collect();
         result
     }
+}
+
+/// How far (a share of the median marker side) a marker may sit from where the others put it.
+pub const MISPLACED_SHARE: f64 = 0.5;
+
+/// Drops the markers that sit where the rest of the board says another marker is (T-0340). The
+/// boards print a grey spiral in every dark square, and in a blurred or distant view a spiral can
+/// read as one of the boards' markers (measured on 360 synthetic views: dictionary ids 437, 441,
+/// 821, 379 and a few others, one to sixteen squares from where they are printed). Such a marker
+/// pulls the board-guided refinement and the corners around it off. One homography from the
+/// markers' places on the board to their centres in the picture -- all of them when they agree,
+/// else the largest set agreeing with a 4-marker sample (RANSAC, a fixed seed) -- keeps every
+/// marker within MISPLACED_SHARE of the median marker side of where it puts it. With fewer than 5
+/// markers nothing is judged but repeated ids (any 4 fit some homography); with fewer than 4 agreeing (copies of
+/// one id never agree), every marker is dropped. A phone lens bends straight lines by a few pixels at the edges, far below the half
+/// marker (12-35 px at 960 x 540) a misread is out by.
+pub fn drop_misplaced_markers(board_corners: &[[Pt; 4]], markers: &mut Vec<Marker>) {
+    // An id read twice is at least once a misread; in a view too small to judge, both go.
+    if markers.len() < 5 {
+        let ids: Vec<usize> = markers.iter().map(|m| m.id).collect();
+        markers.retain(|m| ids.iter().filter(|&&id| id == m.id).count() == 1);
+        return;
+    }
+
+    let n = markers.len();
+
+    let centre = |c: &[Pt; 4]| {
+        let (x, y) = c.iter().fold((0.0, 0.0), |(x, y), p| (x + p.x as f64, y + p.y as f64));
+        (x / 4.0, y / 4.0)
+    };
+    let src: Vec<(f64, f64)> = markers.iter().map(|m| centre(&board_corners[m.id])).collect();
+    let dst: Vec<(f64, f64)> = markers.iter().map(|m| centre(&m.corners)).collect();
+    let limit = MISPLACED_SHARE * median_marker_side(markers);
+    let inliers = |h: &Mat3| -> Vec<bool> {
+        (0..n).map(|i| {
+            let (x, y) = transform_f64(h, src[i].0, src[i].1);
+            (x - dst[i].0).hypot(y - dst[i].1) <= limit
+        }).collect()
+    };
+
+    // Everything first: with no misread marker (the usual case), that is the answer.
+    if let Some(h) = fit_homography(&src, &dst) {
+        if inliers(&h).iter().all(|&k| k) {
+            return;
+        }
+    }
+
+    // A 4-point homography in closed form: square -> dst quad after (square -> src quad)^-1.
+    let four = |pick: &[usize; 4]| -> Option<Mat3> {
+        let quad = |pts: &[(f64, f64)]| pick.map(|i| Pt::new(pts[i].0 as f32, pts[i].1 as f32));
+        let a = square_to_quad(&quad(&src), 1.0)?;
+        let b = square_to_quad(&quad(&dst), 1.0)?;
+        Some(mul3(&b, &invert3(&a)?))
+    };
+    let mut best: Vec<bool> = Vec::new();
+    let mut best_count = 0;
+    let mut state: u64 = 0x9E37_79B9_7F4A_7C15;
+    let mut next = |m: usize| {
+        state ^= state << 13;
+        state ^= state >> 7;
+        state ^= state << 17;
+        (state % m as u64) as usize
+    };
+
+    for _ in 0..200 {
+        let mut pick = [0usize; 4];
+
+        for k in 0..4 {
+            loop {
+                let candidate = next(n);
+
+                if !pick[..k].contains(&candidate) {
+                    pick[k] = candidate;
+                    break;
+                }
+            }
+        }
+
+        if let Some(h) = four(&pick) {
+            let found = inliers(&h);
+            let count = found.iter().filter(|&&k| k).count();
+
+            if count > best_count {
+                best_count = count;
+                best = found;
+            }
+        }
+    }
+
+    if best_count < 4 {
+        markers.clear();
+        return;
+    }
+
+    // Refit on the agreeing markers and judge every marker again against that.
+    let keep: Vec<usize> = (0..n).filter(|&i| best[i]).collect();
+    let sub_src: Vec<(f64, f64)> = keep.iter().map(|&i| src[i]).collect();
+    let sub_dst: Vec<(f64, f64)> = keep.iter().map(|&i| dst[i]).collect();
+    let fit = fit_homography(&sub_src, &sub_dst).map(|h| inliers(&h)).filter(|k| k.iter().filter(|&&v| v).count() >= best_count);
+    let kept = fit.unwrap_or(best);
+    let mut k = 0;
+    markers.retain(|_| {
+        k += 1;
+        kept[k - 1]
+    });
 }
 
 /// board_detect.js medianMarkerSide: the median of each marker's mean side.
@@ -268,10 +432,10 @@ mod tests {
         assert_eq!(median_marker_side(&[m(20.0), m(30.0), m(70.0)]), 30.0);
     }
 
-    /// Draws marker `id` (cells of `cell` px, ink 30, paper 220) into `img` at (x0, y0), as
+    /// Draws dictionary marker `id` (cells of `cell` px, ink 30, paper 220) into `img` at (x0, y0), as
     /// marker.rs's test helper draws one on its own.
     fn draw_into(img: &mut Gray, id: usize, x0: usize, y0: usize, cell: usize) {
-        let code = crate::dictionary::DICT_4X4_250[id];
+        let code = crate::dictionary::DICT_4X4_1000[id];
 
         for cy in 0..6 {
             for cx in 0..6 {
@@ -341,6 +505,104 @@ mod tests {
         assert_eq!(fast.markers.len(), 2);
         assert_eq!(fast_stats.identify_reads, fast_stats.selected, "{fast_stats:?}");
         assert!(exact_stats.identify_reads > exact_stats.selected, "{exact_stats:?}");
+    }
+
+    #[test]
+    fn a_frame_is_read_as_the_board_most_of_its_markers_belong_to() {
+        // Setup: the scanner's three boards (one 23 x 17 layout printing dictionary ids from 250,
+        // 500 and 750). One frame shows marker 23 of the white/black board (dictionary id 773) and
+        // marker 97 of it (847); another adds marker 40 of the grey/black board (540) to those two;
+        // a third shows only the older boards' marker 23 (dictionary id 23).
+        // Test: detect each frame.
+        // Verifies: the first two are read as board 2 (white/black) with the markers as indices on
+        // the board (23, 97), the grey/black stray dropped by the majority; the older boards'
+        // marker is no marker at all (no board, nothing found).
+        let boards = [250, 500, 750];
+        let mut det = BoardDetector::for_boards(23, 17, 0.7, &boards, &[]);
+        let mut img = Gray::filled(400, 300, 220);
+        draw_into(&mut img, 773, 40, 60, 12);
+        draw_into(&mut img, 847, 260, 150, 12);
+        let r = det.detect(&img, &FrameOptions::default());
+        let mut ids: Vec<usize> = r.markers.iter().map(|m| m.id).collect();
+        ids.sort();
+        assert_eq!((r.board, ids), (Some(2), vec![23, 97]));
+
+        draw_into(&mut img, 540, 150, 200, 12);
+        let r = det.detect(&img, &FrameOptions::default());
+        let mut ids: Vec<usize> = r.markers.iter().map(|m| m.id).collect();
+        ids.sort();
+        assert_eq!((r.board, ids), (Some(2), vec![23, 97]));
+
+        let mut old = Gray::filled(400, 300, 220);
+        draw_into(&mut old, 23, 40, 60, 12);
+        let r = det.detect(&old, &FrameOptions::default());
+        assert!(r.board.is_none() && r.markers.is_empty() && !r.any_marker);
+    }
+
+    #[test]
+    fn a_marker_read_in_the_wrong_square_is_dropped_and_the_rest_kept() {
+        // Setup: the 23 x 17 board's markers 40-59 seen through a perspective homography (each at
+        // the place it is printed, ~30 px wide), then the same set with marker 45 moved to where
+        // marker 52 is printed (a spiral read as 45, two rows off; 52 itself unseen), and a set of four (too few to
+        // judge) with one moved.
+        // Test: drop_misplaced_markers on each.
+        // Verifies: the consistent set is left whole; in the second, exactly the moved marker 45
+        // goes and the other 18 stay; four markers are never judged, so nothing goes, but two
+        // copies of one id among four both go; and six copies of one id in six places (a spiral
+        // read again and again) agree on nothing: all go.
+        let board = CharucoBoard::new(23, 17, 0.7);
+        let h = [30.0, 4.0, 80.0, -3.0, 28.0, 60.0, 0.0004, 0.0006, 1.0];
+        let place = |id: usize| Marker { id, corners: board.marker_corners[id].map(|p| {
+            let (x, y) = transform_f64(&h, p.x as f64, p.y as f64);
+            Pt::new(x as f32, y as f32)
+        }) };
+        let mut good: Vec<Marker> = (40..60).map(place).collect();
+        drop_misplaced_markers(&board.marker_corners, &mut good);
+        assert_eq!(good.len(), 20);
+
+        let mut misread: Vec<Marker> = (40..60).map(place).collect();
+        misread[5] = Marker { id: 45, corners: place(52).corners };
+        misread.retain(|m| m.id != 52);
+        drop_misplaced_markers(&board.marker_corners, &mut misread);
+        assert_eq!(misread.len(), 18);
+        assert!(misread.iter().all(|m| m.id != 45), "{:?}", misread.iter().map(|m| m.id).collect::<Vec<_>>());
+
+        let mut few: Vec<Marker> = (40..44).map(place).collect();
+        few[0] = Marker { id: 40, corners: place(55).corners };
+        drop_misplaced_markers(&board.marker_corners, &mut few);
+        assert_eq!(few.len(), 4);
+        let mut twice: Vec<Marker> = (40..44).map(place).collect();
+        twice[3] = Marker { id: 40, corners: place(55).corners };
+        drop_misplaced_markers(&board.marker_corners, &mut twice);
+        assert_eq!(twice.iter().map(|m| m.id).collect::<Vec<_>>(), vec![41, 42]);
+
+
+        let mut copies: Vec<Marker> = (40..46).map(|k| Marker { id: 41, corners: place(k * 2).corners }).collect();
+        drop_misplaced_markers(&board.marker_corners, &mut copies);
+        assert!(copies.is_empty());
+    }
+
+    #[test]
+    fn a_marker_read_many_times_casts_one_vote_for_its_board() {
+        // Setup: the three boards; one frame showing four different white/black markers (dictionary
+        // ids 760-763) and the same white/grey marker (id 441) in five places, as a spiral read
+        // again and again looks.
+        // Test: detect the frame.
+        // Verifies: the frame is read as the white/black board (4 different ids against 1), not the
+        // white/grey one (5 markers against 4).
+        let mut det = BoardDetector::for_boards(23, 17, 0.7, &[250, 500, 750], &[]);
+        let mut img = Gray::filled(640, 300, 220);
+
+        for (k, id) in [760, 761, 762, 763].iter().enumerate() {
+            draw_into(&mut img, *id, 20 + 150 * k, 20, 12);
+        }
+
+        for k in 0..5 {
+            draw_into(&mut img, 441, 20 + 120 * k, 180, 12);
+        }
+
+        let r = det.detect(&img, &FrameOptions::default());
+        assert_eq!(r.board, Some(2));
     }
 
     #[test]
