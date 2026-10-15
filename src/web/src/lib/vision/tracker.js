@@ -31,6 +31,17 @@
 // the "previous frame" is always the last one whose corners are known. Coordinates: the tracker
 // works in the processing image's pixels with OpenCV's convention (pixel centres on integers);
 // poses and corners outside it are in full-frame pixels with types.js's (+ 0.5, / scale).
+//
+// BESIDE THE DETECTION (T-0350, `history` > 0). The user, 2026-10-14: "when moving the board can be
+// fairly off from whats actually showing on the screen". With tracking and detection taking turns in
+// one Worker, no frame was tracked while a detection ran (25 ms on the M1 Pro, an estimated 75-100
+// on a phone, more with the lens and guidance after it), so the overlay's pose aged by that much
+// several times a second. Now the tracker has a Worker of its own (scanner/track_worker.js) and
+// tracks EVERY frame, while the detection runs on another core. A detection's corners then belong
+// to a frame the tracker has already gone past; so frames are pushed under their time (the key),
+// the last `history` of them are kept, and seed(..., key) tracks the detection's corners from THEIR
+// frame straight into the next frame, guided by the predicted pose as usual. A detection whose
+// frame has already been dropped from the history is ignored (the chain of tracked corners goes on).
 
 import { cornerPoint } from './board_frame.js';
 import { cameraCenter, median, pixelScale, projectPoints, refinePose, scaleIntrinsics, spansPlane } from './camera_model.js';
@@ -49,8 +60,19 @@ export const PRUNE_MEDIAN_FACTOR = 3;
 /** The tracked corners' median distance from their predicted places, as a share of a square's
  *  size on screen, above which the track is taken to have slipped onto other corners. */
 export const MAX_FROM_PREDICTION = 0.35;
-/** Frames tracked at most after a detection. */
-export const MAX_TRACKED = 15;
+/** When the tracked corners miss the prediction (above), the share of a square they may have moved
+ *  from their places in the previous frame, tracked again with no guess, for that track to be taken
+ *  instead (T-0350). An unguided track of a move over half a square can land on the neighbouring
+ *  corner, which reads as a move of (move - 1) squares: 0.3 refuses those for moves up to 0.7 of a
+ *  square a frame (7 mm in a 30th of a second, far past the 'too fast' warning's 25 mm/s and
+ *  blurred anyway), while a sudden stop or turn moves the board a few hundredths of a square. */
+export const MAX_UNGUIDED_MOVE = 0.3;
+/** Frames tracked at most after a detection (T-0350: 30, a second of camera frames, now that every
+ *  frame is tracked; it was 15 when only the frames between detections were). */
+export const MAX_TRACKED = 30;
+/** Keyed frames kept for seeding from a detection's (older) frame (T-0350): over a second at 30
+ *  frames a second; 480 x 270 grey is 130 kB a frame. */
+export const HISTORY_FRAMES = 40;
 
 /**
  * Up to `max` of `items` spread over the picture: a greedy farthest-point pick from the first,
@@ -89,37 +111,65 @@ export function spreadPick(items, max, position = (item) => [item.x, item.y]) {
  *
  * @param {any} vision  the vision module (vision_wasm.js loadVision): its FrameTracker
  * @param {object} spec  the board's spec (houseki.board.v1): its corners' positions
- * @returns {{ push(image), seed(detection, pose, scale), track(image, scale, frame, intrinsics,
- *             predicted?): object, reset(), dispose(), readonly active: boolean }}
+ * @param {{ maxPoints?: number, maxTracked?: number, history?: number }} [options]  `history`: keep
+ *        that many frames, pushed under their time, so seed() can name an older frame (T-0350)
+ * @returns {{ push(image, key?), seed(detection, pose, scale, key?): boolean, track(image, scale,
+ *             frame, intrinsics, predicted?): object, reset(), dispose(), readonly active: boolean }}
  */
 export function createPoseTracker(vision, spec, options = {}) {
   const maxPoints = options.maxPoints ?? MAX_POINTS;
   const maxTracked = options.maxTracked ?? MAX_TRACKED;
+  const history = options.history ?? 0;
   const flow = new vision.FrameTracker();
   const target = spec.target?.centre_mm ?? [0, 0];
+
+  if (history > 0) {
+    flow.set_history(history);
+  }
+
   let size = null;
-  // { ids, points (processing px), pose: { R, t }, tracked (frames since the detection) } or null
+  // The key of the frame pushed last (the previous frame, once the next is pushed).
+  let lastKey = null;
+  // { ids, points (processing px), pose: { R, t }, tracked (frames since the detection), key (the
+  // time of the frame the points are on; null: the previous frame pushed) } or null
   let state = null;
 
-  /** Pushes a processing image (RGBA or grey); a change of size forgets everything. */
-  function push(image) {
+  /** Pushes a processing image (RGBA or grey), under `key` (the frame's time) when frames are kept;
+   *  a change of size forgets everything. */
+  function push(image, key = null) {
     if (!size || size.width !== image.width || size.height !== image.height) {
       flow.clear();
       state = null;
       size = { width: image.width, height: image.height };
     }
 
-    flow.push(image.data, image.width, image.height);
+    if (history > 0 && key !== null) {
+      flow.push_keyed(image.data, image.width, image.height, key);
+    } else {
+      flow.push(image.data, image.width, image.height);
+    }
+
+    lastKey = key;
   }
 
   /**
-   * After a detection on the image just pushed: its valid pose's inlier corners become the points
-   * to track. `scale`: processing px per frame px.
+   * After a detection: its valid pose's inlier corners become the points to track. `scale`:
+   * processing px per frame px. Without `key` the detection was on the image just pushed; with it
+   * (frames kept, T-0350), on the frame pushed under that key, which may be several frames back:
+   * the next track() then goes from that frame straight to the new one. A key no longer kept, or
+   * an invalid pose with a key, leaves the tracker as it was. Returns whether it seeded.
    */
-  function seed(detection, pose, scale) {
+  function seed(detection, pose, scale, key = null) {
     if (!pose?.valid) {
-      state = null;
-      return;
+      if (key === null) {
+        state = null;
+      }
+
+      return false;
+    }
+
+    if (key !== null && !flow.has(key)) {
+      return false;
     }
 
     const inlier = new Set(pose.inlierIds);
@@ -130,7 +180,9 @@ export function createPoseTracker(vision, spec, options = {}) {
       points: picked.map((c) => [c.x * scale - 0.5, c.y * scale - 0.5]),
       pose: { R: pose.R, t: pose.t },
       tracked: 0,
+      key,
     };
+    return true;
   }
 
   /**
@@ -146,9 +198,15 @@ export function createPoseTracker(vision, spec, options = {}) {
   function track(image, scale, frame, intrinsicsIn, predicted = null) {
     const started = performance.now();
     const had = state;
-    push(image);
+    const previousKey = lastKey;
+    push(image, frame.timeMs);
+    // Points on a kept frame (a seed from a detection, or the last tracked frame when frames are
+    // kept), or on the previous frame pushed.
+    const fromKept = had?.key !== null && had?.key !== undefined;
+    // Whether they are on the frame just before this one (not a seed from further back).
+    const consecutive = !fromKept || had.key === previousKey;
 
-    if (!had || state !== had || !flow.ready()) {
+    if (!had || state !== had || (fromKept ? !flow.has(had.key) : !flow.ready())) {
       state = null;
       return { pose: null, reason: 'nothing to track', tracked: 0, kept: 0, trackMs: performance.now() - started, poseMs: 0 };
     }
@@ -159,6 +217,11 @@ export function createPoseTracker(vision, spec, options = {}) {
     }
 
     let intrinsics = intrinsicsIn;
+
+    if (!intrinsics) {
+      state = null;
+      return { pose: null, reason: 'no lens yet', tracked: 0, kept: 0, trackMs: performance.now() - started, poseMs: 0 };
+    }
 
     if (frame.width !== intrinsics.width || frame.height !== intrinsics.height) {
       intrinsics = scaleIntrinsics(intrinsics, frame);
@@ -184,16 +247,14 @@ export function createPoseTracker(vision, spec, options = {}) {
         guesses[2 * i + 1] = expected[i][1] - y;
       }
     });
-    const out = flow.track(flat, guesses);
-    const trackMs = performance.now() - started;
+    const trackWith = (g) => (fromKept ? flow.track_from(had.key, flat, g) : flow.track(flat, g));
+    // The corners found both ways, back within MAX_FB_PX.
+    const keptOf = (o) => had.ids.map((_, i) => i).filter((i) => o[4 * i + 2] === 1 && o[4 * i + 3] <= MAX_FB_PX);
+    let out = trackWith(guesses);
+    let trackMs = performance.now() - started;
     const poseStarted = performance.now();
-    const keep = [];
-
-    for (let i = 0; i < had.ids.length; i += 1) {
-      if (out[4 * i + 2] === 1 && out[4 * i + 3] <= MAX_FB_PX) {
-        keep.push(i);
-      }
-    }
+    let keep = keptOf(out);
+    let guided = Boolean(expected);
 
     const fail = (reason) => {
       state = null;
@@ -210,7 +271,26 @@ export function createPoseTracker(vision, spec, options = {}) {
       const off = median(keep.map((i) => Math.hypot(out[4 * i] - expected[i][0], out[4 * i + 1] - expected[i][1])));
 
       if (off > MAX_FROM_PREDICTION * square) {
-        return fail(`${off.toFixed(1)} px from the prediction (a square is ${square.toFixed(1)} px)`);
+        // Either the track slipped, or the PREDICTION is what is wrong: the phone stopped, turned
+        // back or jerked, and the filter still carries the old motion (T-0350: on the lag video's
+        // slide reversing, at a phone's speed, every track was refused for ~200 ms while the overlay
+        // coasted 48 px off). Between consecutive frames the board moves far less than a square, so
+        // the corners tracked again from where they were, with no guess, are taken if they moved
+        // under MAX_UNGUIDED_MOVE of a square (too little to land on a neighbour).
+        const retry = consecutive ? trackWith(new Float32Array(0)) : null;
+        const retryKeep = retry ? keptOf(retry) : [];
+        const moved = retryKeep.length
+          ? median(retryKeep.map((i) => Math.hypot(retry[4 * i] - had.points[i][0], retry[4 * i + 1] - had.points[i][1])))
+          : Infinity;
+        trackMs = performance.now() - started;
+
+        if (!(retryKeep.length >= MIN_POINTS && moved <= MAX_UNGUIDED_MOVE * square)) {
+          return fail(`${off.toFixed(1)} px from the prediction (a square is ${square.toFixed(1)} px)`);
+        }
+
+        out = retry;
+        keep = retryKeep;
+        guided = false;
       }
     }
 
@@ -218,7 +298,10 @@ export function createPoseTracker(vision, spec, options = {}) {
     let ids = keep;
     let pixels = keep.map((i) => [(out[4 * i] + 0.5) / scale, (out[4 * i + 1] + 0.5) / scale]);
     let objects = keep.map((i) => points3d[i]);
-    let fit = refinePose(objects, pixels, had.pose.R, had.pose.t, intrinsics, 20);
+    // From the predicted pose when there is one: after a seed from an older frame the last pose is
+    // that frame's, a motion of several frames away from this one.
+    const start = guided ? predicted : had.pose;
+    let fit = refinePose(objects, pixels, start.R, start.t, intrinsics, 20);
 
     // Prune as pose.js does, then refine once more on what is left.
     const errorsOf = (R, t, pts, pix) => {
@@ -277,6 +360,7 @@ export function createPoseTracker(vision, spec, options = {}) {
       points: ids.map((k) => [out[4 * k], out[4 * k + 1]]),
       pose: { R: fit.R, t: fit.t },
       tracked: had.tracked + 1,
+      key: history > 0 ? frame.timeMs : null,
     };
     return { pose, reason: null, tracked: had.ids.length, kept: ids.length, trackMs, poseMs: performance.now() - poseStarted };
   }

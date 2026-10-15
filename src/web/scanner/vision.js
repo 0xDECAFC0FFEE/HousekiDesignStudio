@@ -18,13 +18,19 @@
 // loads. Once connected, the status line shows "Getting the board finder ready..." while it is
 // still loading, or why it could not load.
 //
-// WHERE IT RUNS. In a Worker (vision_worker.js, inlined into the page) when the browser can: the
-// page then only copies each frame to an ImageBitmap (createImageBitmap(video), done by the
-// browser) and draws the overlay, and board detection -- 50-90 ms a frame on an M1 Pro for a view
-// of the whole board, an estimated 2-4x that on a phone -- runs on a core of its own instead of
-// freezing the page that long. Where a Worker cannot run it (no OffscreenCanvas or
-// createImageBitmap; or OpenCV cannot be loaded inside it, as from a page opened from file://)
-// the same live.js runs in the page, kept to a DUTY share of the main thread.
+// WHERE IT RUNS. In two Workers (inlined into the page) when the browser can (T-0350): the page
+// then only copies each frame to an ImageBitmap (createImageBitmap(video), done by the browser) and
+// draws the overlay. The TRACKER's Worker (track_worker.js) gets every camera frame and tracks the
+// board's corners into it (a few ms); the DETECTION's Worker (vision_worker.js) finds the board
+// itself, works out the lens and the guidance -- 15-50 ms a frame on an M1 Pro, an estimated 2-4x
+// that on a phone -- on a core of its own, on the frames the tracker passes on to it, and hands its
+// corners back to the tracker. Neither waits for the other, so a pose comes with every camera frame
+// even while a detection runs (until T-0350 one Worker took turns, and the overlay went without a
+// pose for a whole detection several times a second: the user, 2026-10-14, "when moving the board
+// can be fairly off from whats actually showing on the screen"). Should the tracker's Worker fail
+// to start, the detection's Worker takes turns as before. Where a Worker cannot run the detection
+// (no OffscreenCanvas or createImageBitmap; or OpenCV cannot be loaded inside it, as from a page
+// opened from file://) the same live.js runs in the page, kept to a DUTY share of the main thread.
 //
 // WHICH FRAMES. requestVideoFrameCallback (a callback per new camera frame; Chrome, Edge, Safari
 // 15.4+) where there is one, else requestAnimationFrame. One frame is in work at a time, at most
@@ -32,20 +38,23 @@
 // Worker, t / WORKER_DUTY, leaving the phone's other cores and its battery some room). The
 // processing size starts at a short side of TARGET_SHORT_SIDE pixels (a 720p camera is read at
 // 0.75x) and steps down while even MIN_HZ cannot be kept, never below MIN_SHORT_SIDE, and back up
-// when there is plenty of room. The rock's outline runs every `outlineEvery` posed frames (2 to 6),
-// chosen so it takes at most OUTLINE_DUTY of the time on top. Nothing runs while the page is
-// hidden.
+// when there is plenty of room. With the two Workers, every frame goes to the tracker while it is
+// free, and one to the detection whenever the detection is free and due. Nothing runs while the
+// page is hidden.
 //
 // OVERLAY. A canvas laid over the <video> (object-fit: cover), redrawn for every camera frame: the
-// found corners as red points and blue lines, the board's edge, the rock's outline (the X/Y/Z arrows
-// at the board's centre are off for now: SHOW_AXES, the user, 2026-10-13). Since T-0332 (the
-// user: "the overlay is lagging") the pose they are drawn with is not the latest result's: every
-// valid pose feeds a filter (vision/pose_filter.js) that averages it when the phone is still and
-// tracks its velocity when it moves, and each frame is drawn with that pose CARRIED FORWARD to the
-// frame's own time, so the grid sits on the board in the picture shown, not where the board was a
-// processing time ago. The rock's outline, found every few frames, is carried along with it
-// (overlay.transferContour). The pose is drawn for POSE_HOLD_MS after its last measurement, faded
-// once older than the prediction reaches; results older than HIDE_MS take the guidance away too.
+// board's whole grid in blue, its edge in white, and a red point on each corner found (T-0350, the
+// user: "can you also use the marker ids and known board size to draw the entire grid on the
+// screen?"; overlay.js style.grid 'full'). The X/Y/Z arrows at the board's centre are off for now
+// (SHOW_AXES, the user, 2026-10-13), and the rock's outline is gone (T-0350, the user: "we can
+// remove the gemstone detection itself"). Since T-0332 (the user: "the overlay is lagging") the
+// pose they are drawn with is not the latest result's: every valid pose feeds a filter
+// (vision/pose_filter.js) that averages it when the phone is still and tracks its velocity when it
+// moves, and each frame is drawn with that pose CARRIED FORWARD to the frame's own time, so the grid
+// sits on the board in the picture shown, not where the board was a processing time ago. The pose is
+// drawn for POSE_HOLD_MS after its last measurement, faded once older than the prediction reaches;
+// with none, the grid is drawn through the latest detection's markers (a homography), and results
+// older than HIDE_MS take the guidance away too.
 //
 // ONE PICTURE (T-0340, the user: "the charuco board detection overlay is still somewhat laggy. Can
 // you use double buffering"). The <video> and a canvas over it are two layers the browser puts on
@@ -83,7 +92,7 @@ import { loadOpenCv } from '../src/lib/vision/opencv.js';
 import { loadVision, visionPayload } from '../src/lib/vision/vision_wasm.js';
 import { createLiveVision } from '../src/lib/vision/live.js';
 import { describeCamera, describeDevice, REFINE_MIN_VIEWS } from '../src/lib/vision/intrinsics.js';
-import { drawVisionOverlay, fitTransform, prepareCanvas, transferContour } from '../src/lib/vision/overlay.js';
+import { drawVisionOverlay, fitTransform, prepareCanvas } from '../src/lib/vision/overlay.js';
 import { createPoseFilter, MAX_PREDICT_MS } from '../src/lib/vision/pose_filter.js';
 import { makeVisionMessage } from '../src/lib/scan_vision.js';
 import {
@@ -93,12 +102,12 @@ import {
   createLatencyStats, diagnosticsText, frameTime, speedForMessage,
 } from '../src/lib/vision/latency.js';
 import VisionWorker from './vision_worker.js?worker&inline';
+import TrackWorker from './track_worker.js?worker&inline';
 
 export const MAX_HZ = 12;
 export const MIN_HZ = 4;
 export const DUTY = 0.4;
 export const WORKER_DUTY = 0.8;
-export const OUTLINE_DUTY = 0.2;
 export const TARGET_SHORT_SIDE = 540;
 export const MIN_SHORT_SIDE = 360;
 export const STALE_MS = 500;
@@ -108,9 +117,16 @@ export const POSE_HOLD_MS = 500;
 /** Track the board between detections (T-0332). */
 export const TRACKING = true;
 /** While tracking works, a full detection at least this far apart (ms): the tracked frames between
- *  carry the overlay, the detections reset any drift and bring the outline, the guidance and the
+ *  carry the overlay, the detections reset any drift and bring the guidance and the
  *  lens. */
 export const TRACKED_DETECT_INTERVAL_MS = 250;
+/** With the tracker in a Worker of its own (T-0350), detections at least this far apart while it
+ *  tracks (ms): the detection no longer holds the tracking up, so it can come more often than
+ *  TRACKED_DETECT_INTERVAL_MS (each puts the tracked corners back on the board, and feeds the lens
+ *  and the guidance), but not back to back, for the phone's battery. */
+export const PARALLEL_DETECT_INTERVAL_MS = 150;
+/** A detection not back after this long (ms) is given up on, so a lost message cannot stop them. */
+export const DETECT_TIMEOUT_MS = 5000;
 /** The tracker reads frames at this share of the processing size: a quarter of the pixels to move
  *  and read back per tracked frame (measured on the M1 Pro: the 960 x 540 read was 4 of a tracked
  *  frame's 10.5 ms). */
@@ -234,16 +250,6 @@ export function visionStatusText(result) {
     lines.push(`Measuring the camera: move around the board slowly (${Math.min(views, REFINE_MIN_VIEWS)} of ${REFINE_MIN_VIEWS} views).`);
   } else {
     lines.push('Measuring the camera: show it the board from a slant.');
-  }
-
-  if (state === 'pose') {
-    const outline = result.outline;
-
-    if (outline?.contour?.length) {
-      lines.push('Rock outlined.');
-    } else if (outline) {
-      lines.push('No rock found on the target.');
-    }
   }
 
   return { state, text: lines.join(' ') };
@@ -435,19 +441,14 @@ function setUpDiagnostics(line, targets, storage) {
  * The pipeline in a Worker. Resolves to a processor, or rejects (the caller then runs it in the
  * page) when the browser has no way to hand frames to a Worker or the Worker cannot start it.
  */
-async function startWorker(setup, { slowdown = () => 1 } = {}) {
-  if (typeof Worker !== 'function' || typeof OffscreenCanvas !== 'function' || typeof createImageBitmap !== 'function') {
-    throw new Error('no Worker with OffscreenCanvas and createImageBitmap here');
-  }
-
-  const worker = new VisionWorker();
-  let pending = null;
-
-  const ready = await new Promise((resolve, reject) => {
-    const timer = setTimeout(() => reject(new Error('the vision worker did not start in time')), WORKER_START_MS);
+/** Starts a Worker with its 'init' message; resolves to its 'ready' message, or rejects (the Worker
+ *  terminated) if it fails or does not start within WORKER_START_MS. */
+function initWorker(worker, message, transfer = [], name = 'vision') {
+  return new Promise((resolve, reject) => {
+    const timer = setTimeout(() => reject(new Error(`the ${name} worker did not start in time`)), WORKER_START_MS);
     worker.onerror = (event) => {
       clearTimeout(timer);
-      reject(new Error(`the vision worker failed: ${event.message ?? event}`));
+      reject(new Error(`the ${name} worker failed: ${event.message ?? event}`));
     };
     worker.onmessage = ({ data }) => {
       if (data.type === 'ready') {
@@ -458,11 +459,156 @@ async function startWorker(setup, { slowdown = () => 1 } = {}) {
         reject(new Error(data.message));
       }
     };
-    worker.postMessage({ type: 'init', ...setup });
+    worker.postMessage(message, transfer);
   }).catch((error) => {
     worker.terminate();
     throw error;
   });
+}
+
+const workersPossible = () => typeof Worker === 'function' && typeof OffscreenCanvas === 'function' && typeof createImageBitmap === 'function';
+
+/**
+ * The tracker and the detection in two Workers (T-0350): see the header, WHERE IT RUNS. Resolves to
+ * a processor whose frame() hands one camera frame to the tracker (and, with `detect`, on to the
+ * detection), or, should the tracker's Worker not start, to the one-Worker processor (startWorker).
+ * Rejects (the caller then runs it in the page) when the detection's Worker cannot start.
+ */
+async function startWorkers(setup, { slowdown = () => 1 } = {}) {
+  if (!workersPossible() || typeof MessageChannel !== 'function') {
+    throw new Error('no Worker with OffscreenCanvas, createImageBitmap and MessageChannel here');
+  }
+
+  const channel = new MessageChannel();
+  const trackWorker = new TrackWorker();
+  let trackReady;
+
+  try {
+    trackReady = await initWorker(trackWorker, { type: 'init', visionPayload: setup.visionPayload, port: channel.port1 }, [channel.port1], 'tracking');
+  } catch (error) {
+    console.warn('[houseki scan phone] the tracker could not start in a worker of its own; one worker takes turns:', error);
+    return startWorker(setup, { slowdown });
+  }
+
+  const detectWorker = new VisionWorker();
+  let ready;
+
+  try {
+    ready = await initWorker(detectWorker, { type: 'init', ...setup, port: channel.port2 }, [channel.port2]);
+  } catch (error) {
+    trackWorker.terminate();
+    throw error;
+  }
+
+  // One frame in each Worker at a time: the page waits for each answer before sending the next.
+  let tracking = null;
+  let detecting = null;
+  trackWorker.onmessage = ({ data }) => {
+    const job = tracking;
+    tracking = null;
+
+    if (!job) {
+      return;
+    }
+
+    if (data.type === 'tracked') {
+      job.resolve({ result: data.result, grabMs: data.grabMs, canTrack: Boolean(data.canTrack), seeded: data.seeded ?? 0, bitmapMs: job.bitmapMs });
+    } else {
+      job.reject(new Error(data.message));
+    }
+  };
+  detectWorker.onmessage = ({ data }) => {
+    const job = detecting;
+
+    if (!job) {
+      return;
+    }
+
+    if (data.type === 'pose') {
+      job.onPose?.(data.pose);
+      return;
+    }
+
+    detecting = null;
+
+    if (data.type === 'result') {
+      job.resolve({ result: data.result, grabMs: data.grabMs, bitmapMs: job.bitmapMs });
+    } else {
+      job.reject(new Error(data.message));
+    }
+  };
+
+  return {
+    kind: 'worker',
+    parallel: true,
+    duty: WORKER_DUTY,
+    loadMs: ready.loadMs,
+    warmMs: ready.warmMs,
+    trackLoadMs: trackReady.loadMs,
+    /**
+     * One camera frame: to the tracker, and with `detect` (the detection free and due) on to the
+     * detection. Returns { tracked: Promise, detected: Promise | null }.
+     */
+    frame({ video, work, track, frame, predicted, detect = false, onPose = null }) {
+      const started = now();
+      const trackJob = {};
+      const tracked = new Promise((resolve, reject) => Object.assign(trackJob, { resolve, reject }));
+      let detectJob = null;
+      let detected = null;
+
+      if (detect) {
+        detectJob = { onPose };
+        detected = new Promise((resolve, reject) => Object.assign(detectJob, { resolve, reject }));
+      }
+
+      tracking = trackJob;
+      detecting = detectJob ?? detecting;
+      // An ImageBitmap, not a VideoFrame (T-0350, measured): `new VideoFrame(video)` saved the page
+      // little, and drawing it in the Worker (its YUV turned to RGB there) took 7.1 ms against
+      // 2.3 for the bitmap, on the tracker's critical path.
+      createImageBitmap(video).then((bitmap) => {
+        trackJob.bitmapMs = now() - started;
+
+        if (detectJob) {
+          detectJob.bitmapMs = trackJob.bitmapMs;
+        }
+
+        trackWorker.postMessage({
+          type: 'frame', bitmap, track, frame, predicted, detect: detect ? { work } : null, slowdown: slowdown(),
+        }, [bitmap]);
+      }).catch((error) => {
+        tracking = tracking === trackJob ? null : tracking;
+        detecting = detecting === detectJob ? null : detecting;
+        trackJob.reject(error);
+        detectJob?.reject(error);
+      });
+      return { tracked, detected };
+    },
+    /** A detection given up on (DETECT_TIMEOUT_MS): its answer, should it come, is ignored. */
+    abandonDetection() {
+      const job = detecting;
+      detecting = null;
+      job?.reject(new Error('the detection did not answer in time'));
+    },
+    setCamera(camera, device) {
+      detectWorker.postMessage({ type: 'camera', camera, device });
+    },
+  };
+}
+
+/**
+ * The pipeline in one Worker, detection and tracking taking turns (before T-0350; now only when the
+ * tracker's Worker cannot start). Resolves to a processor, or rejects (the caller then runs it in
+ * the page) when the Worker cannot start it.
+ */
+async function startWorker(setup, { slowdown = () => 1 } = {}) {
+  if (!workersPossible()) {
+    throw new Error('no Worker with OffscreenCanvas and createImageBitmap here');
+  }
+
+  const worker = new VisionWorker();
+  let pending = null;
+  const ready = await initWorker(worker, { type: 'init', ...setup });
 
   worker.onmessage = ({ data }) => {
     if (!pending) {
@@ -490,13 +636,13 @@ async function startWorker(setup, { slowdown = () => 1 } = {}) {
     duty: WORKER_DUTY,
     loadMs: ready.loadMs,
     warmMs: ready.warmMs,
-    async process({ video, work, track, frame, outline, predicted, onPose = null }) {
+    async process({ video, work, track, frame, predicted, onPose = null }) {
       const started = now();
       const bitmap = await createImageBitmap(video);
       const bitmapMs = now() - started;
       return new Promise((resolve, reject) => {
         pending = { resolve: (value) => resolve({ ...value, bitmapMs }), reject, onPose };
-        worker.postMessage({ type: 'frame', bitmap, work, track, frame, outline, predicted, slowdown: slowdown() }, [bitmap]);
+        worker.postMessage({ type: 'frame', bitmap, work, track, frame, predicted, slowdown: slowdown() }, [bitmap]);
       });
     },
     async track({ video, track, frame, predicted }) {
@@ -519,8 +665,7 @@ async function startInPage(setup) {
   const loadStarted = now();
   const [cv, vision] = await Promise.all([loadOpenCv(), loadVision()]);
   const loadMs = now() - loadStarted;
-  const glCanvas = typeof OffscreenCanvas === 'function' ? new OffscreenCanvas(1, 1) : document.createElement('canvas');
-  const live = createLiveVision(cv, { ...setup, vision, glCanvas });
+  const live = createLiveVision(cv, { ...setup, vision });
   const warmStarted = now();
 
   try {
@@ -539,7 +684,7 @@ async function startInPage(setup) {
     loadMs,
     warmMs,
     live,
-    async process({ video, work, frame, outline, predicted, onPose = null }) {
+    async process({ video, work, frame, predicted, onPose = null }) {
       const started = now();
 
       if (grab.width !== work.width || grab.height !== work.height) {
@@ -550,7 +695,7 @@ async function startInPage(setup) {
       grabContext.drawImage(video, 0, 0, work.width, work.height);
       const image = grabContext.getImageData(0, 0, work.width, work.height);
       const grabMs = now() - started;
-      const result = live.processFrame({ image, scale: work.width / frame.width, frame, source: video, outline, predicted, onPose });
+      const result = live.processFrame({ image, scale: work.width / frame.width, frame, source: video, predicted, onPose });
       return { result, grabMs, canTrack: live.canTrack };
     },
     // Not called (the page tracks only in a Worker), but kept equivalent: a tracked frame here
@@ -602,7 +747,6 @@ export async function startPhoneVision({
     thread: null,
     workerError: null,
     scale: 1,
-    outlineEvery: 3,
     frames: 0,
     processed: 0,
     poses: 0,
@@ -622,7 +766,8 @@ export async function startPhoneVision({
     // Detections that searched only a region round the rock (T-0332).
     regionDetections: 0,
     lastTracked: null,
-    outlines: 0,
+    // Detections whose corners the tracker took on from their own frame (T-0350).
+    seeds: 0,
     messages: 0,
     error: null,
     last: null,
@@ -720,7 +865,7 @@ export async function startPhoneVision({
     try {
       // The board detector's wasm is loaded and inflated here, once, and handed to the Worker
       // (which may not load files itself from file://); the in-page fallback reuses it.
-      processor = await startWorker({
+      processor = await startWorkers({
         ...setup,
         opencvUrl: new URL('opencv.js', document.baseURI).href,
         visionPayload: await visionPayload(),
@@ -760,11 +905,14 @@ export async function startPhoneVision({
   say('searching', 'Point the camera at the printed board.');
 
   const costAverage = average(0.2);
-  const outlineAverage = average(0.3);
   let nextAt = 0;
   let nextTrackedAt = 0;
   let busy = false;
-  let posesSinceOutline = Infinity;
+  // With the two Workers (T-0350): a frame in the tracker's, a frame in the detection's (and since
+  // when), each at most one at a time.
+  let trackBusy = false;
+  let detectBusy = false;
+  let detectSentAt = 0;
   let cameraCheckAt = 0;
   // The pose the overlay is drawn with (T-0332): filtered and carried forward to each frame shown.
   const overlayFilter = createPoseFilter();
@@ -783,23 +931,32 @@ export async function startPhoneVision({
       state.scale = Math.min(1, state.scale * 1.25);
     }
 
-    if (outlineAverage.value !== null) {
-      // The outline's cost spread over `outlineEvery` frames stays within OUTLINE_DUTY.
-      state.outlineEvery = Math.max(2, Math.min(6, Math.ceil(outlineAverage.value / (OUTLINE_DUTY * interval))));
-    }
-
     return interval;
   }
 
-  async function processFrame(timeMs) {
-    const W = video.videoWidth;
-    const H = video.videoHeight;
-
-    if (!(W > 0 && H > 0)) {
-      return;
+  /**
+   * A valid pose into the overlay's filter, unless the filter already has a newer one (T-0350: with
+   * the tracker in its own Worker, a detection's pose belongs to a frame that tracked poses have
+   * already gone past; the tracker takes the detection's corners on from there instead). Returns
+   * whether it was taken.
+   */
+  function feedFilter(pose) {
+    if (!pose?.valid) {
+      return false;
     }
 
-    // A change of camera (a zoom, a lens, a resolution) restarts the intrinsics' view of it.
+    const filtered = overlayFilter.state;
+
+    if (filtered && pose.frame.timeMs <= filtered.time) {
+      return false;
+    }
+
+    overlayFilter.update(pose);
+    return true;
+  }
+
+  /** A change of camera (a zoom, a lens, a resolution) restarts the intrinsics' view of it. */
+  function checkCamera(timeMs) {
     if (timeMs > cameraCheckAt) {
       cameraCheckAt = timeMs + 2000;
       const next = describeCamera(track);
@@ -810,43 +967,37 @@ export async function startPhoneVision({
         processor.setCamera(camera, device);
       }
     }
+  }
 
-    const started = now();
-    state.firstFrameAt ??= started;
-    const work = { width: Math.max(1, Math.round(W * state.scale)), height: Math.max(1, Math.round(H * state.scale)) };
-    const expected = overlayFilter.predict(timeMs);
-    // The pose as soon as it is solved (T-0340): the overlay's filter takes it then, not after the
-    // frame's lens, outline and guidance; the result's own pose is then not fed again.
-    let poseFed = false;
-    const onPose = (pose) => {
-      if (pose?.valid) {
-        overlayFilter.update(pose);
-        state.foundIds = pose.inlierIds ?? null;
+  const workSize = () => ({
+    width: Math.max(1, Math.round(video.videoWidth * state.scale)),
+    height: Math.max(1, Math.round(video.videoHeight * state.scale)),
+  });
+
+  /** The early pose of a detection (T-0340): the overlay's filter takes it then, not after the
+   *  frame's lens and guidance. */
+  function earlyPose(pose) {
+    if (pose?.valid) {
+      state.foundIds = pose.inlierIds ?? null;
+
+      if (feedFilter(pose)) {
         state.earlyPoses += 1;
-        poseFed = true;
       }
-    };
-    const { result, grabMs, bitmapMs, canTrack } = await processor.process({
-      onPose,
-      video,
-      work,
-      track: trackSize(work),
-      // Where the board is expected in this frame: the detection searches a region round it.
-      predicted: expected && timeMs - expected.measuredAtMs <= MAX_PREDICT_MS ? { R: expected.R, t: expected.t } : null,
-      frame: { width: W, height: H, timeMs },
-      outline: posesSinceOutline >= state.outlineEvery,
-    });
-    const done = now();
-    state.canTrack = Boolean(canTrack);
+    }
+  }
+
+  /**
+   * A detection's result (either processor): the timings, the status line, the guidance and the
+   * message to the computer; and when the next detection is due. `started`: when the frame went
+   * out (performance.now()), `done`: when the result came back.
+   */
+  function detected({ result, grabMs, bitmapMs, canTrack }, timeMs, started, done) {
+    if (canTrack !== undefined) {
+      state.canTrack = Boolean(canTrack);
+    }
 
     if (result.pose?.valid) {
       state.poses += 1;
-      posesSinceOutline = result.outlineFresh ? 0 : posesSinceOutline + 1;
-    }
-
-    if (result.outlineFresh) {
-      state.outlines += 1;
-      outlineAverage.add(result.timings.outlineMs);
     }
 
     timing.add('bitmapMs', bitmapMs);
@@ -854,33 +1005,32 @@ export async function startPhoneVision({
     timing.add('detectMs', result.timings.detectMs);
     timing.add('poseMs', result.timings.poseMs);
     timing.add('intrinsicsMs', result.timings.intrinsicsMs);
-    timing.add('outlineMs', result.timings.outlineMs);
     timing.add('fitMs', result.timings.fitMs);
     timing.add('guideMs', result.timings.guideMs);
     timing.add('frameMs', done - started);
     // The region searched (T-0332): how often, and what share of the frame.
     timing.add(result.region ? 'regionDetectMs' : 'fullDetectMs', result.timings.detectMs);
-    timing.add('regionShare', result.region ? (result.region.width * result.region.height) / (W * H) : 1);
+    timing.add('regionShare', result.region ? (result.region.width * result.region.height) / (result.frame.width * result.frame.height) : 1);
     state.regionDetections += result.region ? 1 : 0;
     latency.addResult(done, { kind: 'detect', posed: Boolean(result.pose?.valid), timings: { ...result.timings, frameMs: done - started } });
 
-    // The overlay's filter (T-0332): every valid pose feeds it, once.
-    if (result.pose?.valid && !poseFed) {
-      overlayFilter.update(result.pose);
+    // The overlay's filter (T-0332): every valid pose feeds it, once (the early pose usually has).
+    if (result.pose?.valid) {
       state.foundIds = result.pose.inlierIds ?? null;
+      feedFilter(result.pose);
     }
 
     state.processed += 1;
     state.last = result;
     state.lastAt = timeMs;
-    // The next frame waits for this one's cost (less the outline's, which has its own budget).
-    // The whole frame as this page saw it (the bitmap, the trip to the Worker and back included;
-    // before T-0332 only the Worker's own stages counted), less the outline's own budget.
-    const interval = adapt(done - started - (result.timings.outlineMs ?? 0));
-    nextAt = timeMs + interval;
-    // While the board can be tracked, detections are spaced further apart and the frames between
-    // are tracked (T-0332): a tracked pose is a few ms old when drawn, a detected one a whole
-    // detection old. Should tracking fail, the usual cadence applies again (tick).
+    // The next frame waits for this one's cost: the whole frame as this page saw it (the bitmap,
+    // the trip to the Worker and back included; before T-0332 only the Worker's own stages
+    // counted).
+    const interval = adapt(done - started);
+    nextAt = timeMs + (processor.parallel && state.canTrack ? Math.max(interval, PARALLEL_DETECT_INTERVAL_MS) : interval);
+    // One Worker taking turns: while the board can be tracked, detections are spaced further apart
+    // and the frames between are tracked (T-0332): a tracked pose is a few ms old when drawn, a
+    // detected one a whole detection old. Should tracking fail, the usual cadence applies again.
     nextTrackedAt = timeMs + Math.max(interval, TRACKED_DETECT_INTERVAL_MS);
 
     const words = visionStatusText(result);
@@ -894,7 +1044,6 @@ export async function startPhoneVision({
       detection: result.detection,
       pose: result.pose,
       intrinsics: result.intrinsics,
-      outline: result.outline,
       sheet: result.sheet,
       guide: result.pose?.valid ? result.guide : null,
       warning: state.warning,
@@ -905,46 +1054,33 @@ export async function startPhoneVision({
   }
 
   /**
-   * A frame between detections (T-0332): the Worker tracks the last pose's corners into it and
-   * re-solves the pose (vision/tracker.js), guided by the overlay's prediction for this frame; a
-   * valid pose feeds the overlay's filter like a detected one, and goes to the computer in a
-   * message whose other parts (counts, lens, outline, guidance) are the last detection's. Nothing
-   * else (outline, guidance, the board check) comes from a tracked frame.
+   * A tracked frame's result (T-0332; either processor): a valid pose feeds the overlay's filter
+   * like a detected one, and goes to the computer in a message whose other parts (counts, lens,
+   * guidance) are the last detection's. Nothing else (guidance, the board check) comes from a
+   * tracked frame.
    */
-  async function trackFrame(timeMs) {
-    const W = video.videoWidth;
-    const H = video.videoHeight;
-
-    if (!(W > 0 && H > 0)) {
-      return;
-    }
-
-    const started = now();
-    const work = { width: Math.max(1, Math.round(W * state.scale)), height: Math.max(1, Math.round(H * state.scale)) };
-    const predicted = overlayFilter.predict(timeMs);
-    const { result, canTrack, grabMs, bitmapMs } = await processor.track({
-      video,
-      work,
-      track: trackSize(work),
-      frame: { width: W, height: H, timeMs },
-      predicted: predicted ? { R: predicted.R, t: predicted.t } : null,
-    });
-    const done = now();
+  function tracked({ result, canTrack, grabMs, bitmapMs, seeded = 0 }, started, done) {
     state.canTrack = Boolean(canTrack);
     state.tracks += 1;
+    state.seeds = (state.seeds ?? 0) + seeded;
     state.lastTracked = result;
     timing.add('trackMs', result.timings.totalMs);
     timing.add('trackBitmapMs', bitmapMs);
     timing.add('trackGrabMs', grabMs);
     timing.add('trackFrameMs', done - started);
+
+    if (!state.tracking) {
+      return;
+    }
+
     latency.addResult(done, { kind: 'track', posed: Boolean(result.pose?.valid), timings: { trackMs: done - started } });
 
     if (result.pose?.valid) {
       state.trackedPoses += 1;
-      overlayFilter.update(result.pose);
+      feedFilter(result.pose);
       // state.foundIds keeps the last DETECTION's corners: a tracked pose follows only a sparse
-      // spread of them (48), which are rarely neighbours, so the points and lines would thin out
-      // and flicker on every tracked frame. Tracking moves them with the pose all the same.
+      // spread of them (48), so the red points would thin out and flicker on every tracked frame.
+      // Tracking moves them with the pose all the same.
       const last = state.last;
 
       if (last) {
@@ -954,15 +1090,103 @@ export async function startPhoneVision({
           detection: last.detection,
           pose: result.pose,
           intrinsics: result.pose.intrinsics,
-          outline: last.outline,
-          sheet: result.sheet,
+          sheet: last.sheet,
           guide: last.pose?.valid ? last.guide : null,
           warning: state.warning,
           speed: speedForMessage(latency.summary(done)),
         }));
       }
     } else {
-      state.trackFailures[result.track?.reason ?? 'no pose'] = (state.trackFailures[result.track?.reason ?? 'no pose'] ?? 0) + 1;
+      const reason = result.track?.reason ?? 'no pose';
+      state.trackFailures[reason] = (state.trackFailures[reason] ?? 0) + 1;
+    }
+  }
+
+  /** One Worker or the page (before T-0350): a frame detected, the processor waited for. */
+  async function processFrame(timeMs) {
+    if (!(video.videoWidth > 0 && video.videoHeight > 0)) {
+      return;
+    }
+
+    checkCamera(timeMs);
+    const started = now();
+    state.firstFrameAt ??= started;
+    const W = video.videoWidth;
+    const H = video.videoHeight;
+    const work = workSize();
+    const expected = overlayFilter.predict(timeMs);
+    const out = await processor.process({
+      onPose: earlyPose,
+      video,
+      work,
+      track: trackSize(work),
+      // Where the board is expected in this frame: the detection searches a region round it.
+      predicted: expected && timeMs - expected.measuredAtMs <= MAX_PREDICT_MS ? { R: expected.R, t: expected.t } : null,
+      frame: { width: W, height: H, timeMs },
+    });
+    detected(out, timeMs, started, now());
+  }
+
+  /** One Worker (before T-0350): a frame between detections tracked, the processor waited for. */
+  async function trackFrame(timeMs) {
+    if (!(video.videoWidth > 0 && video.videoHeight > 0)) {
+      return;
+    }
+
+    const started = now();
+    const work = workSize();
+    const predicted = overlayFilter.predict(timeMs);
+    const out = await processor.track({
+      video,
+      work,
+      track: trackSize(work),
+      frame: { width: video.videoWidth, height: video.videoHeight, timeMs },
+      predicted: predicted ? { R: predicted.R, t: predicted.t } : null,
+    });
+    tracked(out, started, now());
+  }
+
+  /**
+   * The two Workers (T-0350): this camera frame to the tracker, and on to the detection when it is
+   * free and due. Neither is waited for: their answers are handled as they come.
+   */
+  function sendFrame(timeMs) {
+    if (!(video.videoWidth > 0 && video.videoHeight > 0)) {
+      return;
+    }
+
+    checkCamera(timeMs);
+    const started = now();
+    state.firstFrameAt ??= started;
+    const work = workSize();
+    const expected = overlayFilter.predict(timeMs);
+    const predicted = expected && timeMs - expected.measuredAtMs <= MAX_PREDICT_MS ? { R: expected.R, t: expected.t } : null;
+    const detect = !detectBusy && timeMs >= nextAt;
+    const jobs = processor.frame({
+      video,
+      work,
+      track: trackSize(work),
+      frame: { width: video.videoWidth, height: video.videoHeight, timeMs },
+      predicted,
+      detect,
+      onPose: earlyPose,
+    });
+    trackBusy = true;
+    jobs.tracked.then((out) => tracked(out, started, now())).catch((error) => {
+      state.error = String(error?.stack ?? error);
+    }).finally(() => {
+      trackBusy = false;
+    });
+
+    if (jobs.detected) {
+      detectBusy = true;
+      detectSentAt = started;
+      jobs.detected.then((out) => detected(out, timeMs, started, now())).catch((error) => {
+        state.error = String(error?.stack ?? error);
+        nextAt = now() + 1000;
+      }).finally(() => {
+        detectBusy = false;
+      });
     }
   }
 
@@ -998,18 +1222,14 @@ export async function startPhoneVision({
     // as its last measurement is recent; faded once it is older than the prediction reaches.
     const measuredAt = overlayFilter.state?.time ?? -Infinity;
     const shown = timeMs - measuredAt <= POSE_HOLD_MS ? overlayFilter.predict(timeMs) : null;
-    // The rock's outline moves with the board: from the pose of the frame it was found on to the
-    // pose drawn, through the plane at the rock's middle height (overlay.transferContour).
-    const outline = shown && result.outline?.contour?.length >= 3 ? result.outline : null;
-    const contour = outline && result.outlinePose
-      ? transferContour(outline.contour, result.outlinePose, result.outlinePose.intrinsics, shown, shown.intrinsics, result.guide?.rockMm?.[2] ?? 0)
-      : outline?.contour ?? null;
-    // The corners the pose was solved from as red points with blue lines between neighbours, placed
-    // through the drawn pose, instead of the faint full-board grid (T-0333: the user's choice; the
-    // board's edge stays). Raw detected corners trail the picture, so they are drawn only when there
-    // is no pose to place the points through (T-0335 follow-up: a board found whose pose fails its
-    // checks must still show as found, as the phone's first version showed it): the latest
-    // detection's corners where they were found, faded once older than STALE_MS.
+    // The board's whole grid through the drawn pose, with red points on the corners the pose was
+    // solved from, placed through the pose too (T-0350: the user asked for the entire grid; T-0333's
+    // red points stay). Raw detected corners trail the picture, so they are drawn only when there is
+    // no pose to place the points through (T-0335 follow-up: a board found whose pose fails its
+    // checks must still show as found): then the whole grid through the latest detection's markers
+    // (a homography; overlay.markerGridLines), or with too few markers its corners where they were
+    // found, joined in blue, faded once older than STALE_MS.
+    const detection = !shown && result.detection?.markers?.length ? result.detection : null;
     const detectedCorners = !shown && result.detection?.corners?.length ? result.detection.corners : null;
     const alpha = shown ? (timeMs - measuredAt > MAX_PREDICT_MS ? 0.4 : 1) : (age > STALE_MS ? 0.4 : 1);
     state.drawn = drawVisionOverlay(ctx, {
@@ -1017,11 +1237,11 @@ export async function startPhoneVision({
       intrinsics: shown?.intrinsics ?? null,
       targetMm: result.sheet.targetMm,
       sizeMm: result.sheet.sizeMm,
-      contour,
       corners: null,
       foundCornerIds: state.foundIds,
       detectedCorners,
-    }, transform, { alpha, grid: false, axes: SHOW_AXES });
+      detection,
+    }, transform, { alpha, grid: 'full', axes: SHOW_AXES });
     // For the harness: the overlay's CSS size, to map its drawn points back to frame pixels.
     state.drawn.transform = transform;
     // How far the drawn pose's measurement trails the picture it is drawn on (latency.js), and how
@@ -1057,6 +1277,26 @@ export async function startPhoneVision({
     // measured between frames, not between callbacks (latency.js frameTime).
     const { timeMs, from } = frameTime(nowMs, metadata);
     state.frameTimeFrom = from;
+
+    if (processor.parallel) {
+      // The two Workers (T-0350): every frame to the tracker while it is free.
+      if (detectBusy && now() - detectSentAt > DETECT_TIMEOUT_MS) {
+        processor.abandonDetection();
+      }
+
+      if (!trackBusy && !document.hidden) {
+        sendFrame(timeMs);
+      }
+
+      draw(timeMs, nowMs);
+      showDiagnostics(nowMs);
+
+      if (typeof debug.onDraw === 'function') {
+        debug.onDraw({ nowMs, frameTimeMs: timeMs, presentedFrames: metadata?.presentedFrames ?? null, mediaTime: metadata?.mediaTime ?? null, drawn: state.drawn });
+      }
+
+      return;
+    }
 
     const tracking = state.canTrack && state.tracking && processor.kind === 'worker' && Boolean(processor.track);
 
@@ -1128,8 +1368,6 @@ function summarise(result) {
     } : null,
     intrinsics: result.intrinsics,
     calibration: { ...result.calibration, lastRefine: undefined },
-    outline: result.outline ? { points: result.outline.contour.length, confidence: result.outline.confidence, flags: result.outline.flags } : null,
-    outlineError: result.outlineError,
     sheet: result.sheet,
     guide: result.guide ? { ...result.guide } : null,
     timings: result.timings,

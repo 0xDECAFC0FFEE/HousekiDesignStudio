@@ -82,7 +82,7 @@ Deno.test('createLatencyStats: rates, ages and stage medians over the last few s
   assert(Math.abs(s.trackedPerS - 4.5) < 0.6, `tracked/s ${s.trackedPerS}`);
   assert(s.ageMs >= 95 && s.ageMs <= 104, `age median ${s.ageMs}`);
   assert(s.ageP90Ms >= 112 && s.ageP90Ms <= 119, `age p90 ${s.ageP90Ms}`);
-  assertEqual([s.stages.detectMs, s.stages.trackMs, s.stages.outlineMs], [25, 3, null], 'stage medians');
+  assertEqual([s.stages.detectMs, s.stages.trackMs, s.stages.guideMs], [25, 3, null], 'stage medians');
   assert(s.draws > 80 && s.draws <= Math.ceil(WINDOW_MS / 33) + 1, `draws in the window ${s.draws}`);
   stats.reset();
   assertEqual(stats.summary(5000).resultsPerS, null, 'reset');
@@ -98,10 +98,10 @@ Deno.test('diagnosticsText and speedForMessage: the line a person reads, the num
   // and leaves out what is unknown (null), so the message carries no nulls.
   const summary = {
     resultsPerS: 12.34, posesPerS: 11.96, trackedPerS: 5.02, ageMs: 61.4, ageP90Ms: 98.6, draws: 90,
-    stages: { detectMs: 24.6, trackMs: 3.2, poseMs: 0.6, outlineMs: 16.1, guideMs: 5.5, frameMs: 41.9 },
+    stages: { detectMs: 24.6, trackMs: 3.2, poseMs: 0.6, guideMs: 5.5, frameMs: 41.9 },
   };
   assertEqual(diagnosticsText(summary, { work: '960×540', thread: 'worker' }),
-    '12.0 poses/s (5.0 tracked) · position 61 ms old (90%: 99) · detect 25 · track 3.2 · pose 0.6 · outline 16 · guide 5.5 · frame 42 ms · 960×540 px · background',
+    '12.0 poses/s (5.0 tracked) · position 61 ms old (90%: 99) · detect 25 · track 3.2 · pose 0.6 · guide 5.5 · frame 42 ms · 960×540 px · background',
     'the line');
   const untracked = { ...summary, trackedPerS: 0, stages: { ...summary.stages, trackMs: null } };
   assert(!diagnosticsText(untracked).includes('track'), 'no tracking, no tracking numbers');

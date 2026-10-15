@@ -10,7 +10,7 @@
 //
 // The phone's vision (vision.js, T-0326) loads while the phone connects and runs once it has
 // connected (not before, T-0329): it finds the printed
-// board, the camera's pose over it and the rock's outline, draws them over the picture, says what
+// board and the camera's pose over it, draws the board's grid over the picture, says what
 // it sees in a second line (#scanner-vision, its state in `data-state`), and sends a summary to
 // the computer through the session. It never holds up the camera or the connection.
 

@@ -11,21 +11,30 @@
 // a page opened from file://, whose workers may not read files -- the worker says so and the page
 // runs the same live.js itself (vision.js, "main thread").
 //
+// BESIDE THE TRACKER (T-0350). Given a `port` at init (a MessageChannel to scanner/track_worker.js),
+// this Worker only DETECTS: the tracker has a Worker of its own and tracks every camera frame, and
+// the frames to detect arrive from it over the port (the same 'frame' message as below), not from
+// the page. As soon as a frame's pose is solved, its inlier corners go back over the port as a
+// 'seed' (the tracker tracks them on from that frame) and the pose to the page; the full result
+// follows to the page. Without a port it works as before: detection and tracking taking turns.
+//
 // Messages, page -> worker:
-//   { type: 'init', opencvUrl, visionPayload, frameSize, camera, device, poseMaxRmsPx? (harness) }
+//   { type: 'init', opencvUrl, visionPayload, frameSize, camera, device, port?, poseMaxRmsPx? (harness) }
 //   { type: 'frame', bitmap (ImageBitmap of the full frame, transferred), work: { width, height },
 //     track: { width, height } | null (the tracker's size, T-0332), frame: { width, height, timeMs },
-//     outline: boolean, predicted: { R, t } | null (the overlay's predicted pose: the region the
-//     detection searches, T-0332) }
+//     predicted: { R, t } | null (the overlay's predicted pose: the region the detection searches,
+//     T-0332), slowdown (harness) }
 //   { type: 'track', bitmap, track, frame, predicted: { R, t } | null }   (T-0332: a frame between
 //     detections, read at the tracker's size only; live.trackFrame)
 //   { type: 'camera', camera, device }
 // worker -> page:
 //   { type: 'ready', loadMs, warmMs }        { type: 'failed', message }  (init failed: fall back)
 //   { type: 'pose', pose }   (T-0340: a detected frame's pose, sent as soon as it is solved, before
-//     the frame's lens, outline and guidance; its 'result' follows)
+//     the frame's lens and guidance; its 'result' follows)
 //   { type: 'result', result, grabMs, canTrack }   { type: 'error', message }   (one frame failed)
 //   canTrack: whether the next frame could be tracked (a valid pose's corners are held)
+// worker -> tracker's Worker (port, T-0350):
+//   { type: 'seed', frame, corners: [{ id, x, y }] (the pose's inliers, full-frame px), pose }
 //
 // Results are live.js's, which are plain data (structured-cloneable) by design.
 
@@ -35,22 +44,20 @@ import { createLiveVision } from '../src/lib/vision/live.js';
 
 let live = null;
 let grabs = null;
+// The channel to the tracker's Worker (T-0350), or null: this Worker tracks too.
+let port = null;
 
-async function init({ opencvUrl, visionPayload, frameSize, camera, device, poseMaxRmsPx = null }) {
+async function init({ opencvUrl, visionPayload, frameSize, camera, device, port: channel = null, poseMaxRmsPx = null }) {
   const loadStarted = performance.now();
   const [cv, vision] = await Promise.all([loadOpenCv({ url: opencvUrl }), loadVision({ payload: visionPayload })]);
   const loadMs = performance.now() - loadStarted;
-  let glCanvas = null;
+  port = channel;
+  live = createLiveVision(cv, { vision, frameSize, camera, device, poseMaxRmsPx, tracking: !port });
 
-  try {
-    // The outline's WebGL2 lives on a canvas of its own (Safari has WebGL in an OffscreenCanvas
-    // from 17; without it the board and pose still work).
-    glCanvas = new OffscreenCanvas(1, 1);
-  } catch {
-    glCanvas = null;
+  if (port) {
+    port.onmessage = ({ data }) => onFrame(data);
   }
 
-  live = createLiveVision(cv, { vision, frameSize, camera, device, glCanvas, poseMaxRmsPx });
   grabs = [0, 1].map(() => {
     const canvas = new OffscreenCanvas(1, 1);
     return { canvas, context: canvas.getContext('2d', { willReadFrequently: true }) };
@@ -73,8 +80,9 @@ function grabImage(bitmap, size, which = 0) {
   return context.getImageData(0, 0, size.width, size.height);
 }
 
-function processFrame({ bitmap, work, track, frame, outline, predicted = null }) {
+function processFrame({ bitmap, work, track, frame, predicted = null, slowdown = 1 }) {
   const started = performance.now();
+  const spin = { spun: 0 };
 
   try {
     const image = grabImage(bitmap, work, 0);
@@ -82,10 +90,21 @@ function processFrame({ bitmap, work, track, frame, outline, predicted = null })
     const trackImage = track ? grabImage(bitmap, track, 1) : null;
     const grabMs = performance.now() - started;
     const result = live.processFrame({
-      image, scale: work.width / frame.width, frame, source: bitmap, outline,
+      image, scale: work.width / frame.width, frame, source: bitmap,
       trackImage, trackScale: track ? track.width / frame.width : null, predicted,
-      onPose: (pose) => self.postMessage({ type: 'pose', pose }),
+      onPose: (pose, detection) => {
+        // An emulated slower phone's pose comes that much later too.
+        emulateSlower(started, slowdown, spin);
+        self.postMessage({ type: 'pose', pose });
+
+        if (port && pose?.valid) {
+          const inliers = new Set(pose.inlierIds ?? []);
+          const corners = detection.corners.filter((c) => inliers.has(c.id)).map((c) => ({ id: c.id, x: c.x, y: c.y }));
+          port.postMessage({ type: 'seed', frame: detection.frame, corners, pose });
+        }
+      },
     });
+    emulateSlower(started, slowdown, spin);
     return { result, grabMs };
   } finally {
     bitmap.close();
@@ -108,16 +127,32 @@ function trackFrame({ bitmap, track, frame, predicted }) {
 
 /**
  * For the harness only (T-0332): emulates a slower phone by spinning for (slowdown - 1) x the time
- * the frame took here, so the page sees results as late as a phone's would come. 1 (no wait) unless
- * the harness sets housekiScanVision.state.slowdown.
+ * the frame has taken here so far (less what `spin` says was spun already, and adds to it), so the
+ * page sees results as late as a phone's would come. 1 (no wait) unless the harness sets
+ * housekiScanVision.state.slowdown.
  */
-function emulateSlower(started, slowdown) {
+function emulateSlower(started, slowdown, spin = { spun: 0 }) {
   if (slowdown > 1) {
-    const until = performance.now() + (slowdown - 1) * (performance.now() - started);
+    const worked = performance.now() - started - spin.spun;
+    const extra = (slowdown - 1) * worked - spin.spun;
+    const until = performance.now() + extra;
 
     while (performance.now() < until) {
       // spin
     }
+
+    spin.spun += Math.max(0, extra);
+  }
+}
+
+/** A frame to detect, from the page or (T-0350) from the tracker's Worker. */
+function onFrame(data) {
+  try {
+    const { result, grabMs } = processFrame(data);
+    self.postMessage({ type: 'result', result, grabMs, canTrack: live.canTrack });
+  } catch (error) {
+    data.bitmap?.close?.();
+    self.postMessage({ type: 'error', message: String(error?.stack ?? error) });
   }
 }
 
@@ -127,10 +162,7 @@ self.onmessage = async ({ data }) => {
       const timings = await init(data);
       self.postMessage({ type: 'ready', ...timings });
     } else if (data.type === 'frame') {
-      const started = performance.now();
-      const { result, grabMs } = processFrame(data);
-      emulateSlower(started, data.slowdown ?? 1);
-      self.postMessage({ type: 'result', result, grabMs, canTrack: live.canTrack });
+      onFrame(data);
     } else if (data.type === 'track') {
       const started = performance.now();
       const { result, grabMs } = trackFrame(data);

@@ -10,8 +10,8 @@
  * one unless a test says), seen through a known camera, so the true pose is known. The camera's focal
  * length is chosen equal to the phone's first guess (0.85 x the long side, intrinsics.js), so the
  * pose can be checked against the truth from the very first frame, before any live calibration.
- * The rock's outline needs WebGL2, so it is not run here (glCanvas null): it is
- * tests/harness/test_scan_vision.py's, in Chrome, with the rest of the page.
+ * The phone no longer outlines the rock (T-0350), so the guide always takes the rock to be at the
+ * board's target.
  *
  * What is checked: a frame read at full size and the same frame read at half size (the page reads
  * a downscaled copy) both give the true pose, with every pixel coordinate in the FULL frame; the
@@ -53,7 +53,7 @@ const HALF = downscale(FULL, 2);
 
 /** A live vision for the test frames, with intrinsics refinement never scheduled. */
 function newLive(options = {}) {
-  return createLiveVision(cv, { vision, frameSize: { width: WIDTH, height: HEIGHT }, glCanvas: null, schedule: () => {}, ...options });
+  return createLiveVision(cv, { vision, frameSize: { width: WIDTH, height: HEIGHT }, schedule: () => {}, ...options });
 }
 
 /** How far a result's pose is from the truth: rotation (deg) and camera centre (mm). */
@@ -69,8 +69,8 @@ Deno.test('live vision: a full-size frame gives the true pose, and names the boa
   // Test: process it once.
   // Verifies: the board is recognised with many corners, the pose is valid and within 0.3 degrees
   // and 2 mm of the truth (the intrinsics are the guess, which equals the true camera here), the
-  // detection and the result name the white/black board with its target (85, 115), and the
-  // timings are filled in.
+  // detection and the result name the white/black board with its target (85, 115), the timings are
+  // filled in, and there is no rock outline any more (T-0350: no outline stage, no outline field).
   const live = newLive();
   const result = live.processFrame({ image: FULL, scale: 1, frame: { width: WIDTH, height: HEIGHT, timeMs: 100 } });
   const error = poseError(result.pose);
@@ -82,12 +82,12 @@ Deno.test('live vision: a full-size frame gives the true pose, and names the boa
   assert(error.rotationDeg < 0.3 && error.centreMm < 2, `pose error ${JSON.stringify(error)}`);
   assert(result.detection.board === BOARD_NAME, `detection board ${result.detection.board}`);
   assert(result.sheet.name === BOARD_NAME && result.sheet.targetMm.join() === '85,115', `sheet ${JSON.stringify(result.sheet)}`);
-  assert(result.timings.totalMs > 0 && result.timings.outlineMs === null, 'timings');
+  assert(result.timings.totalMs > 0 && !('outlineMs' in result.timings) && !('outline' in result), 'timings, no outline');
   live.dispose();
 });
 
 Deno.test('live vision: each frame carries the scan guide (T-0331), its angle from the rock and its focus', CV_TEST, () => {
-  // Setup: a fresh live vision with no outline finder (no WebGL2 here), so the rock is taken to be at
+  // Setup: a fresh live vision (the phone no longer outlines the rock), so the rock is taken to be at
   // the board's target; the full frame given only as the page's copy (no drawable source under
   // Deno, so the focus window is cut from the copy).
   // Test: process the frame twice, 125 ms apart (a still camera).
@@ -166,8 +166,7 @@ Deno.test('live vision: each of the three boards is read and named, and an older
   // printed with the older boards' markers (DICT_4X4_250 ids 0-194, black and white, no spirals).
   // Test: process the frames in that order, 400 ms apart.
   // Verifies: every board is recognised with a valid pose within 0.3 degrees and 2 mm of the truth,
-  // and the detection and the result's sheet name the board in view, so the outline gets the right
-  // colours; the older layout gives no marker at all (its codes are in no board's run), so no
+  // and the detection and the result's sheet name the board in view; the older layout gives no marker at all (its codes are in no board's run), so no
   // pose, and the result still names the last board seen.
   const live = newLive();
   let t = 0;
@@ -209,7 +208,7 @@ Deno.test('live vision: the harness\'s residual limit fails every pose but keeps
 
 Deno.test('live vision: warmUp runs, and frames leak no OpenCV memory', CV_TEST, async () => {
   // Setup: a live vision.
-  // Test: warmUp() (with no WebGL, so no outline), then 20 frames, measuring the wasm heap after
+  // Test: warmUp(), then 20 frames, measuring the wasm heap after
   // the first 5 and after all 20.
   // Verifies: the warm-up completes; and the heap does not grow between frame 5 and 20 (by more
   // than 64 kB of allocator slack): every Mat made per frame is freed.

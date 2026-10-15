@@ -50,7 +50,7 @@
       <li>Put your phone on the same network as this computer, for example the same Wi-Fi.</li>
       <li>Scan the code on the right with the phone's camera and open the link, or send the link to the phone.</li>
       <li>Allow the camera when the phone asks. Its picture appears here.</li>
-      <li>Lay one of the printed boards flat, put the rock in its middle, and point the phone at it. The board's grid and the rock's outline are drawn over the picture, and the phone shows where to film from next.</li>
+      <li>Lay one of the printed boards flat, put the rock in its middle, and point the phone at it. The board's grid is drawn over the picture, and the phone shows where to film from next.</li>
     </ol>
   </PanelSection>
 

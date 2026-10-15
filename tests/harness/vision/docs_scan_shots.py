@@ -16,7 +16,7 @@ phone sees card) into src/site/docs/images/rough-scan/. Look at each before comm
 
 Since T-0331 the phone plays the scan guidance's video (make_scan_video.GUIDE_CONFIG: the
 white/black spiral board since T-0340; a slow orbit, a fast swing, a defocused hold), so the
-pictures show the found corners, the rock and the next step; it also writes phone-fast.webp ("Moving
+pictures show the board's grid (the whole grid since T-0350), the rock and the next step; it also writes phone-fast.webp ("Moving
 too fast") and phone-focus.webp ("Rock not in focus"), each taken when the phone itself shows that
 state.
 
@@ -193,12 +193,12 @@ def main():
         take(phone_shot, "phone-fast")
         phone.wait_for_expression("%s?.warning === 'focus'" % state, timeout=90)
         take(phone_shot, "phone-focus")
-        # Then the slow orbit of the next loop: a pose, no warning, the rock outlined, the camera
-        # 25-50 degrees up.
+        # Then the slow orbit of the next loop: a pose, no warning, the whole grid drawn through it
+        # (T-0350; the rock is no longer outlined), the camera 25-50 degrees up.
         phone.wait_for_expression(
             "%s?.phase === 'pose' && !%s.warning"
             " && Math.abs((housekiScanVision.state.last?.guide?.view?.elevationDeg ?? 0) - 37) < 12"
-            " && document.getElementById('scanner-vision').textContent.includes('Rock outlined')" % ((state,) * 2), timeout=180)
+            " && housekiScanVision.state.drawn?.gridFrom === 'pose'" % ((state,) * 2), timeout=180)
         take(phone_shot, "phone")
         # The speed line (T-0332): a long press on the status lines shows it; its numbers are
         # rewritten twice a second, so give it a moment to fill.
@@ -209,7 +209,7 @@ def main():
         take(phone_shot, "phone-speed", selector="#scanner-panel", padding=4)
 
         studio_chrome.send("Page.bringToFront")
-        scanner.wait_for_expression("document.getElementById('scan-overlay')?.dataset.drawn === 'pose+outline'", timeout=30)
+        scanner.wait_for_expression("document.getElementById('scan-overlay')?.dataset.drawn === 'pose'", timeout=30)
         scanner.wait_for_expression("!!document.getElementById('scan-vision-map') && document.getElementById('scan-vision-readout').textContent.includes('Found')"
                                     " && document.getElementById('scan-vision-readout').textContent.includes('Speed')", timeout=30)
         time.sleep(0.3)

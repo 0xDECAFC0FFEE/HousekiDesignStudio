@@ -15,12 +15,13 @@ debug hook (window.housekiScanVision) is polled in the page every 40 ms and each
 guide, warning and drawn overlay geometry is logged. Each logged frame is matched to the video's
 frame with the nearest camera (its segment says what should be seen). They check:
 
-  * the overlay draws the found corners (at least 20 red points and blue lines) and the board's
-    edge, and -- since T-0340, the user: "we can also remove the visual xyz axes and the circle with
-    angles for now" -- no axes, and the phone's coverage map and angle line are hidden while the
-    next step's advice shows;
-  * the rock's position is found from the outlined views within ROCK_MM of the true rock's middle;
-  * the tracked angle (azimuth, elevation from the rock) matches the video's true camera within
+  * the overlay draws the board's whole grid (T-0350) with red points on the found corners (at least
+    20) and the board's edge, and -- since T-0340, the user: "we can also remove the visual xyz axes
+    and the circle with angles for now" -- no axes, and the phone's coverage map and angle line are
+    hidden while the next step's advice shows;
+  * with no rock outline any more (T-0350, the user: "we can remove the gemstone detection
+    itself"), the rock is taken to be at the board's target (its middle) on every frame;
+  * the tracked angle (azimuth, elevation from that point) matches the video's true camera within
     ANGLE_DEG on held and slowly moving views;
   * coverage fills as the camera orbits (the 20-40 degree ring gains sectors through the orbit);
   * "Moving too fast" shows during the fast swing (or the 0.6 s after it) and never in the slow orbit;
@@ -68,12 +69,11 @@ except ImportError as error:  # websocket-client, numpy or PIL missing
 SHEET = "charuco_23x17_10mm_white_black_spiral"
 
 # How long the phone's frames are logged: two loops of the 27.5 s video, so the second loop runs
-# with the rock found and the lens estimated.
+# with the lens estimated.
 COLLECT_S = 58
 
 # Tolerances, each with its reason.
-ROCK_MM = 3.0       # the outline's centroid is the silhouette's, not the ellipsoid's centre
-ANGLE_DEG = 2.0     # the pose is within 0.1 degree; the rest is the rock point's error at 170-180 mm
+ANGLE_DEG = 2.0     # the pose is within 0.1 degree; the rest is the nearest video frame's camera
 WARNING_OFF_S = 0.6  # a warning goes 0.5 s after its condition clears, plus a frame
 
 
@@ -122,7 +122,7 @@ class ScanGuideTest(unittest.TestCase):
         return min(((f, dist(center, f["center"])) for f in self.truth["frames"]), key=lambda pair: pair[1])
 
     def test_guidance_on_a_moving_video(self):
-        """Found corners, no axes, the rock's position, the angle, coverage and the two warnings.
+        """The whole grid, no axes, the rock at the target, the angle, coverage and the two warnings.
 
         Setup: the studio with Rough scan open; a phone browser whose camera plays the guidance video
         on the white/black board, connected. Test: log every frame the phone processes for COLLECT_S seconds (in the page,
@@ -220,31 +220,30 @@ class ScanGuideTest(unittest.TestCase):
         say("guide panel %s" % shown)
         self.assertTrue(shown["map"] and shown["angle"], "the coverage map or the angle line is shown")
         self.assertTrue(shown["advice"], "no advice shown")
-        # Since T-0333 the phone draws red points on the corners its pose was solved from and blue
-        # lines between neighbours, instead of the faint full-board grid.
-        self.assertEqual(max(e["gridLines"] for e in log), 0, "the faint grid is still drawn on the phone")
+        # Since T-0350 the phone draws the board's whole grid (the user: "use the marker ids and known
+        # board size to draw the entire grid") with T-0333's red points on the corners its pose was
+        # solved from; the grid has the lines between them.
+        grid = max(e["gridLines"] for e in log)
         points = max(e["foundCorners"] for e in log)
-        lines = max(e["foundLines"] for e in log)
-        say("found corners drawn: up to %d points and %d lines" % (points, lines))
+        say("whole grid drawn: up to %d inner lines, %d red points" % (grid, points))
+        self.assertGreaterEqual(grid, 20, "the board's whole grid is not drawn")
         self.assertGreaterEqual(points, 20, "the found corners are not drawn")
-        self.assertGreaterEqual(lines, 20, "the lines between found corners are not drawn")
         self.assertTrue(any(e["edgeLines"] >= 2 for e in log), "the board's edge is not drawn")
 
-        # 2. The rock's position, once found.
-        found = [e for e in log if e["rockFrom"] == "views"]
-        self.assertTrue(found, "the rock was never found from views")
-        last = found[-1]
-        rock = self.truth["rockMm"]
-        rock_error = math.hypot(last["rockMm"][0] - rock[0], last["rockMm"][1] - rock[1])
-        say("rock %s from %d views (truth %s): %.2f mm on the board; first found %.1f s into the log" % (
-            last["rockMm"], last["rockViews"], rock, rock_error, (found[0]["at"] - log[0]["at"]) / 1000))
-        self.assertLess(rock_error, ROCK_MM, "the rock's position")
-        self.assertTrue(0 <= last["rockMm"][2] <= 10, "the rock's height %s" % last["rockMm"][2])
+        # 2. The rock: no outline any more (T-0350), so the board's target on every frame.
+        target = list(self.truth["targetMm"][:2]) + [0.0]
+        posed = [e for e in log if e["valid"] and e["view"]]
+        self.assertTrue(posed and all(e["rockFrom"] == "target" and e["rockMm"] == target for e in posed),
+                        "the rock is not the target: %s" % sorted({(e["rockFrom"], tuple(e["rockMm"] or ())) for e in posed}))
 
-        # 3. The tracked angle, on held and slow frames once the rock is found.
-        angles = [e for e in found if e["valid"] and e["view"] and e["segment"] in ("settle", "slow", "calm", "focus", "defocus")]
-        az = [angle_difference(e["view"]["azimuthDeg"], e["truth"]["fromRock"]["azimuthDeg"]) for e in angles]
-        el = [abs(e["view"]["elevationDeg"] - e["truth"]["fromRock"]["elevationDeg"]) for e in angles]
+        # 3. The tracked angle from the target, on held and slow frames, against the true camera's.
+        def from_target(center):
+            u = [c - t for c, t in zip(center, target)]
+            return math.degrees(math.atan2(u[1], u[0])) % 360, math.degrees(math.atan2(u[2], math.hypot(u[0], u[1])))
+
+        angles = [e for e in posed if e["segment"] in ("settle", "slow", "calm", "focus", "defocus")]
+        az = [angle_difference(e["view"]["azimuthDeg"], from_target(e["truth"]["center"])[0]) for e in angles]
+        el = [abs(e["view"]["elevationDeg"] - from_target(e["truth"]["center"])[1]) for e in angles]
         gaps = sorted(e["gap"] for e in angles)
         say("angle vs truth on %d frames: azimuth median %.2f, worst %.2f; elevation median %.2f, worst %.2f deg; "
             "camera to nearest video frame median %.1f mm; shown %r" % (

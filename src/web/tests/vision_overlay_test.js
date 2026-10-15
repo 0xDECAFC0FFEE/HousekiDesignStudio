@@ -11,8 +11,8 @@
  */
 
 import {
-  axesPoints, boardCentreMm, boardGridLines, boardOutlinePoints, clipSegmentToView, drawVisionOverlay, fitTransform,
-  foundCornerGraph, OVERLAY_COLOURS, viewBounds,
+  applyHomography, axesPoints, boardCentreMm, boardGridLines, boardOutlinePoints, clipSegmentToView, drawVisionOverlay,
+  fitHomography, fitTransform, foundCornerGraph, markerCornersMm, markerGridLines, OVERLAY_COLOURS, viewBounds,
 } from '../src/lib/vision/overlay.js';
 import { projectPoints } from '../src/lib/vision/camera_model.js';
 import { lookAtPose } from './vision_test_support.js';
@@ -408,4 +408,159 @@ Deno.test('drawVisionOverlay: without a pose, the detected corners are drawn whe
 
   const sizeless = drawVisionOverlay(recordingContext().ctx, { ...view, sizeMm: null }, transform, { grid: false });
   assert(sizeless.foundCorners === 0, 'no board size, nothing drawn');
+});
+
+Deno.test('markerCornersMm: each marker in its light square, numbered row by row, as OpenCV lays the board out', () => {
+  // Setup: the scanners' layout: 23 columns x 17 rows of 10 mm squares (sizeMm [170, 230]: X down
+  // the rows, Y along the columns), 7 mm markers.
+  // Test: the corners of marker 0, 10 (the last in row 0), 11 (the first in row 1), 194 (the last)
+  // and 195 (beyond the board), and every marker's centre.
+  // Verifies: square (0, 0) is dark, so row 0's first marker is in column 1 and row 1's in column 0
+  // (charuco.rs CharucoBoard::new: markers where row + column is odd); each marker is 7 mm, inset
+  // 1.5 mm in its square, its corners in the detector's order (+column, then +row, then -column);
+  // rows alternate 11 and 12 markers, 195 in all, so id 195 is null; and no two markers share a
+  // square.
+  const size = [170, 230];
+  const m0 = markerCornersMm(0, size, 10, 7);
+  assert(JSON.stringify(m0) === JSON.stringify([[1.5, 11.5, 0], [1.5, 18.5, 0], [8.5, 18.5, 0], [8.5, 11.5, 0]]), `marker 0 ${JSON.stringify(m0)}`);
+  assert(markerCornersMm(10, size, 10, 7)[0].join() === '1.5,211.5,0', 'marker 10: row 0, column 21');
+  assert(markerCornersMm(11, size, 10, 7)[0].join() === '11.5,1.5,0', 'marker 11: row 1, column 0');
+  assert(markerCornersMm(194, size, 10, 7)[0].join() === '161.5,211.5,0', 'marker 194: row 16, column 21');
+  assert(markerCornersMm(195, size, 10, 7) === null && markerCornersMm(-1, size) === null, 'beyond the board');
+
+  const squares = new Set();
+
+  for (let id = 0; id < 195; id += 1) {
+    const [a, , c] = markerCornersMm(id, size, 10, 7);
+    const row = Math.floor((a[0] + c[0]) / 20);
+    const column = Math.floor((a[1] + c[1]) / 20);
+    assert((row + column) % 2 === 1, `marker ${id} on a light square`);
+    squares.add(`${row},${column}`);
+  }
+
+  assert(squares.size === 195, 'one marker per square');
+});
+
+Deno.test('fitHomography: recovers a plane-to-picture map from four or more points; null for a line', () => {
+  // Setup: a known homography H (a tilted board seen in perspective), and board points on a 5 x 4
+  // grid (mm) mapped through it; then four points on one line.
+  // Test: fit from all 20 points, and from just the four corners of the grid.
+  // Verifies: both fits map every grid point to within 1e-6 px of H's image of it (the fit is
+  // exact on exact data, h33 normalised to 1); applyHomography returns null beyond the horizon
+  // (w <= 0); points on a line give null (no plane to fit).
+  const H = [1.2, 0.15, 300, -0.1, 0.9, 200, 0.0006, -0.0004, 1];
+  const board = [];
+
+  for (let i = 0; i < 5; i += 1) {
+    for (let j = 0; j < 4; j += 1) {
+      board.push([40 * i, 50 * j]);
+    }
+  }
+
+  const pixels = board.map((P) => applyHomography(H, P));
+
+  for (const from of [board, [board[0], board[3], board[16], board[19]]]) {
+    const to = from.map((P) => applyHomography(H, P));
+    const fit = fitHomography(from, to);
+    assert(fit, 'a fit');
+    board.forEach((P, k) => {
+      const q = applyHomography(fit, P);
+      assertClose(q[0], pixels[k][0], 1e-6, `x of ${P}`);
+      assertClose(q[1], pixels[k][1], 1e-6, `y of ${P}`);
+    });
+  }
+
+  assert(applyHomography([1, 0, 0, 0, 1, 0, -1, 0, 1], [2, 0]) === null, 'beyond the horizon');
+  const line = [[0, 0], [10, 10], [20, 20], [30, 30]];
+  assert(fitHomography(line, line.map(([x, y]) => [2 * x, 3 * y])) === null, 'points on a line');
+});
+
+Deno.test('markerGridLines: the whole board through the markers found, where the pose would put it', () => {
+  // Setup: a camera (no lens distortion: a homography models exactly that) looking at the board's
+  // middle from 400 mm, 60 degrees up; markers 80 and 81 (two neighbours in the board's middle)
+  // and chessboard corner 200 "found" where that camera sees them.
+  // Test: markerGridLines from that detection; then from marker 80 alone.
+  // Verifies: two markers give a grid: 24 lines along X (one per column edge) and 18 along Y (one
+  // per row edge): the 23 x 17 board's every square edge, the outermost flagged as the edge; its homography puts every corner of the whole
+  // board within 0.01 px of where the camera projects it (so the grid drawn from two markers in
+  // the middle lands on the printed squares out to the edges); one marker alone is not enough
+  // (null: GRID_MIN_MARKERS).
+  const lens = { ...INTRINSICS, k1: 0 };
+  const pose = lookAtPose([85, 115, 0], 30, 60, 400);
+  const size = [170, 230];
+  const project = (P) => {
+    const p = projectPoints([P], pose.R, pose.t, lens);
+    return [p[0], p[1]];
+  };
+  const markers = [80, 81].map((id) => ({ id, corners: markerCornersMm(id, size, 10, 7).map(project) }));
+  const graph = foundCornerGraph([200], size);
+  const corners = [{ id: 200, ...Object.fromEntries(['x', 'y'].map((k, i) => [k, project(graph.points.get(200))[i]])) }];
+  const out = markerGridLines({ markers, corners }, size, 10, 7);
+  assert(out, 'a grid from two markers');
+  assert(out.lines.filter((l) => l.along === 'x').length === 24 && out.lines.filter((l) => l.along === 'y').length === 18, `${out.lines.length} lines`);
+  assert(out.lines.filter((l) => l.edge).length === 4, 'four edges');
+
+  for (let X = 0; X <= 170; X += 10) {
+    for (let Y = 0; Y <= 230; Y += 10) {
+      const q = applyHomography(out.H, [X, Y]);
+      const p = project([X, Y, 0]);
+      assert(Math.hypot(q[0] - p[0], q[1] - p[1]) < 0.01, `board point (${X}, ${Y}): ${q} vs ${p}`);
+    }
+  }
+
+  assert(markerGridLines({ markers: markers.slice(0, 1), corners: [] }, size, 10, 7) === null, 'one marker: no grid');
+});
+
+Deno.test('drawVisionOverlay with the whole grid (T-0350): every square edge in blue, red found corners, with or without a pose', () => {
+  // Setup: the whole board in view (a camera 450 mm from its middle, 70 degrees up), drawn through
+  // a contain transform with style.grid 'full' (the phone's), and found corners forming a 3 x 3
+  // block; then the same board with NO pose but a detection of two markers and those corners at
+  // the pixels a lens-free camera sees them; then that detection with one marker only.
+  // Test: draw each, recording every path.
+  // Verifies: with a pose, all 38 inner lines are stroked in the found-line blue and the 4 edge
+  // lines in the board's white, from the pose ('pose'), with 9 red points and no separate lines
+  // between found corners (the grid has them); without a pose, the same 38 + 4 lines from the
+  // markers ('markers') and a red point on each detected corner; with one marker, no grid, and the
+  // detected corners drawn as before (T-0335's red points and blue lines).
+  const transform = fitTransform(1280, 720, 800, 450, 'contain');
+  const lens = { ...INTRINSICS, k1: 0 };
+  const pose = lookAtPose([85, 115, 0], 210, 70, 450);
+  const size = [170, 230];
+  const ids = [];
+
+  for (let row = 7; row <= 9; row += 1) {
+    for (let col = 9; col <= 11; col += 1) {
+      ids.push(row * 22 + col);
+    }
+  }
+
+  const posed = recordingContext();
+  const drawn = drawVisionOverlay(posed.ctx, { pose, intrinsics: lens, sizeMm: size, foundCornerIds: ids }, transform, { grid: 'full' });
+  assert(drawn.gridFrom === 'pose' && drawn.gridLines === 38 && drawn.edgeLines === 4, `posed: ${JSON.stringify(drawn)}`);
+  assert(drawn.foundCorners === 9 && drawn.foundLines === 0 && drawn.cornersFrom === 'pose', `posed points: ${JSON.stringify(drawn)}`);
+  assert(posed.strokes.filter((s) => s.colour === OVERLAY_COLOURS.foundLine).length === 38, 'inner lines in blue');
+  assert(posed.strokes.filter((s) => s.colour === OVERLAY_COLOURS.board).length === 4, 'edges in white');
+
+  const project = (P) => {
+    const p = projectPoints([P], pose.R, pose.t, lens);
+    return [p[0], p[1]];
+  };
+  const graph = foundCornerGraph(ids, size);
+  const detection = {
+    markers: [80, 81].map((id) => ({ id, corners: markerCornersMm(id, size, 10, 7).map(project) })),
+    corners: ids.map((id) => {
+      const [x, y] = project(graph.points.get(id));
+      return { id, x, y };
+    }),
+  };
+  const bare = recordingContext();
+  const fromMarkers = drawVisionOverlay(bare.ctx, { pose: null, intrinsics: null, sizeMm: size, detection, detectedCorners: detection.corners },
+    transform, { grid: 'full' });
+  assert(fromMarkers.gridFrom === 'markers' && fromMarkers.gridLines === 38 && fromMarkers.edgeLines === 4, `markers: ${JSON.stringify(fromMarkers)}`);
+  assert(fromMarkers.foundCorners === 9 && fromMarkers.cornersFrom === 'detection', `markers' points: ${JSON.stringify(fromMarkers)}`);
+
+  const one = { ...detection, markers: detection.markers.slice(0, 1) };
+  const fallback = drawVisionOverlay(recordingContext().ctx, { pose: null, intrinsics: null, sizeMm: size, detection: one, detectedCorners: one.corners },
+    transform, { grid: 'full' });
+  assert(fallback.gridFrom === null && fallback.foundCorners === 9 && fallback.foundLines === 12, `one marker: ${JSON.stringify(fallback)}`);
 });

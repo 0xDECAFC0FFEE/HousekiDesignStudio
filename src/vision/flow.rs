@@ -256,11 +256,20 @@ pub fn track_point(prev: &Pyramid, next: &Pyramid, x: f32, y: f32, guess: (f32, 
     Track { x: nx, y: ny, found: true }
 }
 
-/// The tracker the phone's Worker keeps: the last frame's pyramid, and the one before it.
+/// The tracker the phone's Worker keeps: the last frame's pyramid, and the one before it; and, for
+/// frames pushed with a key (T-0350), the last few frames' grey pixels, so points found on an
+/// older frame (a detection that finished while later frames were already tracked) can be tracked
+/// from that frame straight into the latest one.
 #[derive(Default)]
 pub struct PointTracker {
     prev: Option<Pyramid>,
     next: Option<Pyramid>,
+    /// The keys of `prev` and `next` (None: pushed without one).
+    prev_key: Option<f64>,
+    next_key: Option<f64>,
+    /// Keyed frames, oldest first, at most `history` of them (the latest included).
+    frames: std::collections::VecDeque<(f64, Gray)>,
+    history: usize,
 }
 
 /// One point tracked forward and back: the new position, whether it was found both ways, and the
@@ -277,13 +286,85 @@ impl PointTracker {
     /// Takes the next frame (its pyramid is built now); the one before becomes the previous.
     pub fn push(&mut self, grey: &Gray) {
         self.prev = self.next.take();
+        self.prev_key = self.next_key.take();
         self.next = Some(Pyramid::new(grey, LEVELS));
     }
 
-    /// Forgets both frames (after a change of frame size, say).
+    /// Takes the next frame as `push` does, under a key (the frame's time), and keeps its grey
+    /// pixels among the last `history` keyed frames (set_history) for `track_from`.
+    pub fn push_keyed(&mut self, grey: &Gray, key: f64) {
+        self.push(grey);
+        self.next_key = Some(key);
+
+        if self.history > 0 {
+            if self.frames.front().is_some_and(|(_, g)| g.width != grey.width || g.height != grey.height) {
+                self.frames.clear();
+            }
+
+            self.frames.push_back((key, grey.clone()));
+
+            while self.frames.len() > self.history {
+                self.frames.pop_front();
+            }
+        }
+    }
+
+    /// How many keyed frames are kept (0, the default: none, only the last two pyramids).
+    pub fn set_history(&mut self, frames: usize) {
+        self.history = frames;
+
+        while self.frames.len() > frames {
+            self.frames.pop_front();
+        }
+    }
+
+    /// Whether the frame pushed under `key` is still kept: the latest one included (points found on
+    /// it are tracked from it once the next frame is pushed; a detection can finish before that).
+    pub fn has(&self, key: f64) -> bool {
+        self.next.is_some()
+            && (self.next_key == Some(key) || self.prev_key == Some(key) || self.frames.iter().any(|(k, _)| *k == key))
+    }
+
+    /// Forgets every frame (after a change of frame size, say).
     pub fn clear(&mut self) {
         self.prev = None;
         self.next = None;
+        self.prev_key = None;
+        self.next_key = None;
+        self.frames.clear();
+    }
+
+    /// Tracks points of the frame pushed under `key` into the latest one, each from a guessed
+    /// displacement, and back (as `track_guided`). The previous frame's pyramid is used when it is
+    /// that frame; an older one's is built from its kept pixels. Every point is lost when the
+    /// frame is no longer kept (`has`), or is the latest itself.
+    pub fn track_from(&self, key: f64, points: &[(f32, f32)], guesses: &[(f32, f32)]) -> Vec<Tracked> {
+        let lost = || points.iter().map(|&(x, y)| Tracked { x, y, found: false, fb_error: f32::INFINITY }).collect();
+        let Some(next) = &self.next else {
+            return lost();
+        };
+
+        if !self.has(key) || self.next_key == Some(key) {
+            return lost();
+        }
+
+        let built;
+        let from = match (&self.prev, self.prev_key == Some(key)) {
+            (Some(prev), true) => prev,
+            _ => match self.frames.iter().find(|(k, _)| *k == key) {
+                Some((_, grey)) => {
+                    built = Pyramid::new(grey, LEVELS);
+                    &built
+                }
+                None => return lost(),
+            },
+        };
+
+        if from.levels[0].width != next.levels[0].width || from.levels[0].height != next.levels[0].height {
+            return lost();
+        }
+
+        track_pairs(from, next, points, guesses)
     }
 
     /// Whether there are two frames to track between, of the same size.
@@ -311,18 +392,23 @@ impl PointTracker {
             return points.iter().map(|&(x, y)| Tracked { x, y, found: false, fb_error: f32::INFINITY }).collect();
         }
 
-        points.iter().zip(guesses).map(|(&(x, y), &guess)| {
-            let forward = track_point(prev, next, x, y, guess);
-
-            if !forward.found {
-                return Tracked { x, y, found: false, fb_error: f32::INFINITY };
-            }
-
-            let back = track_point(next, prev, forward.x, forward.y, (x - forward.x, y - forward.y));
-            let fb_error = if back.found { (back.x - x).hypot(back.y - y) } else { f32::INFINITY };
-            Tracked { x: forward.x, y: forward.y, found: back.found, fb_error }
-        }).collect()
+        track_pairs(prev, next, points, guesses)
     }
+}
+
+/// Points of `prev` tracked into `next` from their guessed displacements, and back.
+fn track_pairs(prev: &Pyramid, next: &Pyramid, points: &[(f32, f32)], guesses: &[(f32, f32)]) -> Vec<Tracked> {
+    points.iter().zip(guesses).map(|(&(x, y), &guess)| {
+        let forward = track_point(prev, next, x, y, guess);
+
+        if !forward.found {
+            return Tracked { x, y, found: false, fb_error: f32::INFINITY };
+        }
+
+        let back = track_point(next, prev, forward.x, forward.y, (x - forward.x, y - forward.y));
+        let fb_error = if back.found { (back.x - x).hypot(back.y - y) } else { f32::INFINITY };
+        Tracked { x: forward.x, y: forward.y, found: back.found, fb_error }
+    }).collect()
 }
 
 #[cfg(test)]
@@ -424,6 +510,43 @@ mod tests {
         assert!(!unguided.found || (unguided.x - (corner.0 - 38.0)).abs() > 5.0, "aliasing was expected: {unguided:?}");
         let guided = tracker.track_guided(&[corner], &[(-35.0, 25.0)])[0];
         assert!(guided.found && (guided.x - (corner.0 - 38.0)).abs() < 0.1 && (guided.y - (corner.1 + 27.0)).abs() < 0.1, "{guided:?}");
+    }
+
+    #[test]
+    fn points_of_an_older_kept_frame_are_tracked_straight_into_the_latest() {
+        // Setup: a tracker keeping 4 keyed frames, fed a board moving 5 px right per frame, keyed
+        // 0, 33, 66, 100, 133 (frame times, ms). The detection-in-parallel case (T-0350): corners
+        // found on frame 33 arrive after frames up to 133 were pushed.
+        // Test: track a corner of frame 33 into the latest (133: 15 px further) with a guess near
+        // the truth; then ask for frame 0 (dropped: only 4 are kept), for the latest frame itself,
+        // and for frame 100 (the previous one, whose pyramid is still built) after a clear().
+        // Verifies: the older frame's corner lands within 0.1 px of where it moved and comes back
+        // within 0.1 px; the dropped frame is refused (`has` false, the point lost); the latest
+        // frame is kept (`has` true: a detection may finish before the next frame comes) but not
+        // tracked into itself; the previous frame is tracked from its pyramid as `track_guided`
+        // would; and clear() forgets the history.
+        let mut tracker = PointTracker::default();
+        tracker.set_history(4);
+        let keys = [0.0, 33.0, 66.0, 100.0, 133.0];
+
+        for (k, &key) in keys.iter().enumerate() {
+            tracker.push_keyed(&chessboard(320, 240, 24.0, 10.0 + 5.0 * k as f32, 12.0), key);
+        }
+
+        let corner = (10.0 + 5.0 + 24.0 * 5.0, 12.0 + 24.0 * 4.0);
+        assert!(tracker.has(33.0) && !tracker.has(0.0) && tracker.has(133.0));
+        let t = tracker.track_from(33.0, &[corner], &[(14.0, 0.0)])[0];
+        assert!(t.found && (t.x - (corner.0 + 15.0)).abs() < 0.1 && (t.y - corner.1).abs() < 0.1 && t.fb_error < 0.1, "{t:?}");
+        assert!(!tracker.track_from(0.0, &[corner], &[(20.0, 0.0)])[0].found, "dropped frame");
+        assert!(!tracker.track_from(133.0, &[corner], &[(0.0, 0.0)])[0].found, "the latest frame itself");
+
+        let from_prev = (corner.0 + 10.0, corner.1);
+        let a = tracker.track_from(100.0, &[from_prev], &[(5.0, 0.0)])[0];
+        let b = tracker.track_guided(&[from_prev], &[(5.0, 0.0)])[0];
+        assert!(a.found && a.x == b.x && a.y == b.y, "{a:?} vs {b:?}");
+
+        tracker.clear();
+        assert!(!tracker.has(33.0) && !tracker.has(100.0));
     }
 
     #[test]

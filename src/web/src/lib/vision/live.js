@@ -1,49 +1,44 @@
 // The phone's vision on live frames (T-0326, the integration step of T-0322): one frame in, the
-// board, the camera's pose, the camera's intrinsics and (every few frames) the rock's outline out.
+// board, the camera's pose and the camera's intrinsics out.
 //
-// It joins the three pieces built separately, through types.js's hand-offs:
+// It joins the pieces built separately, through types.js's hand-offs:
 //
-//   frame --board_detect.js--> BoardDetection --pose.js--> CameraPose --outline.js--> RockOutline
+//   frame --board_detect.js--> BoardDetection --pose.js--> CameraPose
 //                                    |                         |
 //                                    +--intrinsics.js (live K)-+
 //
-// and holds what they need between frames: the live intrinsics, the last outline
-// (with the pose of the frame it was found on, so the page can carry it along with the board). The
+// and holds what they need between frames: the live intrinsics, the tracker's corners. The rock's
+// outline (outline.js) was taken out of the phone on 2026-10-14 (T-0350; the user: "we can remove
+// the gemstone detection itself"): ~15 ms every few frames that delayed the poses behind it. The
 // pose drawn over the picture is filtered and carried forward by the page itself (vision/
 // pose_filter.js, T-0332), at the time of each frame it shows. It has no DOM and no clock of its own:
 // the phone page
 // (src/web/scanner/vision.js) decides which frames to run and passes them in, so the same code
-// can later run in a Worker unchanged (everything here takes plain image data, and the outline a
-// WebGL2 context on any canvas, OffscreenCanvas included).
+// runs in a Worker unchanged (everything here takes plain image data).
 //
 // FRAMES. `image` is an RGBA copy of the camera frame at `scale` x its size (the page draws the
 // video into a canvas at the processing size: cheaper to read back than the whole frame). Board
 // detection runs on it at scale 1 and its corners are scaled back to the frame's own pixels, so
-// everything after detection -- poses, intrinsics, outlines, messages -- is in full-frame pixels
-// (types.js's convention), whatever the processing size. The outline reads the frame itself from
-// `source` (the <video>), at full resolution, on the GPU.
+// everything after detection -- poses, intrinsics, messages -- is in full-frame pixels (types.js's
+// convention), whatever the processing size. The guidance's focus measure reads the frame itself
+// from `source` (the <video> or the frame's bitmap), at full resolution.
 //
 // THE BOARDS (T-0340). The scanner has three printed boards, one per kind of rough, of one layout
 // (board_frame.js). The detector reads all three and names the one in view; the geometry (pose,
-// lens, tracking, guidance) is the same for each, and only the rock's outline, which predicts what
-// the bare board looks like, needs its colours: its finder is made for the board in view, and made
-// again when another board comes into view. The board named last is the result's `sheet.name`.
+// lens, tracking, guidance) is the same for each. The board named last is the result's
+// `sheet.name`.
 // Markers from the older boards (DICT_4X4_250 ids 0-249) are not read at all.
 
 import { BOARD_LIST, BOARD_NAME, BOARD_SPEC, BOARD_SPECS, boardSizeMm } from './board_frame.js';
 import { createBoardDetector } from './board_detect.js';
 import { renderBoardTexture } from './board_texture.js';
 import { createIntrinsicsEstimator, guessIntrinsics } from './intrinsics.js';
-import { createOutlineFinder } from './outline.js';
 import { createPoseSolver } from './pose.js';
 import { createPoseTracker } from './tracker.js';
 import { detectionRegion, REGION_FULL_EVERY_MS, REGION_POSE_MAX_AGE_MS } from './region.js';
 import { scaleIntrinsics } from './camera_model.js';
 import { createScanGuide } from './guidance.js';
 import { createFocusMeter } from './focus.js';
-
-/** An outline older than this (ms of frame time) is not drawn or sent. */
-export const OUTLINE_MAX_AGE_MS = 1000;
 
 /**
  * @param {any} cv  OpenCV (vision/opencv.js loadOpenCv), for the pose and the intrinsics
@@ -53,9 +48,8 @@ export const OUTLINE_MAX_AGE_MS = 1000;
  * @param {{ width: number, height: number }} options.frameSize  the camera frame's size
  * @param {object} [options.camera]  intrinsics.describeCamera(track)
  * @param {object} [options.device]  intrinsics.describeDevice()
- * @param {HTMLCanvasElement|OffscreenCanvas|null} [options.glCanvas]  where the outline's WebGL2
- *        context lives (it is not drawn to); null: no outline
- * @param {object} [options.outline]  outline.js options (e.g. { cropSize: 256 })
+ * @param {boolean} [options.tracking]  false: no tracker here (T-0350: the tracker has a Worker of
+ *        its own, scanner/track_worker.js)
  * @param {(fn: Function) => void} [options.schedule]  intrinsics refinement's scheduler
  */
 export function createLiveVision(cv, options) {
@@ -72,15 +66,8 @@ export function createLiveVision(cv, options) {
   // `poseMaxRmsPx`: for the harness only (T-0335 follow-up), a residual limit tighter than any pose
   // meets, so it can see what the phone shows of a board whose every pose fails.
   const solver = createPoseSolver(cv, spec, options.poseMaxRmsPx ? { maxRmsPx: options.poseMaxRmsPx } : {});
-  // The outline's finder, for the board `finderBoard` (its colours are in the predicted board).
-  let finder = null;
-  let finderBoard = null;
-  let finderFailed = null;
   // The board in view: the name the last detection with markers gave (BOARD_NAME before any).
   let boardName = BOARD_NAME;
-  let lastOutline = null;
-  // The pose of the frame the last outline was found on: { R, t, intrinsics }.
-  let lastOutlinePose = null;
   // The board's pose between detections, from tracked corners (T-0332, tracker.js); every processed
   // frame is pushed to it. Off (null) when the vision module has no tracker (an older build).
   const canTrack = typeof options.vision?.FrameTracker === 'function' && options.tracking !== false;
@@ -92,35 +79,12 @@ export function createLiveVision(cv, options) {
   let lastFound = false;
   let disposed = false;
   // The scan guidance (T-0331, guidance.js): the rock's position, the camera's angle around it,
-  // coverage, and the per-frame conditions behind the phone's warnings, with the focus and glare at
-  // the rock read from the full-resolution frame (focus.js). Its result is the frame's `guide`.
+  // coverage, and the per-frame conditions behind the phone's warnings, with the focus at the rock
+  // read from the full-resolution frame (focus.js). Without the outline (T-0350) the rock is taken
+  // to be at the board's target. Its result is the frame's `guide`.
   const targetMm = (spec.target?.centre_mm ?? [0, 0]).slice(0, 2);
   const scanGuide = createScanGuide({ targetMm, sizeMm: boardSizeMm(spec) });
   const focusMeter = createFocusMeter();
-
-  function outlineFinder(name = boardName) {
-    if (!options.glCanvas || finderFailed) {
-      return null;
-    }
-
-    if (finder && finderBoard === name) {
-      return finder;
-    }
-
-    // Another board in view: its own predicted board (rare: one board is used per scan).
-    finder?.dispose();
-    finder = null;
-
-    try {
-      finder = createOutlineFinder(options.glCanvas, BOARD_SPECS[name] ?? spec, options.outline ?? {});
-      finderBoard = name;
-    } catch (error) {
-      // No WebGL2 or no half-float targets: the board and pose still work.
-      finderFailed = String(error?.message ?? error);
-    }
-
-    return finder;
-  }
 
   /**
    * The region of this frame to search (region.js), or null for the whole frame: whole when it is
@@ -163,22 +127,20 @@ export function createLiveVision(cv, options) {
    * @param {{ data, width, height }} input.image  RGBA at `scale` x the frame
    * @param {number} input.scale  image pixels per frame pixel (<= 1)
    * @param {{ width: number, height: number, timeMs: number }} input.frame
-   * @param {TexImageSource|null} [input.source]  the full frame, for the outline (and the focus
-   *        measure at the rock)
-   * @param {boolean} [input.outline]  look for the rock's outline in this frame
+   * @param {TexImageSource|null} [input.source]  the full frame, for the focus measure at the rock
    * @param {{ data, width, height }|null} [input.trackImage]  the frame at the tracker's (smaller)
    *        size, `trackScale` x the frame (T-0332); without it the tracker uses `image`
    * @param {{ R, t }|null} [input.predicted]  the overlay's predicted pose for this frame (T-0332):
    *        where the board's region is looked for
-   * @param {(pose: object) => void} [input.onPose]  called with the frame's pose (a CameraPose, valid
-   *        or not) as soon as it is solved, before the lens, the outline and the guidance (T-0340):
-   *        the overlay needs only the pose, so the page can draw with it that much sooner
-   * @returns {object} { frame, detection, pose, intrinsics, calibration, outline, outlinePose (the
-   *          pose of the outline's own frame: { R, t, intrinsics }), outlineFresh, sheet (the board
-   *          in view), guide (guidance.js createScanGuide's observe), region (frame px, or null: the
-   *          whole frame), timings }
+   * @param {(pose: object, detection: object) => void} [input.onPose]  called with the frame's pose
+   *        (a CameraPose, valid or not) and its detection (full-frame px) as soon as the pose is
+   *        solved, before the lens and the guidance (T-0340): the overlay and the tracker need only
+   *        these, so they can use them that much sooner
+   * @returns {object} { frame, detection, pose, intrinsics, calibration, sheet (the board in view),
+   *          guide (guidance.js createScanGuide's observe), region (frame px, or null: the whole
+   *          frame), timings }
    */
-  function processFrame({ image, scale, frame, source = null, outline: wantOutline = false, trackImage = null, trackScale = null, predicted = null, onPose = null }) {
+  function processFrame({ image, scale, frame, source = null, trackImage = null, trackScale = null, predicted = null, onPose = null }) {
     if (disposed) {
       throw new Error('live vision used after dispose()');
     }
@@ -218,9 +180,10 @@ export function createLiveVision(cv, options) {
     const t2 = performance.now();
 
     if (pose && onPose) {
-      onPose(pose);
+      onPose(pose, detection);
     }
 
+    const tp2 = performance.now();
 
     // Every detection feeds the lens's calibration, a region's too: with detections spaced out
     // while tracking and most of them regions, whole frames alone gathered its views several times
@@ -240,45 +203,24 @@ export function createLiveVision(cv, options) {
 
     const t3 = performance.now();
 
-    let outlineFresh = false;
-
-    if (wantOutline && pose?.valid && source) {
-      const found = outlineFinder();
-
-      if (found) {
-        lastOutline = found.find(source, pose);
-        lastOutlinePose = { R: pose.R, t: pose.t, intrinsics: pose.intrinsics };
-        outlineFresh = true;
-      }
-    }
-
-    const t4 = performance.now();
-
     // This frame's inlier corners are the ones to track into the next (none without a valid pose).
     tracker?.seed(detection, pose?.valid ? pose : null, trackK);
 
     const t5 = performance.now();
-    const outlineAge = lastOutline ? frame.timeMs - lastOutline.frame.timeMs : Infinity;
     const guide = scanGuide.observe({
       frame: detection.frame,
       pose: pose?.valid ? pose : null,
-      outline: outlineFresh ? lastOutline : null,
       targetMm,
       measure: (box, rockContour) => focusMeter.measure(source, image, scale, box, detection.frame, rockContour),
     });
     const t6 = performance.now();
 
-    const outlineShown = outlineAge <= OUTLINE_MAX_AGE_MS ? lastOutline : null;
     return {
       frame: detection.frame,
       detection,
       pose,
       intrinsics: intrinsics.current(),
       calibration: intrinsics.status(),
-      outline: outlineShown,
-      outlinePose: outlineShown ? lastOutlinePose : null,
-      outlineFresh,
-      outlineError: finderFailed,
       sheet: sheetNow(),
       guide,
       kind: 'detect',
@@ -289,9 +231,8 @@ export function createLiveVision(cv, options) {
         pushMs,
         fitMs: tf - t1,
         poseMs: t2 - tf,
-        intrinsicsMs: t3 - t2,
-        outlineMs: outlineFresh ? t4 - t3 : null,
-        seedMs: t5 - t4,
+        intrinsicsMs: t3 - tp2,
+        seedMs: t5 - t3,
         guideMs: t6 - t5,
         totalMs: t6 - t0,
       },
@@ -300,7 +241,7 @@ export function createLiveVision(cv, options) {
 
   /**
    * A frame between detections (T-0332): the last pose's corners tracked into it, and the pose
-   * re-solved from them (tracker.js). No detection, outline or guidance: only the pose, for the
+   * re-solved from them (tracker.js). No detection or guidance: only the pose, for the
    * overlay.
    *
    * @param {object} input  as processFrame's, plus `predicted`: the overlay's predicted pose for
@@ -333,7 +274,7 @@ export function createLiveVision(cv, options) {
 
   /**
    * Runs every code path once on a synthetic, flat view of the board, so the browser compiles
-   * them (and the outline's shaders) before the first real frame: the first runs of each path
+   * them before the first real frame: the first runs of each path
    * stall for 0.1-3 s (kb phone-camera-pose-and-live-intrinsics). `pause()` is awaited between the
    * steps, so the page stays responsive. Nothing here touches the live state.
    */
@@ -362,15 +303,6 @@ export function createLiveVision(cv, options) {
         const pose = detection.recognised ? warmSolver.solve(detection, K) : null;
         warmIntrinsics.addDetection(detection, null);
         await pause();
-
-        if (pose && round === 0) {
-          const found = outlineFinder();
-
-          if (found) {
-            found.find(image, { ...pose, valid: true });
-            await pause();
-          }
-        }
 
         // The tracking path too (T-0332): the same view tracked into itself.
         if (pose?.valid && canTrack && round === 2) {
@@ -418,7 +350,6 @@ export function createLiveVision(cv, options) {
       detector.dispose();
       intrinsics.dispose();
       solver.dispose();
-      finder?.dispose();
       tracker?.dispose();
     },
   };

@@ -468,7 +468,8 @@ Deno.test("scanVisionText reads out the board, the camera, the lens and the rock
   // Setup: vision values as the store holds them, received at t = 1000 ms.
   // Test: read each out, now and later.
   // Verifies: a posed frame reads "Found" with the board in view in words ("white/black", T-0340),
-  // the camera's distance in cm and its height in degrees, the lens's state and "Outlined"; each
+  // the camera's distance in cm and its height in degrees, the lens's state and, from an older phone
+  // that still outlines the rock, "Outlined" (a phone without an outline has no Rock row, T-0350); each
   // of the three boards is named by its colours; a frame without a board reads "Not in view" and
   // dashes; an older phone's message naming an older sheet reads plain "Found"; an older phone's
   // frame of another printed board (wrongBoard, T-0335) reads "Not the scanner board" with no
@@ -495,11 +496,11 @@ Deno.test("scanVisionText reads out the board, the camera, the lens and the rock
     }),
     receivedAt: 1000,
   }, 1000 + mode.VISION_GONE_MS + 1);
-  assertEqual(empty.rows.map(row => row.value), ["Not in view", "–", "Estimating", "–"], "nothing seen");
+  assertEqual(empty.rows.map(row => row.value), ["Not in view", "–", "Estimating"], "nothing seen");
   assert(empty.note.includes("has not sent anything"), "the quiet phone is noted");
 
   const refined = mode.scanVisionText({ message: visionMessage({ outline: null, intrinsics: { f: 1088, cx: 640, cy: 360, k1: 0.01, source: "refined" } }), receivedAt: 0 }, 0);
-  assertEqual(refined.rows.map(row => row.value).slice(2), ["Measured", "None found on the target"], "measured lens, no rock");
+  assertEqual(refined.rows.map(row => row.value).slice(2), ["Measured"], "measured lens, no outline: no Rock row");
 
   const older = mode.scanVisionText({
     message: visionMessage({ board: { ...visionMessage().board, sheet: "charuco_23x17_10mm_centre3x3_dots", sheetFrom: "auto" } }),
@@ -513,7 +514,7 @@ Deno.test("scanVisionText reads out the board, the camera, the lens and the rock
     receivedAt: 0,
   }, 0);
   assertEqual(wrong.rows.map(row => row.value).slice(0, 2), ["Not the scanner board", "–"], "another printed board");
-  assertEqual(wrong.rows[3].value, "–", "no rock from another board");
+  assertEqual(wrong.rows.length, 3, "no rock from another board");
 });
 
 Deno.test("scanVisionText adds a Speed row when the phone sends its speed (T-0332)", () => {

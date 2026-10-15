@@ -2,14 +2,16 @@
 
 The user, 2026-10-04: the phone should "recognize the charuco board, identify the camera position
 relative to the board and identify the outline of the rock", draw them over its camera view, and
-send the pose and outline to the studio over the existing connection. These tests run the BUILT
+send the pose and outline to the studio over the existing connection. (The rock's outline was taken
+out on 2026-10-14, T-0350: "we can remove the gemstone detection itself".) These tests run the BUILT
 pages -- the studio (build/www/studio.html) and the phone page (build/www/scanner/) -- in two
 separate headless Chromes, the phone's camera playing a synthetic video of a rock on the printed
 board whose every camera pose and rock silhouette is known (tests/harness/vision/make_scan_video.py:
 three views, each held 4 s, looped). They check:
 
-  * the phone recognises the board and draws its overlay (pixels on the overlay canvas), and says
-    so in its vision line;
+  * the phone recognises the board and draws its overlay (pixels on the overlay canvas: the board's
+    whole grid, T-0350), and says so in its vision line; its tracker, in a Worker of its own, takes
+    the detections' corners on and tracks between them (T-0350);
   * the studio receives vision messages at about 10 a second, draws them over the phone's video,
     and reads them out in the panel; the board is the white/black spiral board, named as such;
   * the other two boards (grey/black, white/grey: two more synthetic videos) are found, posed and
@@ -19,7 +21,6 @@ three views, each held 4 s, looped). They check:
   * the received pose matches the video's true pose (rotation, camera position, the azimuth,
     elevation and distance read out), within stated tolerances, once the phone's first lens
     estimate is in;
-  * the received rock outline's IoU against the true silhouette;
   * a phone that sends no vision (here: its OpenCV blocked, which leaves it exactly as a phone page
     from before vision) leaves the studio as it was -- the picture streams, no overlay, no readout;
   * a peer sending malformed vision messages is ignored, and a valid one after them is taken.
@@ -30,7 +31,7 @@ page of its own the studio opens in a modal iframe; what the tests read of it (i
 readout and `gemScanVision`) they read inside that iframe, through scanner_frame.py. The phone is a SEPARATE browser
 (a background tab neither plays video nor runs its frame callbacks) started natively on Apple
 silicon (test_vision_detect.native_chrome: under Rosetta wasm runs ~100x slower) with the fake
-camera playing the video file. Both use the real GPU (the outline is WebGL2).
+camera playing the video file.
 
     ./build.sh   # or: python3 src/scripts/make_page.py --skip-build
     ~/.pyenv/versions/anaconda3-2019.07/bin/python3 -m unittest tests/harness/test_scan_vision.py -v
@@ -61,8 +62,6 @@ try:
     from test_scan_link import CHROME_ARGS, CONNECT_TIMEOUT, Relay, Server
     from test_vision_detect import native_chrome
     from make_scan_video import OTHER_BOARDS, ensure_board_video, ensure_older_board_video, ensure_video
-    import numpy as np
-    from PIL import Image, ImageDraw
 except ImportError as error:  # websocket-client, numpy or PIL missing
     cdp = None
     IMPORT_ERROR = str(error)
@@ -80,7 +79,6 @@ MAX_ROTATION_DEG = 1.0
 MAX_CENTRE_MM = 6.0
 MAX_ANGLE_DEG = 1.0
 MAX_DISTANCE_SHARE = 0.03
-MIN_MEDIAN_IOU = 0.85
 
 
 def js(value):
@@ -286,52 +284,38 @@ class ScanVisionTest(unittest.TestCase):
 
         return best
 
-    def iou(self, contour, view_index, frame):
-        """IoU of a received outline (frame pixels, types.js corner origin) with a view's truth mask.
-        A frame smaller than the video's is taken as its middle (Chrome's fake camera crops to fit
-        the page's request), and the mask is cut the same way."""
-        mask = np.array(Image.open(self.video["masks"][view_index]).convert("L")) >= 128
-        top = (self.truth["height"] - frame["h"]) // 2
-        left = (self.truth["width"] - frame["w"]) // 2
-        mask = mask[top:top + frame["h"], left:left + frame["w"]]
-        found = Image.new("L", (frame["w"], frame["h"]), 0)
-        # PIL fills pixels whose centres are inside; its coordinates put pixel centres on integers.
-        ImageDraw.Draw(found).polygon([(x - 0.5, y - 0.5) for x, y in contour], fill=255)
-        found = np.array(found) >= 128
-        union = np.logical_or(found, mask).sum()
-        return float(np.logical_and(found, mask).sum()) / union if union else 1.0
-
     # --- tests --------------------------------------------------------------------------------
 
-    def test_phone_overlay_and_studio_receive_the_true_pose_and_outline(self):
-        """The phone finds the board, draws it, and the studio receives the true pose and outline.
+    def test_phone_overlay_and_studio_receive_the_true_pose(self):
+        """The phone finds the board, draws it, and the studio receives the true pose.
 
         Setup: the studio with Rough scan open; a phone browser whose camera plays the synthetic
         video (three views of a rock on the white/black board, 4 s each, looped; true focal length 1000 px
         against the phone's first guess of 1088). Test: open the link on the phone; wait for its
         vision; then record every vision value the studio takes for COLLECT_S seconds. Verifies:
           - the phone's vision line says the board is found ('pose'), its canvas shows the camera
-            frame with the overlay drawn over it (COMPOSITED, T-0340), and its detected poses reach
-            the overlay ahead of their frame's result (earlyPoses);
+            frame with the overlay drawn over it (COMPOSITED, T-0340), the board's whole grid
+            through the pose (T-0350: gridFrom 'pose', every square edge), and its detected poses
+            reach the overlay ahead of their frame's result (earlyPoses); its tracker, in a Worker
+            of its own (T-0350), took detections' corners on (seeds) and tracked poses between them;
           - the studio takes 5-11 messages a second, each under 2 kB, draws them over the video
-            ('pose+outline'), and its panel reads out the board ("Found"), the camera, the lens and
-            the rock;
+            ('pose'), and its panel reads out the board ("Found"), the camera and the lens;
           - every message names the white/black board ('default'), and none says wrongBoard;
           - every valid pose received after the lens's first estimate matches the true pose of
             the view it shows: rotation within MAX_ROTATION_DEG, camera centre within
             MAX_CENTRE_MM, azimuth and elevation within MAX_ANGLE_DEG, distance within
-            MAX_DISTANCE_SHARE; every view is seen;
-          - the rock outlines found on the same frame as their pose have a median IoU of at least
-            MIN_MEDIAN_IOU against the true silhouette.
+            MAX_DISTANCE_SHARE; every view is seen.
         """
         phone = self.start_phone()
         self.connect()
         self.start_log()
         phone.wait_for_expression("document.getElementById('scanner-vision')?.dataset.state === 'pose'", timeout=90)
         # The overlay is drawn from the next camera frame on (since T-0331 nothing is drawn before a
-        # pose), so wait for its found corners' points (T-0333; they replaced the phone's faint grid)
-        # before reading pixels.
-        phone.wait_for_expression("(window.housekiScanVision?.state?.drawn?.foundCorners ?? 0) > 0", timeout=10)
+        # pose), so wait for its found corners' points (T-0333) and the whole grid (T-0350) before
+        # reading pixels.
+        phone.wait_for_expression("(window.housekiScanVision?.state?.drawn?.foundCorners ?? 0) > 0"
+                                  " && window.housekiScanVision.state.drawn.gridFrom === 'pose'", timeout=10)
+        grid = phone.evaluate("housekiScanVision.state.drawn.gridLines + housekiScanVision.state.drawn.edgeLines")
         drawn = phone.evaluate("""(() => {
           const c = document.getElementById('scanner-overlay');
           const d = c.getContext('2d').getImageData(0, 0, c.width, c.height).data;
@@ -358,13 +342,19 @@ class ScanVisionTest(unittest.TestCase):
               % (len(log), span, rate, sizes[0], sizes[-1], sizes[len(sizes) // 2], overlay, fps, readout), file=sys.stderr)
         self.assertTrue(5 <= rate <= 11, "message rate %.1f/s" % rate)
         self.assertLess(sizes[-1], 2048, "a message over 2 kB")
-        self.assertIn(overlay, ("pose+outline", "pose"))
+        self.assertEqual(overlay, "pose")
         self.assertIn("Found", readout)
         self.assertIn("white/black", readout)
         self.assertIn("above the board", readout)
         state = json.loads(phone_state)["state"]
         self.assertGreater(state["composited"], 30, "the camera frame was not drawn into the canvas")
         self.assertGreater(state["earlyPoses"], 5, "no pose reached the overlay ahead of its result")
+        # The whole grid (T-0350): the views show most of the 23 x 17 board, 42 lines in all.
+        self.assertGreater(grid, 30, "the board's whole grid was not drawn")
+        # The tracker in its own Worker (T-0350): detections' corners taken on, poses tracked.
+        self.assertEqual(state["thread"], "worker")
+        self.assertGreater(state["seeds"], 5, "no detection seeded the tracker")
+        self.assertGreater(state["trackedPoses"], 3 * state["poses"], "tracked poses between the detections")
 
         boards = {(e["message"]["board"]["sheet"], e["message"]["board"]["sheetFrom"]) for e in log if e["message"]["board"]["markers"]}
         self.assertEqual(boards, {(self.truth["sheet"], "default")}, "the board named in the messages")
@@ -373,7 +363,6 @@ class ScanVisionTest(unittest.TestCase):
         # The poses, once the lens has its first estimate.
         errors = []
         seen = set()
-        ious = []
 
         for entry in log:
             message = entry["message"]
@@ -402,11 +391,6 @@ class ScanVisionTest(unittest.TestCase):
                 "f": message["intrinsics"]["f"],
             })
 
-            outline = message["outline"]
-
-            if outline and outline["timeMs"] == message["timeMs"]:
-                ious.append(self.iou(outline["contour"], view, message["frame"]))
-
         self.assertTrue(errors, "no valid pose after the lens estimate")
         worst = {key: max(e[key] for e in errors) for key in ("rotationDeg", "centreMm", "azimuthDeg", "elevationDeg", "distanceShare")}
         median = lambda values: sorted(values)[len(values) // 2]  # noqa: E731
@@ -420,15 +404,10 @@ class ScanVisionTest(unittest.TestCase):
         self.assertLess(worst["azimuthDeg"], MAX_ANGLE_DEG)
         self.assertLess(worst["elevationDeg"], MAX_ANGLE_DEG)
         self.assertLess(worst["distanceShare"], MAX_DISTANCE_SHARE)
-
-        self.assertTrue(ious, "no outline on a posed frame")
-        sample = next(e["message"]["outline"] for e in log if e["message"]["outline"])
-        print("[scan_vision] outline IoU on %d frames: min %.3f, median %.3f, max %.3f (a received outline's box %s, flags %s)"
-              % (len(ious), min(ious), median(ious), max(ious), sample["box"], sample["flags"]), file=sys.stderr)
-        self.assertGreaterEqual(median(ious), MIN_MEDIAN_IOU)
+        self.assertFalse(any(e["message"]["outline"] for e in log), "the phone no longer outlines the rock")
 
     def test_a_board_without_a_pose_still_shows_its_corners(self):
-        """A board found but never posed still shows its red points and blue lines (T-0335 follow-up).
+        """A board found but never posed still shows its grid and red points (T-0335 follow-up, T-0350).
 
         The user, on the real board with every pose failing its checks: "still not showing the
         board - the old slower opencv version would show the dots without any problems". Setup: the
@@ -436,8 +415,9 @@ class ScanVisionTest(unittest.TestCase):
         the phone's storage before the link is opened) makes every pose invalid; the camera plays the
         white/black board's video. Test: connect, wait for the phone's 'unsteady' state, then sample what
         its overlay draws for 3 s. Verifies: no pose is ever valid, yet the overlay draws the
-        detection's corners (cornersFrom 'detection') with more than 20 red points and blue lines
-        between them on most samples, and pixels on the overlay canvas.
+        detection's corners (cornersFrom 'detection', more than 20 red points) and the board's whole
+        grid through the markers found (T-0350: gridFrom 'markers', more than 30 of its 42 lines) on
+        most samples, and pixels on the overlay canvas.
         """
         phone = self.start_phone()
         link = self.open_mode()
@@ -453,7 +433,7 @@ class ScanVisionTest(unittest.TestCase):
 
         for _ in range(30):
             samples.append(phone.evaluate("(() => { const d = housekiScanVision.state.drawn;"
-                                          " return d ? { n: d.foundCorners, lines: d.foundLines, from: d.cornersFrom } : null; })()"))
+                                          " return d ? { n: d.foundCorners, lines: d.gridLines + d.edgeLines, from: d.cornersFrom, grid: d.gridFrom } : null; })()"))
             time.sleep(0.1)
 
         poses = phone.evaluate("housekiScanVision.state.poses")
@@ -463,7 +443,7 @@ class ScanVisionTest(unittest.TestCase):
           let n = 0; for (let i = 3; i < d.length; i += 4) n += d[i] > 0 ? 1 : 0;
           return n;
         })()""")
-        shown = [s for s in samples if s and s["from"] == "detection" and s["n"] > 20 and s["lines"] > 20]
+        shown = [s for s in samples if s and s["from"] == "detection" and s["n"] > 20 and s["grid"] == "markers" and s["lines"] > 30]
         print("\n[scan_vision] no pose: %d of %d samples drew the detection's corners (e.g. %s); poses %d; %d overlay pixels"
               % (len(shown), len(samples), samples[-1], poses, pixels), file=sys.stderr)
         self.assertEqual(poses, 0, "a pose was valid despite the harness's limit")

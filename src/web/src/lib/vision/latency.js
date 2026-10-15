@@ -52,7 +52,7 @@ export function quantile(values, q) {
 }
 
 /** The per-stage timings the summary reports (medians), in this order. */
-export const STAGES = Object.freeze(['detectMs', 'trackMs', 'poseMs', 'outlineMs', 'guideMs', 'frameMs']);
+export const STAGES = Object.freeze(['detectMs', 'trackMs', 'poseMs', 'guideMs', 'frameMs']);
 
 /**
  * The phone's latency statistics over the last `windowMs`.
@@ -131,7 +131,8 @@ const rate = (v) => (v === null || v === undefined ? '–' : v.toFixed(1));
  * needs, in one line. `extra` adds { work: 'W x H', thread: 'worker' | 'main-thread' }.
  *
  *   "9.6 poses/s (4.1 tracked) · position 120 ms old (90%: 180) · detect 27 · track 3.2 · pose 0.6 ·
- *    outline 14 · guide 5.5 · frame 41 ms · 960×540 px · background"   (stages under 10 ms to 0.1 ms)
+ *    guide 5.5 · frame 41 ms · 960×540 px · background"   (stages under 10 ms to 0.1 ms; the rock's
+ *    outline, once a stage here, was taken out in T-0350)
  */
 export function diagnosticsText(summary, extra = {}) {
   const s = summary.stages ?? {};
@@ -139,7 +140,7 @@ export function diagnosticsText(summary, extra = {}) {
     `${rate(summary.posesPerS)} poses/s${summary.trackedPerS ? ` (${rate(summary.trackedPerS)} tracked)` : ''}`,
     `position ${ms(summary.ageMs)} ms old (90%: ${ms(summary.ageP90Ms)})`,
     `detect ${stageMs(s.detectMs)}${s.trackMs !== null && s.trackMs !== undefined ? ` · track ${stageMs(s.trackMs)}` : ''} · pose ${stageMs(s.poseMs)}`
-      + ` · outline ${stageMs(s.outlineMs)} · guide ${stageMs(s.guideMs)} · frame ${stageMs(s.frameMs)} ms`,
+      + ` · guide ${stageMs(s.guideMs)} · frame ${stageMs(s.frameMs)} ms`,
   ];
 
   if (extra.work || extra.thread) {

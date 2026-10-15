@@ -16,7 +16,7 @@ import { loadOpenCv } from '../src/lib/vision/opencv.js';
 import { BOARD_SPECS } from '../src/lib/vision/board_frame.js';
 import { createLiveVision } from '../src/lib/vision/live.js';
 import { rotationAngleDeg } from '../src/lib/vision/pose.js';
-import { MAX_TRACKED, spreadPick } from '../src/lib/vision/tracker.js';
+import { createPoseTracker, HISTORY_FRAMES, MAX_TRACKED, spreadPick } from '../src/lib/vision/tracker.js';
 import { cameraPose, downscale, renderSheet } from './vision_render.js';
 import { loadBuiltVision, VISION_BUILT } from './vision_test_support.js';
 
@@ -40,9 +40,9 @@ const view = (azimuthDeg, elevationDeg = 45, distanceMm = 230) => cameraPose([80
 });
 const frameAt = (timeMs) => ({ width: WIDTH, height: HEIGHT, timeMs });
 
-/** A live vision (on the white/black board), refinement never scheduled, no outline. */
-const newLive = () => createLiveVision(cv, {
-  vision, frameSize: { width: WIDTH, height: HEIGHT }, glCanvas: null, schedule: () => {},
+/** A live vision (on the white/black board), refinement never scheduled; `options` as live.js's. */
+const newLive = (options = {}) => createLiveVision(cv, {
+  vision, frameSize: { width: WIDTH, height: HEIGHT }, schedule: () => {}, ...options,
 });
 
 const error = (pose, truth) => ({
@@ -122,26 +122,40 @@ Deno.test('trackFrame at half the processing size (as the phone tracks): still w
   live.dispose();
 });
 
-Deno.test('trackFrame: a prediction a square off is caught; tracking stops until the next detection', CV_TEST, () => {
+Deno.test('trackFrame: a prediction a square off is not followed; the corners are tracked from where they were (T-0350)', CV_TEST, () => {
   // Setup: a detected frame; the next frame with the camera hardly moved, but a "prediction" that
-  // puts the board one square (10 mm) along X from where it is -- what a track that slipped onto
-  // the neighbouring corners would agree with.
-  // Test: trackFrame with that prediction; then trackFrame again.
-  // Verifies: the tracked corners are refused for being far from the prediction (no pose, the
-  // reason says so), so a pose one square off is never drawn; tracking is then off (canTrack false,
-  // the next call has nothing to track) until a detection seeds it again.
+  // puts the board one square (10 mm) along X from where it is: what a filter still carrying an old
+  // motion predicts after the phone stopped or turned back, and what a track that slipped onto the
+  // neighbouring corners would agree with. Then a frame with the board slid 0.6 of a square (6 mm)
+  // between the frames, and a prediction a square past that.
+  // Test: trackFrame with that prediction, on each.
+  // Verifies: guided by the wrong prediction the corners miss it, so (T-0350) they are tracked again
+  // from their places in the previous frame with no guess; the board hardly moved, so that track is
+  // taken: the pose is valid and within 0.1 degree and 1 mm of the TRUE camera, never the
+  // prediction's (until T-0350 the track was refused, and the overlay coasted on the wrong
+  // motion). When the board moved more than MAX_UNGUIDED_MOVE of a square, the unguided track
+  // cannot be trusted either (it may have landed on the neighbouring corners): refused ('from the
+  // prediction'), and tracking stops until the next detection seeds it.
+  const shift = (truth) => ({ R: truth.R, t: truth.t.map((v, i) => v - 10 * truth.R[3 * i]) });
   const live = newLive();
   const a = view(200);
   const b = view(200.3);
   live.processFrame({ image: renderSheet(SPEC, a, { noise: 1.5, seed: 1 }), scale: 1, frame: frameAt(0) });
-  // The board moved one square along +X: t' = t - R (10, 0, 0).
-  const shifted = { R: b.R, t: b.t.map((v, i) => v - 10 * b.R[3 * i]) };
-  const slipped = live.trackFrame({ image: renderSheet(SPEC, b, { noise: 1.5, seed: 2 }), scale: 1, frame: frameAt(33), predicted: shifted });
+  const kept = live.trackFrame({ image: renderSheet(SPEC, b, { noise: 1.5, seed: 2 }), scale: 1, frame: frameAt(33), predicted: shift(b) });
+  assert(kept.pose?.valid, `taken from the unguided track: ${kept.track.reason}`);
+  const e = error(kept.pose, b);
+  console.log(`  wrong prediction, small motion: ${kept.track.kept} corners, error ${e.rotationDeg.toFixed(3)} deg / ${e.centreMm.toFixed(2)} mm`);
+  assert(e.rotationDeg < 0.1 && e.centreMm < 1, `the true pose: ${JSON.stringify(e)}`);
+
+  const far = newLive();
+  // The board slid 6 mm along X in the picture: t' = t - R (6, 0, 0).
+  const c = { ...a, t: a.t.map((v, i) => v - 6 * a.R[3 * i]) };
+  far.processFrame({ image: renderSheet(SPEC, a, { noise: 1.5, seed: 1 }), scale: 1, frame: frameAt(0) });
+  const slipped = far.trackFrame({ image: renderSheet(SPEC, c, { noise: 1.5, seed: 3 }), scale: 1, frame: frameAt(33), predicted: shift(c) });
   assert(slipped.pose === null && /prediction/.test(slipped.track.reason), `refused: ${slipped.track.reason}`);
-  assert(!live.canTrack, 'tracking stopped');
-  const again = live.trackFrame({ image: renderSheet(SPEC, b, { noise: 1.5, seed: 3 }), scale: 1, frame: frameAt(66), predicted: null });
-  assert(again.pose === null && again.track.reason === 'nothing to track', `then: ${again.track.reason}`);
+  assert(!far.canTrack, 'tracking stopped');
   live.dispose();
+  far.dispose();
 });
 
 Deno.test(`trackFrame: at most ${MAX_TRACKED} frames after a detection`, CV_TEST, () => {
@@ -161,5 +175,67 @@ Deno.test(`trackFrame: at most ${MAX_TRACKED} frames after a detection`, CV_TEST
 
   const last = live.trackFrame({ image, scale: 1, frame: frameAt(33 * (MAX_TRACKED + 1)), predicted: { R: a.R, t: a.t } });
   assert(last.pose === null && last.track.reason === 'tracked long enough', last.track.reason);
+  live.dispose();
+});
+
+Deno.test('a tracker beside the detection (T-0350): a detection of an older frame seeds tracking from that frame', CV_TEST, () => {
+  // Setup: the phone's two Workers in one place: a live vision that only detects (tracking: false,
+  // as in vision_worker.js beside a tracker) and a tracker keeping HISTORY_FRAMES frames by time (as
+  // track_worker.js keeps them). The camera orbits 1.3 degrees a frame (40 degrees a second), frames
+  // at 0, 33, 66, 100 and 133 ms. Every frame is pushed to the tracker as it comes (with nothing to
+  // track yet); the detection of frame 0 "finishes" only after frame 100 has been pushed, as a
+  // detection that takes 100 ms does while the tracker goes on.
+  // Test: seed the tracker with frame 0's detection under frame 0's time; track frame 133 (four
+  // frames, 5.2 degrees, from the detected frame), then frame 166 from 133. Then a seed naming a
+  // frame never pushed, and, with a tracker keeping only 2 frames, a seed naming a frame dropped and
+  // one naming the latest frame (a detection that finished before the next frame came).
+  // Verifies: the detection-only live vision has no tracker of its own (canTrack false); the seed is
+  // taken (true, active); frame 133's pose is valid, from at least 30 corners, within 0.1 degree and
+  // 1 mm of its truth, and frame 166's too (the chain goes on from the tracked frame); a seed whose
+  // frame is not kept is refused (false) and leaves the tracker as it was, while one on the latest
+  // frame is taken (it is tracked from once the next frame is pushed).
+  const live = newLive({ tracking: false });
+  const tracker = createPoseTracker(vision, SPEC, { history: HISTORY_FRAMES });
+  const truths = [0, 1, 2, 3, 4, 5].map((k) => view(200 + 1.3 * k));
+  const images = truths.map((truth, k) => renderSheet(SPEC, truth, { noise: 1.5, seed: k + 1 }));
+  let seedPose = null;
+  let seedDetection = null;
+  const detected = live.processFrame({
+    image: images[0], scale: 1, frame: frameAt(0), onPose: (pose, detection) => {
+      seedPose = pose;
+      seedDetection = detection;
+    },
+  });
+  assert(detected.pose?.valid && !live.canTrack, 'a detection-only live vision does not track');
+  assert(seedPose === detected.pose && seedDetection === detected.detection, 'the early pose comes with its detection');
+
+  for (const k of [0, 1, 2, 3]) {
+    const r = tracker.track(images[k], 1, frameAt(33.3 * k), seedPose.intrinsics, null);
+    assert(r.pose === null && r.reason === 'nothing to track', `frame ${k} before the seed: ${r.reason}`);
+  }
+
+  assert(tracker.seed(seedDetection, seedPose, 1, 0) && tracker.active, 'seeded from frame 0');
+
+  for (const k of [4, 5]) {
+    const r = tracker.track(images[k], 1, frameAt(33.3 * k), seedPose.intrinsics, { R: truths[k].R, t: truths[k].t });
+    assert(r.pose?.valid, `frame ${k}: ${r.reason}`);
+    const e = error(r.pose, truths[k]);
+    console.log(`  frame ${k} (${k === 4 ? 'from the detected frame 0' : 'from frame 4'}): ${r.kept} of ${r.tracked} corners, `
+      + `error ${e.rotationDeg.toFixed(3)} deg / ${e.centreMm.toFixed(2)} mm`);
+    assert(r.kept >= 30 && e.rotationDeg < 0.1 && e.centreMm < 1, `frame ${k}: ${JSON.stringify(e)}`);
+  }
+
+  assert(!tracker.seed(seedDetection, seedPose, 1, 12345) && tracker.active, 'a frame never pushed: refused, tracking goes on');
+
+  const short = createPoseTracker(vision, SPEC, { history: 2 });
+
+  for (const k of [0, 1, 2]) {
+    short.track(images[k], 1, frameAt(33.3 * k), seedPose.intrinsics, null);
+  }
+
+  assert(!short.seed(seedDetection, seedPose, 1, 0) && !short.active, 'frame 0 dropped from a 2-frame history: refused');
+  assert(short.seed(seedDetection, seedPose, 1, 33.3 * 2) && short.active, 'the latest frame: taken');
+  short.dispose();
+  tracker.dispose();
   live.dispose();
 });

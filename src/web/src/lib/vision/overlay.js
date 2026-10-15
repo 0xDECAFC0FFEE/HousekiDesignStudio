@@ -41,8 +41,18 @@
 // WITHOUT A POSE (T-0335 follow-up) the same red points and blue lines are drawn from the latest
 // detection's corners at the pixels they were found at (`detectedCorners`), so a board that is found
 // but whose pose fails its checks (a lens estimate still far off, say) still shows as found.
+//
+// THE WHOLE BOARD (T-0350, style.grid 'full'). The user, 2026-10-14: "can you also use the marker
+// ids and known board size to draw the entire grid on the screen?" Every square edge of the board is
+// drawn in the found corners' blue (over a dark halo, so it reads on black and white squares), the
+// board's edge in white, and a red point on each found corner. With a pose the lines are the board's
+// own, through the pose and the lens (boardGridLines). Without one, the markers found say where they
+// are on the board (their ids; markerCornersMm) and the corners found say the same: a homography
+// fitted to those points (fitHomography) carries the whole board's grid into the picture
+// (markerGridLines). A homography has no lens in it, so near the picture's edges a lens's bending
+// shows; it is drawn only while there is no pose, which then takes over.
 
-import { projectPoints } from './camera_model.js';
+import { matMul3, projectPoints, solveLinear } from './camera_model.js';
 
 /** The overlay's colours: the board axes as the usual X red, Y green, Z blue (Nord's), the rock
  *  in yellow, the board's edge in white, its grid a translucent light blue. */
@@ -316,6 +326,235 @@ export function foundCornerGraph(ids, sizeMm, squareMm = DEFAULT_SQUARE_MM) {
 }
 
 /**
+ * Marker `id`'s four corners on the board, mm ([X, Y, 0] each), in the order the detector gives a
+ * found marker's corners (its own top-left first, clockwise as printed). The boards are OpenCV's
+ * current ChArUco pattern (src/vision/charuco.rs CharucoBoard::new): square (0, 0) dark, a marker
+ * centred in every light square, numbered row by row; OpenCV's (column, row) is this file's (Y, X).
+ * `sizeMm` is [X, Y] (rows, columns); null for an id the board does not have.
+ */
+export function markerCornersMm(id, sizeMm, squareMm = DEFAULT_SQUARE_MM, markerMm = 0.7 * squareMm) {
+  const columns = Math.round(sizeMm[1] / squareMm);
+  const rows = Math.round(sizeMm[0] / squareMm);
+
+  if (!Number.isInteger(id) || id < 0) {
+    return null;
+  }
+
+  // Each row has ceil or floor of columns / 2 light squares: (row + column) odd is light.
+  let k = id;
+
+  for (let row = 0; row < rows; row += 1) {
+    const first = (row + 1) % 2;   // the first light column in this row
+    const count = Math.floor((columns - first + 1) / 2);
+
+    if (k < count) {
+      const column = first + 2 * k;
+      const inset = (squareMm - markerMm) / 2;
+      const X = row * squareMm + inset;
+      const Y = column * squareMm + inset;
+      // OpenCV's corners from (column, row) clockwise on the page: +column, then +row, then -column.
+      return [[X, Y, 0], [X, Y + markerMm, 0], [X + markerMm, Y + markerMm, 0], [X + markerMm, Y, 0]];
+    }
+
+    k -= count;
+  }
+
+  return null;
+}
+
+/**
+ * The plane-to-picture homography (3 x 3 row-major, h33 = 1) that best maps `from` ([X, Y] board
+ * mm) onto `to` ([x, y] px), by linear least squares on points normalised to mean 0 and mean
+ * distance sqrt(2) (Hartley's normalisation, which keeps the system well conditioned); null for
+ * fewer than 4 pairs or a degenerate set (all on a line).
+ */
+export function fitHomography(from, to) {
+  const n = Math.min(from.length, to.length);
+
+  if (n < 4) {
+    return null;
+  }
+
+  const normaliser = (points) => {
+    let mx = 0;
+    let my = 0;
+
+    for (let i = 0; i < n; i += 1) {
+      mx += points[i][0] / n;
+      my += points[i][1] / n;
+    }
+
+    let spread = 0;
+
+    for (let i = 0; i < n; i += 1) {
+      spread += Math.hypot(points[i][0] - mx, points[i][1] - my) / n;
+    }
+
+    const s = spread > 0 ? Math.SQRT2 / spread : 1;
+    return { s, mx, my, apply: ([x, y]) => [s * (x - mx), s * (y - my)] };
+  };
+  const a = normaliser(from);
+  const b = normaliser(to);
+  // Normal equations of the 2n x 8 system for h11..h32 (h33 = 1).
+  const AtA = new Array(64).fill(0);
+  const Atb = new Array(8).fill(0);
+
+  for (let i = 0; i < n; i += 1) {
+    const [X, Y] = a.apply(from[i]);
+    const [x, y] = b.apply(to[i]);
+    const rows = [[X, Y, 1, 0, 0, 0, -x * X, -x * Y, x], [0, 0, 0, X, Y, 1, -y * X, -y * Y, y]];
+
+    for (const row of rows) {
+      for (let r = 0; r < 8; r += 1) {
+        Atb[r] += row[r] * row[8];
+
+        for (let c = 0; c < 8; c += 1) {
+          AtA[8 * r + c] += row[r] * row[c];
+        }
+      }
+    }
+  }
+
+  const h = solveLinear(AtA, Atb, 8);
+
+  if (!h || !h.every(Number.isFinite)) {
+    return null;
+  }
+
+  // Undo the normalisations: H = Tb^-1 Hn Ta.
+  const Hn = [...h, 1];
+  const Ta = [a.s, 0, -a.s * a.mx, 0, a.s, -a.s * a.my, 0, 0, 1];
+  const TbInv = [1 / b.s, 0, b.mx, 0, 1 / b.s, b.my, 0, 0, 1];
+  const H = matMul3(TbInv, matMul3(Hn, Ta));
+
+  if (!(Math.abs(H[8]) > 1e-12)) {
+    return null;
+  }
+
+  const out = H.map((v) => v / H[8]);
+  // Degenerate (points on a line): the plane folds onto a line in the picture.
+  const det = out[0] * (out[4] * out[8] - out[5] * out[7]) - out[1] * (out[3] * out[8] - out[5] * out[6])
+    + out[2] * (out[3] * out[7] - out[4] * out[6]);
+  return Math.abs(det) > 1e-12 && out.every(Number.isFinite) ? out : null;
+}
+
+/** A board point [X, Y] through a homography: [x, y], or null where it is beyond the horizon. */
+export function applyHomography(H, [X, Y]) {
+  const w = H[6] * X + H[7] * Y + H[8];
+
+  if (!(w > 1e-9)) {
+    return null;
+  }
+
+  return [(H[0] * X + H[1] * Y + H[2]) / w, (H[3] * X + H[4] * Y + H[5]) / w];
+}
+
+/** Markers needed before the whole grid is drawn from them (one marker's four corners would carry
+ *  a 7 mm square's errors 30 times over to the board's far edge). */
+export const GRID_MIN_MARKERS = 2;
+
+/**
+ * The board's whole grid from what a detection found, without a pose (T-0350): a homography from
+ * the found markers' corners and the found chessboard corners (their places on the board from
+ * their ids) carries every square edge into the picture. `detection`: { markers: [{ id, corners:
+ * [[x, y] x 4] }], corners: [{ id, x, y }] } in frame pixels. Lines are cut where they would cross
+ * the plane's horizon (a homography's w near 0). Returns { lines (as boardGridLines'), H } or null
+ * when fewer than GRID_MIN_MARKERS markers were found or no homography fits.
+ */
+export function markerGridLines(detection, sizeMm, squareMm = DEFAULT_SQUARE_MM, markerMm = 0.7 * squareMm) {
+  const markers = detection?.markers ?? [];
+
+  if (markers.length < GRID_MIN_MARKERS) {
+    return null;
+  }
+
+  const from = [];
+  const to = [];
+
+  for (const marker of markers) {
+    const board = markerCornersMm(marker.id, sizeMm, squareMm, markerMm);
+
+    if (board && marker.corners?.length === 4) {
+      board.forEach((P, j) => {
+        from.push([P[0], P[1]]);
+        to.push(marker.corners[j]);
+      });
+    }
+  }
+
+  const graph = foundCornerGraph((detection.corners ?? []).map((c) => c.id), sizeMm, squareMm);
+
+  for (const corner of detection.corners ?? []) {
+    const P = graph.points.get(corner.id);
+
+    if (P && Number.isFinite(corner.x) && Number.isFinite(corner.y)) {
+      from.push([P[0], P[1]]);
+      to.push([corner.x, corner.y]);
+    }
+  }
+
+  const H = fitHomography(from, to);
+
+  if (!H) {
+    return null;
+  }
+
+  // The horizon: keep each line where w >= a tenth of the smallest w over the points found (the
+  // board's far parts shrink towards the horizon; past it they would come back mirrored).
+  const wAt = ([X, Y]) => H[6] * X + H[7] * Y + H[8];
+  const wMin = 0.1 * Math.min(...from.map(wAt));
+
+  if (!(wMin > 0)) {
+    return null;
+  }
+
+  const [sx, sy] = sizeMm;
+  const columns = Math.round(sy / squareMm);
+  const rows = Math.round(sx / squareMm);
+  const segment = (P0, P1) => {
+    // w is linear along the line: the stretch with w >= wMin.
+    const w0 = wAt(P0);
+    const w1 = wAt(P1);
+    let s0 = 0;
+    let s1 = 1;
+
+    if (w0 < wMin && w1 < wMin) {
+      return null;
+    }
+
+    if (w0 < wMin) {
+      s0 = (wMin - w0) / (w1 - w0);
+    } else if (w1 < wMin) {
+      s1 = (wMin - w0) / (w1 - w0);
+    }
+
+    const at = (s) => applyHomography(H, [P0[0] + s * (P1[0] - P0[0]), P0[1] + s * (P1[1] - P0[1])]);
+    const a = at(s0);
+    const b = at(s1);
+    return a && b ? [a, b] : null;
+  };
+  const lines = [];
+
+  for (let j = 0; j <= columns; j += 1) {
+    const points = segment([0, j * squareMm], [sx, j * squareMm]);
+
+    if (points) {
+      lines.push({ along: 'x', mm: j * squareMm, edge: j === 0 || j === columns, points });
+    }
+  }
+
+  for (let i = 0; i <= rows; i += 1) {
+    const points = segment([i * squareMm, 0], [i * squareMm, sy]);
+
+    if (points) {
+      lines.push({ along: 'y', mm: i * squareMm, edge: i === 0 || i === rows, points });
+    }
+  }
+
+  return { lines, H };
+}
+
+/**
  * The chessboard's edge (0..sizeMm[0] along X, 0..sizeMm[1] along Y) projected into the frame, as
  * one closed polyline with each side cut into `steps` pieces (the lens's distortion bends it).
  * Points behind the camera are left out. Returns [[x, y], ...].
@@ -460,20 +699,26 @@ export function transferContour(contour, from, fromLens, to, toLens, planeMm = 0
  *   detectedCorners  the latest detection's corners [{ id, x, y }] frame pixels (or null): WITHOUT
  *               a pose, drawn the same way at the pixels they were found at (T-0335 follow-up);
  *               ignored when there is a pose
- * `drawn.cornersFrom` says which drew the red points: 'pose', 'detection' or null.
+ *   detection   the latest detection { markers, corners } (frame px), or null: with style.grid
+ *               'full' and no pose, the whole grid through its markers' homography (T-0350)
+ *   markerMm    the markers' side (default 0.7 of a square)
+ * `drawn.cornersFrom` says which drew the red points: 'pose', 'detection' or null; `drawn.gridFrom`
+ * which drew the whole grid ('full'): 'pose', 'markers' or null.
  * @param {{ scale: number, dx: number, dy: number }} transform  fitTransform's
- * @param {{ alpha?: number, frame?: [number, number], grid?: boolean, axes?: boolean }} [style]
+ * @param {{ alpha?: number, frame?: [number, number], grid?: boolean|'full', axes?: boolean }} [style]
  *        alpha fades the whole overlay (stale data); frame, the camera frame's [width, height] in
  *        pixels, clips the drawing to where the picture is shown (not over a letterbox's bars); grid
- *        false draws only the board's edge; axes true draws the X/Y/Z arrows (default false)
+ *        false draws only the board's edge, 'full' every square edge in blue with red found corners
+ *        (the phone, T-0350), anything else the faint grid (the studio); axes true draws the X/Y/Z
+ *        arrows (default false)
  * @returns {{ gridLines: number, edgeLines: number, foundCorners: number, foundLines: number,
- *          axes: object|null, rock: boolean }} what was drawn, in CSS pixels (axes: { origin, x, y,
- *          z } each [x, y]), for the harness
+ *          gridFrom: string|null, axes: object|null, rock: boolean }} what was drawn, in CSS pixels
+ *          (axes: { origin, x, y, z } each [x, y]), for the harness
  */
 export function drawVisionOverlay(ctx, view, transform, style = {}) {
   const { scale, dx, dy } = transform;
   const map = ([x, y]) => [dx + scale * x, dy + scale * y];
-  const drawn = { gridLines: 0, edgeLines: 0, foundCorners: 0, foundLines: 0, cornersFrom: null, axes: null, rock: false };
+  const drawn = { gridLines: 0, edgeLines: 0, foundCorners: 0, foundLines: 0, cornersFrom: null, gridFrom: null, axes: null, rock: false };
   ctx.save();
   ctx.globalAlpha = style.alpha ?? 1;
 
@@ -524,8 +769,40 @@ export function drawVisionOverlay(ctx, view, transform, style = {}) {
   }
 
   const posed = Boolean(view.pose && view.intrinsics && view.sizeMm);
+  const full = style.grid === 'full';
+  // The whole grid, in the found corners' blue over a halo, and the edge in white (T-0350).
+  const drawFullGrid = (lines) => {
+    for (const line of lines) {
+      if (!line.edge) {
+        path(line.points, false);
+        stroke(OVERLAY_COLOURS.foundLine, 1.5);
+        drawn.gridLines += 1;
+      }
+    }
 
-  if (posed) {
+    for (const line of lines) {
+      if (line.edge) {
+        path(line.points, false);
+        stroke(OVERLAY_COLOURS.board, 2);
+        drawn.edgeLines += 1;
+      }
+    }
+  };
+  const redPoint = ([x, y]) => {
+    ctx.beginPath();
+    ctx.arc(x, y, 3, 0, 2 * Math.PI);
+    ctx.fillStyle = OVERLAY_COLOURS.foundCorner;
+    ctx.fill();
+    ctx.strokeStyle = OVERLAY_COLOURS.shadow;
+    ctx.lineWidth = 1;
+    ctx.stroke();
+    drawn.foundCorners += 1;
+  };
+
+  if (posed && full) {
+    drawFullGrid(boardGridLines(view.pose, view.intrinsics, view.sizeMm, view.squareMm ?? DEFAULT_SQUARE_MM));
+    drawn.gridFrom = 'pose';
+  } else if (posed) {
     const lines = boardGridLines(view.pose, view.intrinsics, view.sizeMm, view.squareMm ?? DEFAULT_SQUARE_MM);
 
     // The inner lines thin and faint, with no halo, so the picture reads through them; the
@@ -559,7 +836,24 @@ export function drawVisionOverlay(ctx, view, transform, style = {}) {
   // a blue line between each two found corners that are neighbours on the board (by id, as
   // foundCornerGraph pairs them), then a red point on each. They trail a moving picture by a
   // detection's time, which the posed path avoids, but they show that the board is found.
-  if (!posed && view.detectedCorners?.length && view.sizeMm) {
+  // With style.grid 'full' and enough markers (T-0350), the whole grid through the markers'
+  // homography instead, with the red points at the corners found.
+  const fromMarkers = !posed && full && view.sizeMm && view.detection
+    ? markerGridLines(view.detection, view.sizeMm, view.squareMm ?? DEFAULT_SQUARE_MM, view.markerMm ?? undefined)
+    : null;
+
+  if (fromMarkers) {
+    drawFullGrid(fromMarkers.lines);
+    drawn.gridFrom = 'markers';
+
+    for (const corner of view.detection.corners ?? []) {
+      if (Number.isFinite(corner.x) && Number.isFinite(corner.y)) {
+        redPoint(map([corner.x, corner.y]));
+      }
+    }
+
+    drawn.cornersFrom = drawn.foundCorners ? 'detection' : null;
+  } else if (!posed && view.detectedCorners?.length && view.sizeMm) {
     const squareMm = view.squareMm ?? DEFAULT_SQUARE_MM;
     const at = new Map();
 
@@ -601,7 +895,8 @@ export function drawVisionOverlay(ctx, view, transform, style = {}) {
     const graph = foundCornerGraph(view.foundCornerIds, view.sizeMm, squareMm);
     const bounds = viewBounds(view.intrinsics);
 
-    for (const [a, b] of graph.edges) {
+    // With the whole grid drawn (T-0350), the lines between found corners are already there.
+    for (const [a, b] of full ? [] : graph.edges) {
       const points = projectClippedSegment(graph.points.get(a), graph.points.get(b), view.pose, view.intrinsics, { bounds });
 
       if (points) {

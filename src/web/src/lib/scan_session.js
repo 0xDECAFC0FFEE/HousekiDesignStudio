@@ -540,10 +540,10 @@ export function scanVisionText(vision, nowMs) {
     value: lens === 'refined' ? 'Measured' : lens === 'closed-form' || lens === 'table' || lens === 'one-view' ? 'First estimate, still measuring' : 'Estimating',
   });
 
-  rows.push({
-    label: 'Rock',
-    value: !posed ? '–' : outline ? 'Outlined' : 'None found on the target',
-  });
+  // The phone no longer outlines the rock (T-0350): the row only for a phone that still sends one.
+  if (posed && outline) {
+    rows.push({ label: 'Rock', value: 'Outlined' });
+  }
 
   if (guide) {
     const summary = coverageSummary(guide.cover);

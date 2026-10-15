@@ -3,8 +3,8 @@
 <p>Rough scan connects your phone's camera to the studio. It opens the scanner in a window over
 the studio. The scanner shows a code. You scan it with your phone, and the phone's camera then
 appears live in the scanner. Point the phone at a printed scanning board with the rock on it, and
-the phone finds the board, works out where the camera is above it, and outlines the rock. It draws
-these over its own picture and sends them to the computer, which draws them over the phone's
+the phone finds the board and works out where the camera is above it. It draws the board's grid
+over its own picture and sends what it found to the computer, which draws it over the phone's
 picture too. This is the first step towards scanning a piece of rough with your phone: for now it
 shows what the phone sees, and does not yet build a model of the rock.</p>
 
@@ -149,31 +149,32 @@ report it. Then point it at the board with the rock in its middle. Over the pict
 it finds:</p>
 
 <ul>
-  <li>a red point on each corner of the printed squares that it has found, and a blue line between
-  each two found corners that are next to each other, with a white line around the edge of the
-  board. Corners it has not found have no point, so a gap in the points near the rock shows where
-  it cannot see the board, for example under the rock or in glare. Most of the time it looks only
-  at the part of the board around the rock, so points further out come and go, and that is
-  normal;</li>
+  <li>the whole board's grid: a blue line along every edge of the printed squares, out to the
+  board's edge, which is drawn in white. The grid covers the whole board, including the parts the
+  phone cannot see, such as under the rock or off the screen;</li>
 
-  <li>a yellow outline around the rock, shaded inside.</li>
+  <li>a red point on each corner of the printed squares that it has found. Corners it has not
+  found have no point, so a gap in the points near the rock shows where it cannot see the board,
+  for example under the rock or in glare. Most of the time it looks only at the part of the board
+  around the rock, so points further out come and go, and that is normal.</li>
 </ul>
 
-<p>If the red points sit on the corners of the printed squares and the yellow outline hugs the rock, the phone has the
-board and the rock right. The drawing follows the board while you move the phone: between its
-full searches for the board, the phone follows the squares from one picture to the next, and it
-draws each picture where the board is in that picture. Each picture and the drawing over it reach
-the screen together, so the drawing is never shown over a later picture than the one it was made
-for. If you stop suddenly, the drawing may overshoot for a moment and then settle back. If the
-points slide off the corners and stay off, the phone has lost track of where it is: hold it steady
+<p>If the blue lines sit on the edges of the printed squares, the phone has the board right. The
+drawing follows the board while you move the phone: the phone follows the squares from every
+picture to the next, while it searches the whole picture for the board from time to time alongside,
+and it draws each picture where the board is in that picture. Each picture and the drawing over it
+reach the screen together, so the drawing is never shown over a later picture than the one it was
+made for. If you stop suddenly, the drawing may overshoot for a moment and then settle back. If the
+lines slide off the squares and stay off, the phone has lost track of where it is: hold it steady
 for a moment.</p>
 
-<p>The points and lines show as soon as the phone finds the board, even before it can work out
-where the camera is (for example while it is still measuring the camera): then they are drawn
-where the corners were found in the picture, without the rock's outline, and lag a little behind a
-moving picture.</p>
+<p>The grid shows as soon as the phone has found at least two of the board's codes, even before it
+can work out where the camera is (for example while it is still measuring the camera). Then it is
+drawn from where those codes were found in the picture, so it can lag a little behind a moving
+picture and sit a little off the squares near the edges of the screen. With only one code in view,
+only the corners found are drawn, joined by blue lines.</p>
 
-<figure><img src="images/rough-scan/phone.webp" alt="A phone held sideways over the board: red points on the corners of the printed squares it has found, joined by blue lines, a yellow outline around the rock, a tip about what to film next at the top right, and two lines of text at the bottom." loading="lazy">
+<figure><img src="images/rough-scan/phone.webp" alt="A phone held sideways over the board with a rock in its middle: blue lines on every edge of the printed squares, out to the board's white edge, a red point on each corner it has found, a tip about what to film next at the top right, and two lines of text at the bottom." loading="lazy">
 <figcaption>The phone over the board, part of the way round the rock. (Here, and in the pictures
 below, the camera is playing a made-up video of a rock on the board.)</figcaption></figure>
 
@@ -216,10 +217,6 @@ second after it is fixed, so it does not flicker.</p>
   because the camera has focused on the board behind it. The phone's camera focuses by itself once
   it is held steady. If it still cannot, the phone is probably too close: most phones' main camera
   cannot focus nearer than about 8-10 cm.</li>
-  <li><span class="ui">Glare on the rock</span>: <span class="ui">Soften the light, or tilt the
-  phone so the bright spots go.</span> Bright white reflections cover part of the rock and hide its
-  outline. Use soft, even light, such as a window on a cloudy day, rather than a bare lamp
-  overhead.</li>
 </ul>
 
 <figure><img src="images/rough-scan/phone-focus.webp" alt="The phone's screen with the board sharp in the distance, the rock blurred, and a box above it reading Rock not in focus, Hold the phone still for a moment so it can focus, or move it a little further back." loading="lazy">
@@ -243,8 +240,6 @@ second after it is fixed, so it does not flicker.</p>
   from the board as you use it. Show it the board from a slant to start; then move around the
   board slowly, from different sides and heights, until it says <span class="ui">Camera
   measured.</span> Distances are a little less exact until then.</li>
-  <li><span class="ui">Rock outlined.</span> or <span class="ui">No rock found on the
-  target.</span></li>
 </ul>
 
 
@@ -269,10 +264,10 @@ phone remembers whether it is shown. The same numbers, in words, are in the scan
   picture shown, so the drawing itself does not trail by this much, but the less this is, the
   better the drawing keeps up with quick moves.</li>
   <li><strong>detect</strong>, <strong>track</strong>, <strong>pose</strong>,
-  <strong>outline</strong>, <strong>guide</strong>: how many milliseconds each step takes: a
-  full search for the board, following it to the next picture, working out the camera's position,
-  outlining the rock, and the advice and warnings. <strong>frame</strong>: a whole picture with a
-  full search, from start to finish.</li>
+  <strong>guide</strong>: how many milliseconds each step takes: a full search for the board,
+  following it to the next picture, working out the camera's position, and the advice and
+  warnings. <strong>frame</strong>: a whole picture with a full search, from start to
+  finish.</li>
   <li>Last, the size the pictures are looked at in, and whether the phone does this work in the
   <strong>background</strong> (the usual case) or <strong>in the page</strong> (older
   browsers, where it is kept to a share of the phone's time, so it is slower).</li>
@@ -280,18 +275,17 @@ phone remembers whether it is shown. The same numbers, in words, are in the scan
 
 <h2 id="in-the-scanner">In the scanner</h2>
 
-<figure><img src="images/rough-scan/live.webp" alt="The scanner over the studio with the phone's picture of the board and rock on its right, the board's grid and a yellow rock outline drawn over it, a Live from your phone label at its top left, and on the left a What the phone sees card." loading="lazy">
+<figure><img src="images/rough-scan/live.webp" alt="The scanner over the studio with the phone's picture of the board and rock on its right, the board's grid drawn over it, a Live from your phone label at its top left, and on the left a What the phone sees card." loading="lazy">
 <figcaption>The phone's camera, live, in the scanner, with what the phone found drawn over
 it.</figcaption></figure>
 
 <p>The picture fills the right of the scanner, with <span class="ui">Live from your phone</span>
-at its top left, and follows the phone as you move it. The board's grid and the rock's outline
-are drawn over it. They come from the phone up to ten
+at its top left, and follows the phone as you move it. The board's grid is drawn over it. They come from the phone up to ten
 times a second, so they can trail the picture for a moment when the phone moves quickly. If the
 phone stops sending them (it lost the board, or the page on it was closed), they fade within half
 a second and go after three.</p>
 
-<figure class="side"><img src="images/rough-scan/readout.webp" alt="The What the phone sees card: Board Found (white/black), the camera's distance from the rock, its height and side, the lens's state, Rock Outlined, how much of each circle is filmed, the next tip, the Speed row, and a small round map below." loading="lazy">
+<figure class="side"><img src="images/rough-scan/readout.webp" alt="The What the phone sees card: Board Found (white/black), the camera's distance from the rock, its height and side, the lens's state, how much of each circle is filmed, the next tip, the Speed row, and a small round map below." loading="lazy">
 <figcaption>The <span class="ui">What the phone sees</span> card.</figcaption></figure>
 
 <p>The <span class="ui">What the phone sees</span> card on the left of the scanner reads the same out in words:</p>
@@ -307,8 +301,6 @@ a second and go after three.</p>
   <li><span class="ui">Lens</span>: <span class="ui">Estimating</span>, then
   <span class="ui">First estimate, still measuring</span>, then <span class="ui">Measured</span>
   (see "Measuring the camera" above);</li>
-  <li><span class="ui">Rock</span>: <span class="ui">Outlined</span> or
-  <span class="ui">None found on the target</span>;</li>
   <li><span class="ui">Filmed</span>: how many of the twelve sides of the low circle and of the
   45° circle are filmed, and whether there is a view from above;</li>
   <li><span class="ui">Next</span>: the same tip the phone shows;</li>

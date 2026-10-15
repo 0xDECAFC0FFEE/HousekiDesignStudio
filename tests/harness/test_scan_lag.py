@@ -414,8 +414,8 @@ class ScanLagTest(unittest.TestCase):
         result = analyse(log, self.truth)
         result["latency"] = latency
         result["timings"] = {k: v for k, v in timings.items()}
-        result["state"] = {k: state.get(k) for k in ("thread", "scale", "outlineEvery", "processed", "frames", "frameTimeFrom",
-                                                      "tracking", "tracks", "trackedPoses", "trackFailures")}
+        result["state"] = {k: state.get(k) for k in ("thread", "scale", "processed", "frames", "frameTimeFrom",
+                                                      "tracking", "tracks", "trackedPoses", "seeds", "trackFailures")}
         result["tracking"] = TRACKING
         result["cpuThrottle"] = CPU_THROTTLE
         result["readout"] = readout

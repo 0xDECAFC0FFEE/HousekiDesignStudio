@@ -228,6 +228,43 @@ impl FrameTracker {
         Ok(())
     }
 
+    /// The next frame as `push`, under a key (its time, ms), kept for `track_from` among the last
+    /// set_history frames (T-0350: tracking runs beside detection, whose corners belong to a frame
+    /// already left behind).
+    pub fn push_keyed(&mut self, pixels: &[u8], width: u32, height: u32, key: f64) -> Result<(), JsError> {
+        let grey = Gray::from_pixels(pixels, width as usize, height as usize)
+            .ok_or_else(|| JsError::new("a frame must be grey (1 byte per pixel) or RGBA (4)"))?;
+        self.inner.push_keyed(&grey, key);
+        Ok(())
+    }
+
+    /// How many keyed frames are kept (default 0).
+    pub fn set_history(&mut self, frames: u32) {
+        self.inner.set_history(frames as usize);
+    }
+
+    /// Whether the frame pushed under `key` is still kept (the latest included).
+    pub fn has(&self, key: f64) -> bool {
+        self.inner.has(key)
+    }
+
+    /// As `track`, from the frame pushed under `key` instead of the previous one.
+    pub fn track_from(&self, key: f64, points: &[f32], guesses: &[f32]) -> Vec<f32> {
+        let pts: Vec<(f32, f32)> = points.chunks_exact(2).map(|p| (p[0], p[1])).collect();
+        let gs: Vec<(f32, f32)> = if guesses.len() == points.len() {
+            guesses.chunks_exact(2).map(|g| (g[0], g[1])).collect()
+        } else {
+            vec![(0.0, 0.0); pts.len()]
+        };
+        let mut out = Vec::with_capacity(4 * pts.len());
+
+        for t in self.inner.track_from(key, &pts, &gs) {
+            out.extend([t.x, t.y, t.found as u8 as f32, t.fb_error]);
+        }
+
+        out
+    }
+
     /// Forgets the frames pushed.
     pub fn clear(&mut self) {
         self.inner.clear();
